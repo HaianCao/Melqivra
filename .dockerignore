@@ -1,0 +1,29 @@
+.git/
+.github/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.uv-cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.db-shm
+*.db-wal
+.coverage
+.env
+build/
+data/
+dist/
+htmlcov/
+*.egg-info/
+
+# Local operational and research context is never part of an image build.
+AGENTS.md
+AGENTIC_STUDIO_ARCHITECTURE.md
+PRODUCT_RESEARCH_AND_RELEASE_PLAN.md
+poc.ipynb
+
+# The runtime image installs the package and Colab transport script only.
+docs/
+tests/
