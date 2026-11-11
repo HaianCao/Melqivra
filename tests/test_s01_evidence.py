@@ -123,6 +123,30 @@ class S01EvidenceTests(unittest.TestCase):
         self.assertEqual(expected, actual)
         self.assertFalse(manifest["persistent_drive_copy"])
 
+    def test_drive_cache_evidence_proves_population_restore_and_rejection(self) -> None:
+        registry = load_json(EVIDENCE_ROOT / "model-registry.json")
+        evidence = load_json(EVIDENCE_ROOT / "drive-cache-evidence.json")
+        registered_bytes = sum(asset["size_bytes"] for asset in registry["assets"])
+
+        self.assertEqual(registered_bytes, evidence["registered_bytes"])
+        self.assertEqual(len(registry["assets"]), evidence["registered_asset_count"])
+        population = evidence["atomic_population"]
+        self.assertEqual("populated", population["population_status"])
+        self.assertGreater(population["persistent_copy_seconds"], 0)
+        self.assertEqual(registered_bytes, population["verified_bytes"])
+
+        restore = evidence["cold_restore"]
+        self.assertEqual("restored", restore["restore_status"])
+        self.assertGreater(restore["transfer_seconds"], 0)
+        self.assertEqual(registered_bytes, restore["verified_bytes"])
+
+        probes = evidence["rejection_probes"]
+        self.assertFalse(probes["authoritative_cache_modified"])
+        self.assertTrue(probes["temporary_fixture_removed"])
+        self.assertIn("stale", probes["stale"]["message"])
+        self.assertIn("Size mismatch", probes["corrupt"]["message"])
+        self.assertEqual(0, evidence["session_cleanup"]["active_sessions_after"])
+
 
 if __name__ == "__main__":
     unittest.main()

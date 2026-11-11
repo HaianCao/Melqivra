@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-11",
+  "storage": "google_drive",
+  "cache_key": "ace-step-1.5-dce621408bee",
+  "source_revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+  "registered_asset_count": 4,
+  "registered_bytes": 7642647432,
+  "atomic_population": {
+    "status": "succeeded",
+    "population_status": "populated",
+    "total_seconds": 265.304847558,
+    "persistent_copy_seconds": 174.37939385899995,
+    "verified_asset_count": 4,
+    "verified_bytes": 7642647432
+  },
+  "cold_restore": {
+    "status": "succeeded",
+    "restore_status": "restored",
+    "total_seconds": 277.393978337,
+    "transfer_seconds": 113.50926189999996,
+    "persistent_verified_asset_count": 4,
+    "restored_verified_asset_count": 4,
+    "verified_bytes": 7642647432
+  },
+  "rejection_probes": {
+    "storage": "google_drive_temporary_fixture",
+    "authoritative_cache_modified": false,
+    "temporary_fixture_removed": true,
+    "stale": {
+      "error_type": "ValueError",
+      "message": "Persistent cache source revision is stale"
+    },
+    "corrupt": {
+      "error_type": "ValueError",
+      "message": "Size mismatch for acestep-v15-turbo: 0 != 4787825604"
+    }
+  },
+  "session_cleanup": {
+    "session_stopped": true,
+    "active_sessions_after": 0
+  }
+}

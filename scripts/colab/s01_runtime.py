@@ -27,6 +27,7 @@ UV_VERSION = "0.13.7"
 DEFAULT_ROOT = Path("/content/melqivra-s01")
 DEFAULT_SOURCE = DEFAULT_ROOT / "ACE-Step-1.5"
 DEFAULT_RESULT = DEFAULT_ROOT / "runtime-result.json"
+CACHE_DESCRIPTOR = ".melqivra-cache.json"
 
 
 class SnapshotDownload(Protocol):
@@ -238,6 +239,10 @@ def _repository_target(checkpoint_root: Path, repository: str) -> Path:
     return checkpoint_root / repository.rsplit("/", 1)[-1]
 
 
+def _cache_key() -> str:
+    return f"ace-step-1.5-{SOURCE_REVISION[:12]}"
+
+
 def verify_registered_assets(
     registry: dict[str, Any], checkpoint_root: Path
 ) -> list[dict[str, object]]:
@@ -305,8 +310,10 @@ def download_models(
 
 
 def _copy_cache_atomically(source: Path, destination: Path) -> None:
+    """Copy a cache tree without exposing a partial destination."""
+
     if destination.exists():
-        return
+        raise FileExistsError(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -315,6 +322,119 @@ def _copy_cache_atomically(source: Path, destination: Path) -> None:
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
+
+
+def _cache_descriptor(verified: Iterable[dict[str, object]]) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "cache_key": _cache_key(),
+        "source_revision": SOURCE_REVISION,
+        "verified_assets": [
+            {
+                "id": asset["id"],
+                "size_bytes": asset["size_bytes"],
+                "sha256": asset["sha256"],
+            }
+            for asset in verified
+        ],
+    }
+
+
+def verify_persistent_cache(
+    registry: dict[str, Any], persistent_path: Path
+) -> list[dict[str, object]]:
+    """Reject incomplete, stale, or corrupt persistent cache directories."""
+
+    descriptor_path = persistent_path / CACHE_DESCRIPTOR
+    if not descriptor_path.is_file():
+        raise FileNotFoundError(f"Persistent cache descriptor is missing: {descriptor_path}")
+    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+    if not isinstance(descriptor, dict):
+        raise TypeError("Persistent cache descriptor must be a JSON object")
+    if descriptor.get("cache_key") != _cache_key():
+        raise ValueError("Persistent cache key is stale")
+    if descriptor.get("source_revision") != SOURCE_REVISION:
+        raise ValueError("Persistent cache source revision is stale")
+    verified = verify_registered_assets(registry, persistent_path)
+    expected_descriptor = _cache_descriptor(verified)
+    if descriptor != expected_descriptor:
+        raise ValueError("Persistent cache descriptor does not match registered assets")
+    return verified
+
+
+def populate_persistent_cache(
+    *,
+    registry: dict[str, Any],
+    checkpoint_root: Path,
+    persistent_path: Path,
+) -> dict[str, object]:
+    """Atomically publish a verified cache, or validate an existing one."""
+
+    started = time.monotonic()
+    if persistent_path.exists():
+        verified = verify_persistent_cache(registry, persistent_path)
+        return {
+            "status": "reused",
+            "duration_seconds": time.monotonic() - started,
+            "verified_assets": verified,
+        }
+
+    persistent_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = persistent_path.with_name(f".{persistent_path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        shutil.copytree(checkpoint_root, temporary)
+        verified = verify_registered_assets(registry, temporary)
+        atomic_write_json(temporary / CACHE_DESCRIPTOR, _cache_descriptor(verified))
+        temporary.replace(persistent_path)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+    verified = verify_persistent_cache(registry, persistent_path)
+    return {
+        "status": "populated",
+        "duration_seconds": time.monotonic() - started,
+        "verified_assets": verified,
+    }
+
+
+def restore_persistent_cache(
+    *,
+    registry_path: Path,
+    checkpoint_root: Path,
+    manifest_path: Path,
+    persistent_cache_root: Path,
+) -> dict[str, object]:
+    """Verify and atomically restore the pinned cache into a clean runtime."""
+
+    started = time.monotonic()
+    registry = load_registry(registry_path)
+    persistent_path = persistent_cache_root / _cache_key()
+    persistent_verified = verify_persistent_cache(registry, persistent_path)
+    restore_started = time.monotonic()
+    if checkpoint_root.exists():
+        local_verified = verify_registered_assets(registry, checkpoint_root)
+        restore_status = "reused_local"
+    else:
+        emit("restore_cache", source=str(persistent_path), target=str(checkpoint_root))
+        _copy_cache_atomically(persistent_path, checkpoint_root)
+        local_verified = verify_registered_assets(registry, checkpoint_root)
+        restore_status = "restored"
+    restore_seconds = time.monotonic() - restore_started
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "cache_key": _cache_key(),
+        "source_revision": SOURCE_REVISION,
+        "checkpoint_root": str(checkpoint_root),
+        "persistent_cache": str(persistent_path),
+        "persistent_verified_assets": persistent_verified,
+        "verified_assets": local_verified,
+        "restore_status": restore_status,
+        "restore_seconds": restore_seconds,
+        "duration_seconds": time.monotonic() - started,
+        "status": "succeeded",
+    }
+    atomic_write_json(manifest_path, manifest)
+    return manifest
 
 
 def cache_models(
@@ -335,19 +455,24 @@ def cache_models(
         checkpoint_root=checkpoint_root,
         snapshot_download=snapshot_download,
     )
-    cache_key = f"ace-step-1.5-{SOURCE_REVISION[:12]}"
+    cache_key = _cache_key()
     persistent_path: Path | None = None
+    persistence: dict[str, object] | None = None
     if persistent_cache_root is not None:
         persistent_path = persistent_cache_root / cache_key
         emit("persist_cache", target=str(persistent_path))
-        _copy_cache_atomically(checkpoint_root, persistent_path)
-        verify_registered_assets(registry, persistent_path)
+        persistence = populate_persistent_cache(
+            registry=registry,
+            checkpoint_root=checkpoint_root,
+            persistent_path=persistent_path,
+        )
     manifest: dict[str, object] = {
         "schema_version": 1,
         "cache_key": cache_key,
         "source_revision": SOURCE_REVISION,
         "checkpoint_root": str(checkpoint_root),
         "persistent_cache": str(persistent_path) if persistent_path else None,
+        "persistence": persistence,
         "verified_assets": verified,
         "duration_seconds": time.monotonic() - started,
         "status": "succeeded",
@@ -370,6 +495,12 @@ def build_parser() -> argparse.ArgumentParser:
     cache.add_argument("--checkpoint-root", type=Path, default=DEFAULT_SOURCE / "checkpoints")
     cache.add_argument("--manifest", type=Path, required=True)
     cache.add_argument("--persistent-cache-root", type=Path)
+
+    restore = subparsers.add_parser("restore-models")
+    restore.add_argument("--registry", type=Path, required=True)
+    restore.add_argument("--checkpoint-root", type=Path, default=DEFAULT_SOURCE / "checkpoints")
+    restore.add_argument("--manifest", type=Path, required=True)
+    restore.add_argument("--persistent-cache-root", type=Path, required=True)
     return parser
 
 
@@ -382,6 +513,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = bootstrap_runtime(root=args.root, source=args.source)
         elif args.command == "cache-models":
             result = cache_models(
+                registry_path=args.registry,
+                checkpoint_root=args.checkpoint_root,
+                manifest_path=args.manifest,
+                persistent_cache_root=args.persistent_cache_root,
+            )
+        elif args.command == "restore-models":
+            result = restore_persistent_cache(
                 registry_path=args.registry,
                 checkpoint_root=args.checkpoint_root,
                 manifest_path=args.manifest,
