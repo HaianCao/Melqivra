@@ -41,18 +41,22 @@ fallback.
 - The initial baseline is 2B turbo, eight diffusion steps, shift 3.0, batch one,
   WAV master output, and an explicit LM-off versus 0.6B-LM-on comparison.
 
-## Current environment blocker
+## Colab CLI bootstrap
 
-The supported WSL2 distribution `Hami-Ubuntu` is installed, but currently has
-no `uv`, `pip`, `pipx`, Colab CLI, or Colab session configuration. No T4 was
+The supported WSL2 distribution `Hami-Ubuntu` has Python 3.12.3, `uv` 0.13.7,
+and the official `google-colab-cli` 0.8.0 installed for the unprivileged user.
+The CLI reports its version and command surface successfully.
+
+OAuth and session configuration are intentionally absent. No T4 was
 provisioned and no quota or paid compute was consumed during this checkpoint.
-An interactive Colab login and confirmation to use the account's T4 quota are
-required before the real benchmark can begin.
+An interactive Google/Colab login and confirmation to use the account's T4
+quota are required before the real benchmark can begin. Credentials must remain
+in the WSL profile and must not enter Git, logs, prompts, or evidence.
 
 ## Next evidence
 
-1. Bootstrap the official Colab CLI in WSL2 and complete user-controlled login.
-2. Verify T4 entitlement, CLI version, and a clean named-session healthcheck.
+1. Complete user-controlled Colab OAuth in WSL2.
+2. Verify T4 entitlement and a clean named-session healthcheck.
 3. Build an idempotent pinned runtime/cache manifest without patching installed
    upstream source.
 4. Run fresh and warm text-to-music baselines with LM off and LM 0.6B on.
