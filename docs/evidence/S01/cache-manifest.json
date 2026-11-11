@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "cache_key": "ace-step-1.5-dce621408bee",
+  "source_revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+  "layout": "checkpoints/<model-family> at the pinned Hugging Face revisions",
+  "population_duration_seconds": 88.62613018100001,
+  "persistent_drive_copy": false,
+  "status": "succeeded",
+  "verified_assets": [
+    {
+      "id": "acestep-v15-turbo",
+      "relative_path": "acestep-v15-turbo/model.safetensors",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7",
+      "size_bytes": 4787825604
+    },
+    {
+      "id": "acestep-v15-vae",
+      "relative_path": "vae/diffusion_pytorch_model.safetensors",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0",
+      "size_bytes": 337431388
+    },
+    {
+      "id": "qwen3-embedding-0.6b",
+      "relative_path": "Qwen3-Embedding-0.6B/model.safetensors",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd",
+      "size_bytes": 1191586416
+    },
+    {
+      "id": "acestep-5hz-lm-0.6b",
+      "relative_path": "model.safetensors",
+      "repository": "ACE-Step/acestep-5Hz-lm-0.6B",
+      "revision": "148d8ea0225bdab342ee1ae3a354275ccd60ca80",
+      "sha256": "5d92a60806e2e88c04de58ddc6dde93f2bc8f1336162b3ad5853886c9bcc6b82",
+      "size_bytes": 1325804024
+    }
+  ]
+}

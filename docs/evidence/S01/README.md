@@ -41,27 +41,78 @@ fallback.
 - The initial baseline is 2B turbo, eight diffusion steps, shift 3.0, batch one,
   WAV master output, and an explicit LM-off versus 0.6B-LM-on comparison.
 
-## Colab CLI bootstrap
+## Colab T4 bootstrap and transport
 
 The supported WSL2 distribution `Hami-Ubuntu` has Python 3.12.3, `uv` 0.13.7,
 and the official `google-colab-cli` 0.8.0 installed for the unprivileged user.
-The CLI reports its version and command surface successfully.
+OAuth now persists through the Secret Service keyring without a plaintext
+fallback. A named `melqivra-t4` session provisioned a Tesla T4 with 15,360 MiB,
+driver 580.82.07, and remote Python 3.13.16. The existing allowlisted worker
+passed upload, execute, and download transport in 0.028 seconds.
 
-OAuth and session configuration are intentionally absent. No T4 was
-provisioned and no quota or paid compute was consumed during this checkpoint.
-An interactive Google/Colab login and confirmation to use the account's T4
-quota are required before the real benchmark can begin. Credentials must remain
-in the WSL profile and must not enter Git, logs, prompts, or evidence.
+The tracked [runtime bootstrap](runtime-bootstrap.json) then checked out exact
+ACE-Step commit `dce6214`, created the upstream locked Python 3.12 environment,
+and verified Torch 2.10.0+cu128 with CUDA 12.8 available. No credential, quota
+balance, private path, or user content is recorded in evidence.
+
+## Verified model cache
+
+`scripts/colab/s01_runtime.py` downloads only the pinned turbo, VAE, embedding,
+and 0.6B LM families, then rejects any registered size or SHA-256 mismatch. The
+first local population verified 7.64 GB of registered large assets in 88.63
+seconds. [cache-manifest.json](cache-manifest.json) records the sanitized result.
+
+The script also implements atomic persistent-cache population, but the Google
+Drive copy was not completed because Drive requires a separate interactive
+authorization. This is a remaining S01 closure item rather than a silent local
+cache substitute.
+
+## First real T4 baselines
+
+`scripts/colab/s01_benchmark.py` generated and validated a 30-second Vietnamese
+instrumental fixture (`vi-014`) with the pinned turbo model, eight diffusion
+steps, shift 3.0, batch one, seed 20261111, and WAV output.
+
+| Run | Model load | Inference | Peak allocated VRAM | Result |
+|---|---:|---:|---:|---|
+| DiT-only, fresh local cache | 58.25 s | 6.62 s | 7.83 GB | passed |
+| DiT-only, warm local cache | 27.66 s | 5.60 s | 7.83 GB | passed |
+| 0.6B LM requested and used | 110.02 s | 269.41 s | 10.75 GB | passed |
+
+All three runs produced a 48 kHz stereo, exactly 30.0-second, finite,
+non-silent, non-clipped WAV measured at -14.3 LUFS and -1.0 dBFS true peak. The
+fresh and warm DiT runs reproduced the same artifact checksum at the fixed seed.
+The LM run proved initialization and execution through non-zero LM timings and
+higher VRAM, but its output checksum was also byte-identical to the DiT-only
+artifact. This evidence therefore proves that the LM path ran, not that it
+changed this fully specified instrumental request.
+
+The sanitized run records are:
+
+- [benchmark-dit-only-fresh.json](benchmark-dit-only-fresh.json)
+- [benchmark-dit-only-warm.json](benchmark-dit-only-warm.json)
+- [benchmark-lm-0.6b.json](benchmark-lm-0.6b.json)
+
+The generated WAV files remain ignored local evidence and are not redistributed
+through Git. The T4 session was explicitly terminated after artifact download;
+the CLI reported no active sessions.
+
+## Local quality gate
+
+The checkpoint passed the complete repository gate on Windows/Python 3.11: 39
+tests, strict mypy across 16 source files, Ruff format/lint, 81% branch coverage
+for the scheduler/store critical-path scope, wheel/sdist build, and dependency
+audit with no known vulnerabilities. The unpublished local `melqivra` package
+was skipped by the audit as expected.
 
 ## Next evidence
 
-1. Complete user-controlled Colab OAuth in WSL2.
-2. Verify T4 entitlement and a clean named-session healthcheck.
-3. Build an idempotent pinned runtime/cache manifest without patching installed
-   upstream source.
-4. Run fresh and warm text-to-music baselines with LM off and LM 0.6B on.
-5. Validate audio duration, sample rate, silence, clipping, NaN/Inf, checksums,
-   peak VRAM, timing, and requested capability health.
-6. Exercise reference, repaint, and extend only when upstream reports those
+1. Complete separate Google Drive authorization and prove atomic persistent
+   cache population, restore, and corrupt/stale cache rejection.
+2. Measure artifact transfer time instead of the current zero placeholder.
+3. Run a second LM-sensitive fixture to determine why the first LM-on artifact
+   was byte-identical to the fixed-seed DiT-only output.
+4. Exercise reference, repaint, and extend only when upstream reports those
    capabilities explicitly; unsupported operations must fail clearly.
-7. Complete license review and accept the backend ADR before closing S01.
+5. Run OOM/failure classification and an additional fixed-seed comparison.
+6. Complete license review and accept the backend ADR before closing S01.

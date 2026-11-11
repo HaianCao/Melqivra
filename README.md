@@ -44,7 +44,10 @@ license does not grant redistribution rights for those assets.
 Real music generation is intentionally not claimed yet. A
 music.generate job currently fails clearly until agent_music_worker has
 been installed in the Colab runtime; harness health jobs already exercise the
-real Colab transport.
+real Colab transport. The S01 research harness has separately produced and
+validated pinned 30-second ACE-Step audio on a real T4, including explicit
+LM-off and 0.6B-LM-used evidence, but that benchmark path is not yet the product
+worker. See [the S01 evidence](docs/evidence/S01/README.md).
 
 ## Product direction
 
