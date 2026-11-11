@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "stage": "S00",
+  "status": "IN_PROGRESS",
+  "recorded_date": "2026-11-11",
+  "source_commit": "43bcfd0824e84e79241276fef5cf6168d689149f",
+  "environment": {
+    "operating_system": "Windows x86_64",
+    "python": "3.13.9",
+    "uv": "0.12.23",
+    "runner": "fake"
+  },
+  "checks": {
+    "locked_sync": "passed",
+    "ruff_format": "passed",
+    "ruff_lint": "passed",
+    "mypy_strict_source_files": 14,
+    "mypy_errors": 0,
+    "tests_passed": 20,
+    "tests_failed": 0,
+    "critical_path_branch_coverage_percent": 80,
+    "critical_path_coverage_threshold_percent": 75,
+    "sdist_build": "passed",
+    "wheel_build": "passed",
+    "dependency_audit_known_vulnerabilities": 0,
+    "import_side_effect_test": "passed",
+    "fake_doctor": "passed"
+  },
+  "closure_blockers": [
+    "Hosted Windows/Linux CI matrix has not been observed",
+    "Docker daemon unavailable for local Linux container evidence",
+    "Repository-host protection and private reporting settings are unverified"
+  ]
+}
+
