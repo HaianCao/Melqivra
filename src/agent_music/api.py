@@ -80,7 +80,7 @@ def create_app(
             await resolved_harness.close()
 
     app = FastAPI(
-        title="Agent Music GPU Harness",
+        title="Melqivra GPU Harness",
         version="0.1.0",
         lifespan=lifespan,
     )

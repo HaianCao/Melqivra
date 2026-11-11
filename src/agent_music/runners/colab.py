@@ -79,7 +79,7 @@ class ColabRunner(GpuRunner):
 
         self._state = RunnerState.BUSY
         try:
-            with tempfile.TemporaryDirectory(prefix="agent-music-job-") as temp_dir:
+            with tempfile.TemporaryDirectory(prefix="melqivra-job-") as temp_dir:
                 temp_path = Path(temp_dir)
                 request_path = temp_path / "job.json"
                 result_path = temp_path / "result.json"

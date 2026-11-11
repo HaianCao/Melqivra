@@ -1,6 +1,6 @@
-# Contributing to Agent Music
+# Contributing to Melqivra
 
-Thank you for helping build Agent Music. Contributions are accepted when they
+Thank you for helping build Melqivra. Contributions are accepted when they
 improve the product without weakening reproducibility, user control, privacy,
 licensing, or the typed tool boundary.
 
@@ -15,12 +15,12 @@ licensing, or the typed tool boundary.
 
 ## Development setup
 
-Agent Music supports Python 3.11–3.13. The CPU-only fake runner is the default
+Melqivra supports Python 3.11–3.13. The CPU-only fake runner is the default
 development mode and requires no GPU.
 
 ```shell
 uv sync --extra dev
-uv run agent-music doctor
+uv run melqivra doctor
 uv run python -m unittest discover -s tests -v
 uv run ruff check src tests scripts
 uv run ruff format --check src tests scripts

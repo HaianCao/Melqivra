@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Agent Music will be documented here. The project follows
+All notable changes to Melqivra will be documented here. The project follows
 Keep a Changelog structure and intends to use Semantic Versioning after the
 first release candidate.
 
@@ -8,6 +8,7 @@ first release candidate.
 
 ### Added
 
+- Melqivra project identity, repository metadata, and primary `melqivra` CLI.
 - Canonical delivery roadmap and stage closure protocol.
 - On-demand single-GPU harness with FIFO queue, idempotency, fencing, Colab CLI
   transport, FakeRunner, and five-minute idle shutdown.

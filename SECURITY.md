@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Agent Music is pre-release software. Until v0.1.0, only the latest commit on the
+Melqivra is pre-release software. Until v0.1.0, only the latest commit on the
 default branch receives security fixes. A supported-version table will replace
 this rule at the first stable release.
 

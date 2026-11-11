@@ -62,7 +62,7 @@ class GpuHarness:
         self._stop_requested.clear()
         self._task = asyncio.create_task(
             self._run_loop(),
-            name="agent-music-gpu-harness",
+            name="melqivra-gpu-harness",
         )
 
     async def close(self, *, stop_runner: bool = True) -> None:

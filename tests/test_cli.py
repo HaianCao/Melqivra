@@ -14,11 +14,14 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from agent_music.cli import _doctor
+from agent_music.cli import _build_parser, _doctor
 from agent_music.config import HarnessSettings
 
 
 class DoctorTests(unittest.TestCase):
+    def test_primary_cli_uses_melqivra_identity(self) -> None:
+        self.assertEqual("melqivra", _build_parser().prog)
+
     def test_fake_runner_doctor_creates_only_configured_directories(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

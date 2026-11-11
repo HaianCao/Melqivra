@@ -12,7 +12,7 @@ from agent_music.runners.colab_cli import ColabCliClient
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agent-music")
+    parser = argparse.ArgumentParser(prog="melqivra")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     serve = subparsers.add_parser("serve", help="Run the harness API")

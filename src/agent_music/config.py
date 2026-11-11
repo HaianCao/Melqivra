@@ -31,7 +31,7 @@ class HarnessSettings:
     job_timeout_seconds: float = 1_800.0
 
     colab_executable: str = "colab"
-    colab_session_name: str = "agent-music-t4"
+    colab_session_name: str = "melqivra-t4"
     colab_gpu: str = "T4"
     colab_auth_provider: str = "oauth2"
     colab_cli_config: Path = Path("data/colab/sessions.json")
@@ -58,7 +58,7 @@ class HarnessSettings:
             scheduler_poll_seconds=float(os.getenv("GPU_SCHEDULER_POLL_SECONDS", "0.5")),
             job_timeout_seconds=float(os.getenv("GPU_JOB_TIMEOUT_SECONDS", "1800")),
             colab_executable=os.getenv("COLAB_EXECUTABLE", "colab"),
-            colab_session_name=os.getenv("COLAB_SESSION_NAME", "agent-music-t4"),
+            colab_session_name=os.getenv("COLAB_SESSION_NAME", "melqivra-t4"),
             colab_gpu=os.getenv("COLAB_GPU", "T4"),
             colab_auth_provider=os.getenv("COLAB_AUTH_PROVIDER", "oauth2"),
             colab_cli_config=Path(os.getenv("COLAB_CLI_CONFIG", "data/colab/sessions.json")),

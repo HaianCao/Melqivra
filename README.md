@@ -1,10 +1,19 @@
-# Agent Music
+# Melqivra
 
-Agent Music is an open-source, chat-controlled music studio. This repository
-currently contains the first production component: a durable single-GPU
-harness that starts a Google Colab T4 only when work arrives, serializes jobs
-from multiple users, keeps the session warm for five minutes, and then shuts it
-down automatically when the queue remains empty.
+[![CI](https://github.com/HaianCao/Melqivra/actions/workflows/ci.yml/badge.svg)](https://github.com/HaianCao/Melqivra/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
+Melqivra is an open-source, chat-controlled music studio for developing a song
+from an idea or partial lyrics into structured revisions, approved generation
+plans, multiple audio takes, focused edits, and provenance-rich exports.
+
+The project is being built in evidence-gated stages. The current implementation
+is the durable single-GPU execution foundation: it starts a Google Colab T4 only
+when work arrives, serializes jobs from multiple users, keeps the session warm
+for five minutes, and shuts it down when the queue remains empty. It is not yet
+the complete agentic studio described by the product vision.
+
+Repository: <https://github.com/HaianCao/Melqivra>
 
 Project policies: [contributing](CONTRIBUTING.md),
 [security](SECURITY.md), [support](SUPPORT.md),
@@ -15,7 +24,7 @@ Development references: [support matrix](docs/development/support-matrix.md),
 [dependency policy](docs/development/dependency-policy.md), and
 [release policy](docs/development/release-policy.md).
 
-## Implemented in this stage
+## Available today
 
 - Durable SQLite FIFO queue.
 - Per-user idempotency keys.
@@ -30,10 +39,24 @@ Development references: [support matrix](docs/development/support-matrix.md),
 - FastAPI endpoints for submit, inspect, cancel, and runner status.
 - Self-contained Colab-side health/transport worker.
 
-The ACE-Step generation plugin is intentionally the next stage. A
+Real music generation is intentionally not claimed yet. A
 music.generate job currently fails clearly until agent_music_worker has
 been installed in the Colab runtime; harness health jobs already exercise the
 real Colab transport.
+
+## Product direction
+
+Melqivra is designed around a few durable rules:
+
+- Chat is the primary control surface, but typed domain tools are the authority.
+- Briefs, lyrics, blueprints, settings, and takes are immutable revisions.
+- Expensive GPU work requires an explicit durable job and approval boundary.
+- Unsupported model capabilities fail explicitly instead of silently falling
+  back to a different operation or model.
+- Artifacts carry revision, model, configuration, seed, license, lineage, and
+  checksum provenance.
+- Voice identity features remain disabled until consent, revocation, deletion,
+  leakage evaluation, and abuse controls are implemented.
 
 ## Requirements
 
@@ -48,9 +71,12 @@ real Colab transport.
 
 ~~~shell
 uv sync --extra dev
-uv run agent-music doctor
-uv run agent-music serve --host 127.0.0.1 --port 8000
+uv run melqivra doctor
+uv run melqivra serve --host 127.0.0.1 --port 8000
 ~~~
+
+The earlier `agent-music` command remains available as a compatibility alias
+during the pre-release period.
 
 Fake mode is the default and requires no GPU.
 
@@ -86,7 +112,7 @@ Copy .env.example to .env, then set:
 GPU_RUNNER=colab
 GPU_MAX_CONCURRENCY=1
 GPU_IDLE_TIMEOUT_SECONDS=300
-COLAB_SESSION_NAME=agent-music-t4
+COLAB_SESSION_NAME=melqivra-t4
 COLAB_GPU=T4
 COLAB_AUTH_PROVIDER=oauth2
 ~~~

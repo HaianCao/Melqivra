@@ -27,6 +27,7 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual("colab", settings.runner)
         self.assertEqual(301.0, settings.idle_timeout_seconds)
         self.assertFalse(settings.colab_mount_drive)
+        self.assertEqual("melqivra-t4", settings.colab_session_name)
 
     def test_unsafe_concurrency_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "GPU_MAX_CONCURRENCY=1"):

@@ -1,6 +1,6 @@
 # Versioning and release policy
 
-Agent Music is pre-release. Stage tags are evidence checkpoints; they are not
+Melqivra is pre-release. Stage tags are evidence checkpoints; they are not
 package releases.
 
 ## Versioning

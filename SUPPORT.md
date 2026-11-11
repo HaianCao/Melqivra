@@ -1,6 +1,6 @@
 # Support
 
-Agent Music is currently pre-release and maintained on a best-effort basis.
+Melqivra is currently pre-release and maintained on a best-effort basis.
 
 ## Where to ask
 
@@ -8,7 +8,7 @@ Agent Music is currently pre-release and maintained on a best-effort basis.
 - Use GitHub Discussions for setup help, design questions, and ideas.
 - Use private vulnerability reporting for security issues.
 
-Before filing a bug, run `agent-music doctor`, remove secrets from the output,
+Before filing a bug, run `melqivra doctor`, remove secrets from the output,
 and search existing reports.
 
 Include the commit, operating system, Python version, installation method,

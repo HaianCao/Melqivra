@@ -30,11 +30,11 @@ class ColabCliClientTests(unittest.TestCase):
                 str(Path("/state/sessions.json")),
                 "new",
                 "-s",
-                "agent-music-t4",
+                "melqivra-t4",
                 "--gpu",
                 "T4",
             ],
-            self.client.new_argv("agent-music-t4", "T4"),
+            self.client.new_argv("melqivra-t4", "T4"),
         )
 
     def test_user_path_is_one_argument(self) -> None:
