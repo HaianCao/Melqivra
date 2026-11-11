@@ -153,6 +153,3 @@ def create_app(
         return _serialize_job(active, await active.cancel(job_id))
 
     return app
-
-
-app = create_app()

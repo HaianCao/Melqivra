@@ -11,6 +11,10 @@ Project policies: [contributing](CONTRIBUTING.md),
 [code of conduct](CODE_OF_CONDUCT.md), and
 [architecture decisions](docs/adr/README.md).
 
+Development references: [support matrix](docs/development/support-matrix.md),
+[dependency policy](docs/development/dependency-policy.md), and
+[release policy](docs/development/release-policy.md).
+
 ## Implemented in this stage
 
 - Durable SQLite FIFO queue.

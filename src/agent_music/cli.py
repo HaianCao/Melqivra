@@ -68,10 +68,11 @@ def main() -> None:
         import uvicorn
 
         uvicorn.run(
-            "agent_music.api:app",
+            "agent_music.api:create_app",
             host=args.host,
             port=args.port,
             reload=False,
+            factory=True,
         )
         return
     raise SystemExit(asyncio.run(_doctor(settings)))
