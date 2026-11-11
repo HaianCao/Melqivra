@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "stage": "S00",
-  "status": "IN_PROGRESS",
+  "status": "DONE",
   "recorded_date": "2026-11-11",
-  "source_commit": "dfee7546864321fd15697d28ebcd8b5b18ede990",
+  "source_commit": "59867f004d7acef426492aaec4799aa0b88ee6e9",
   "environment": {
     "operating_system": "Windows x86_64",
     "python": "3.11.17",
@@ -45,15 +45,15 @@
     "container_image_id": "sha256:ff382cc4553b8b1b6ee5097d2fa727ae8a67992e73b2e3033d36b7c405ddc2f5"
   },
   "hosted_ci": {
-    "run_id": 42968008929,
-    "run_url": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929",
+    "run_id": 42970706331,
+    "run_url": "https://github.com/HaianCao/Melqivra/actions/runs/42970706331",
     "conclusion": "success",
-    "head_sha": "dfee7546864321fd15697d28ebcd8b5b18ede990",
+    "head_sha": "59867f004d7acef426492aaec4799aa0b88ee6e9",
     "jobs": {
-      "Python 3.11 on ubuntu-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637477",
-      "Python 3.13 on ubuntu-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637102",
-      "Python 3.11 on windows-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637353",
-      "Python 3.13 on windows-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637374"
+      "Python 3.11 on ubuntu-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42970706331/job/130358265356",
+      "Python 3.13 on ubuntu-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42970706331/job/130358265347",
+      "Python 3.11 on windows-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42970706331/job/130358265116",
+      "Python 3.13 on windows-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42970706331/job/130358265309"
     }
   },
   "repository_controls": {
@@ -75,9 +75,9 @@
     "secret_scanning": true,
     "secret_scanning_push_protection": true
   },
-  "closure_blockers": [
-    "Merge this evidence update through protected main",
-    "Rerun the complete final-candidate gate",
-    "Create the dedicated S00 closure commit and annotated tag"
-  ]
+  "closure": {
+    "commit_message": "chore(stage): close S00 repository governance",
+    "annotated_tag": "stage-s00-repository"
+  },
+  "closure_blockers": []
 }
