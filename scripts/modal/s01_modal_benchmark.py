@@ -17,13 +17,17 @@ import modal  # type: ignore[import-not-found]
 
 SOURCE_REPOSITORY = "https://github.com/ace-step/ACE-Step-1.5.git"
 SOURCE_REVISION = "dce621408bee8c31b4fcf4811682eb9359e1bc94"
+FLOAT32_FIX_REPOSITORY = "https://github.com/peter571/ACE-Step-1.5.git"
+FLOAT32_FIX_REVISION = "44c15413f6dc9b55acfbd214209dbb6c0aac74b9"
 CACHE_KEY = f"ace-step-1.5-{SOURCE_REVISION[:12]}"
 VOLUME_NAME = "melqivra-s01-model-cache-dce621408bee"
 REMOTE_ROOT = Path("/opt/melqivra")
 REMOTE_SOURCE = Path("/opt/ACE-Step-1.5")
+FLOAT32_FIX_SOURCE = Path("/opt/ACE-Step-1.5-float32-fix")
 CACHE_ROOT = Path("/cache")
 RUN_ROOT = CACHE_ROOT / "runs"
 RUNTIME_PYTHON = REMOTE_SOURCE / ".venv" / "bin" / "python"
+FLOAT32_FIX_PYTHON = FLOAT32_FIX_SOURCE / ".venv" / "bin" / "python"
 
 app = modal.App("melqivra-s01-modal-benchmark")
 volume = modal.Volume.from_name(VOLUME_NAME)
@@ -37,6 +41,18 @@ image = (
         f"git -C {REMOTE_SOURCE} fetch --depth 1 origin {SOURCE_REVISION}",
         f"git -C {REMOTE_SOURCE} checkout --detach --force {SOURCE_REVISION}",
         f"cd {REMOTE_SOURCE} && uv sync --frozen --python 3.12",
+    )
+)
+
+float32_fix_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("ffmpeg", "git", "libsndfile1")
+    .pip_install("uv==0.13.7")
+    .run_commands(
+        f"git clone --filter=blob:none --no-checkout {FLOAT32_FIX_REPOSITORY} {FLOAT32_FIX_SOURCE}",
+        f"git -C {FLOAT32_FIX_SOURCE} fetch --depth 1 origin {FLOAT32_FIX_REVISION}",
+        f"git -C {FLOAT32_FIX_SOURCE} checkout --detach --force {FLOAT32_FIX_REVISION}",
+        f"cd {FLOAT32_FIX_SOURCE} && uv sync --frozen --python 3.12",
     )
 )
 
@@ -56,6 +72,28 @@ if modal.is_local():
         .add_local_file(
             local_root / "scripts" / "colab" / "s01_lm_contract.py",
             str(REMOTE_ROOT / "s01_lm_contract.py"),
+            copy=True,
+        )
+        .add_local_file(
+            local_root / "docs" / "evidence" / "S01" / "model-registry.json",
+            str(REMOTE_ROOT / "model-registry.json"),
+            copy=True,
+        )
+        .add_local_file(
+            local_root / "docs" / "evidence" / "S01" / "vietnamese-briefs.json",
+            str(REMOTE_ROOT / "vietnamese-briefs.json"),
+            copy=True,
+        )
+    )
+    float32_fix_image = (
+        float32_fix_image.add_local_file(
+            local_root / "scripts" / "colab" / "s01_runtime.py",
+            str(REMOTE_ROOT / "s01_runtime.py"),
+            copy=True,
+        )
+        .add_local_file(
+            local_root / "scripts" / "colab" / "s01_benchmark.py",
+            str(REMOTE_ROOT / "s01_benchmark.py"),
             copy=True,
         )
         .add_local_file(
@@ -135,8 +173,8 @@ def populate_cache() -> str:
             shutil.rmtree(checkpoint_root)
 
 
-def _replace_checkpoints_with_volume_cache() -> None:
-    checkpoint_root = REMOTE_SOURCE / "checkpoints"
+def _replace_checkpoints_with_volume_cache(source: Path = REMOTE_SOURCE) -> None:
+    checkpoint_root = source / "checkpoints"
     if checkpoint_root.is_symlink() or checkpoint_root.is_file():
         checkpoint_root.unlink()
     elif checkpoint_root.exists():
@@ -248,6 +286,99 @@ def run_pair(run_group: str, precision: str = "upstream_default") -> str:
             "volume_name": VOLUME_NAME,
             "records": records,
         },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+@app.function(  # type: ignore[untyped-decorator]
+    image=float32_fix_image,
+    volumes={str(CACHE_ROOT): volume},
+    gpu="L4",
+    cpu=4,
+    memory=8_192,
+    max_containers=1,
+    scaledown_window=2,
+    timeout=2_700,
+)
+def run_float32_fix(run_group: str) -> str:
+    """Test the exact community float32 fix on the vocal fixture."""
+
+    if not run_group or any(
+        character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in run_group
+    ):
+        raise ValueError("run_group must contain lowercase ASCII letters, digits, or hyphens")
+    volume.reload()
+    _replace_checkpoints_with_volume_cache(FLOAT32_FIX_SOURCE)
+
+    cache_manifest = Path("/tmp/cache-manifest.json")
+    _run(
+        [
+            str(FLOAT32_FIX_PYTHON),
+            str(REMOTE_ROOT / "s01_runtime.py"),
+            "--result",
+            "/tmp/restore-result.json",
+            "restore-models",
+            "--registry",
+            str(REMOTE_ROOT / "model-registry.json"),
+            "--checkpoint-root",
+            str(FLOAT32_FIX_SOURCE / "checkpoints"),
+            "--manifest",
+            str(cache_manifest),
+            "--persistent-cache-root",
+            str(CACHE_ROOT),
+        ],
+        timeout=900,
+    )
+
+    run_path = RUN_ROOT / run_group / "float32-fix"
+    if run_path.exists():
+        raise FileExistsError(f"Run group already exists: {run_group}")
+    result_path = run_path / "benchmark.json"
+    try:
+        _run(
+            [
+                str(FLOAT32_FIX_PYTHON),
+                str(REMOTE_ROOT / "s01_benchmark.py"),
+                "--source",
+                str(FLOAT32_FIX_SOURCE),
+                "--source-repository",
+                FLOAT32_FIX_REPOSITORY,
+                "--source-revision",
+                FLOAT32_FIX_REVISION,
+                "--fixtures",
+                str(REMOTE_ROOT / "vietnamese-briefs.json"),
+                "--fixture-id",
+                "vi-020",
+                "--cache-manifest",
+                str(cache_manifest),
+                "--output-dir",
+                str(run_path),
+                "--result",
+                str(result_path),
+                "--run-id",
+                f"{run_group}-float32-fix",
+                "--duration",
+                "30",
+                "--seed",
+                "20261111",
+                "--precision",
+                "float32",
+                "--provider",
+                "modal",
+                "--provider-cli",
+                "1.6.3",
+                "--colab-cli",
+                "not-applicable",
+                "--session-name",
+                "melqivra-s01-modal-l4",
+            ],
+            timeout=2_400,
+        )
+    finally:
+        volume.commit()
+    return json.dumps(
+        json.loads(result_path.read_text(encoding="utf-8")),
         ensure_ascii=False,
         sort_keys=True,
     )

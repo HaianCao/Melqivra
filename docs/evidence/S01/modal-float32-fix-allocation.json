@@ -1,0 +1,99 @@
+{
+  "attempts": [
+    {
+      "cpu_cores": 4,
+      "cpu_offload": true,
+      "enqueued_at": "2026-11-11T17:05:52.901651+00:00",
+      "gpu": "T4",
+      "gpu_execution_started": false,
+      "host_memory_mib": 32768,
+      "result": "cancelled_before_start",
+      "run_group": "modal-vi020-20261112-float32-fix-a",
+      "wait_seconds": 623
+    },
+    {
+      "cpu_cores": 4,
+      "cpu_offload": true,
+      "enqueued_at": "2026-11-11T17:17:51.250845+00:00",
+      "gpu": "T4",
+      "gpu_execution_started": false,
+      "host_memory_mib": 24576,
+      "result": "cancelled_before_start",
+      "run_group": "modal-vi020-20261112-float32-fix-b",
+      "wait_seconds": 468
+    },
+    {
+      "cpu_cores": 4,
+      "cpu_offload": true,
+      "enqueued_at": "2026-11-11T17:27:39.656113+00:00",
+      "gpu": "T4",
+      "gpu_execution_started": false,
+      "host_memory_mib": 16384,
+      "result": "cancelled_before_start",
+      "run_group": "modal-vi020-20261112-float32-fix-c",
+      "wait_seconds": 301
+    },
+    {
+      "cpu_cores": 4,
+      "cpu_offload": true,
+      "enqueued_at": "2026-11-11T17:33:34.212562+00:00",
+      "gpu": "L4",
+      "gpu_execution_started": false,
+      "host_memory_mib": 16384,
+      "result": "cancelled_before_start",
+      "run_group": "modal-vi020-20261112-l4-float32-fix-a",
+      "wait_seconds": 305
+    },
+    {
+      "cpu_cores": 4,
+      "cpu_offload": false,
+      "enqueued_at": "2026-11-11T17:39:50.991533+00:00",
+      "gpu": "L4",
+      "gpu_execution_started": false,
+      "host_memory_mib": 8192,
+      "result": "cancelled_before_start",
+      "run_group": "modal-vi020-20261112-l4-float32-fix-b",
+      "wait_seconds": 328
+    },
+    {
+      "cpu_cores": 4,
+      "cpu_offload": false,
+      "enqueued_at": "2026-11-11T17:45:55.307265+00:00",
+      "gpu": "L4",
+      "gpu_execution_started": false,
+      "host_memory_mib": 8192,
+      "result": "cancelled_before_start",
+      "run_group": "modal-vi020-20261112-l4-float32-fix-c",
+      "wait_seconds": 321
+    }
+  ],
+  "billing_snapshot": {
+    "billed_cost_usd": "0.00000000",
+    "metered_cost_usd": "0.27068619"
+  },
+  "candidate": {
+    "base_revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+    "repository": "https://github.com/peter571/ACE-Step-1.5.git",
+    "revision": "44c15413f6dc9b55acfbd214209dbb6c0aac74b9",
+    "source_commits": [
+      "2c89eb6ecb8fa2943690da38c73dc07d07304d7f",
+      "44c15413f6dc9b55acfbd214209dbb6c0aac74b9"
+    ]
+  },
+  "conclusion": {
+    "failure_class": "provider_capacity_pending",
+    "fix_executed": false,
+    "l4_attempt_limit": 3,
+    "l4_attempts_used": 3,
+    "result": "inconclusive",
+    "reason": "Every function call remained pending without a container or start time until explicitly cancelled"
+  },
+  "lifecycle": {
+    "active_colab_sessions": 0,
+    "active_modal_apps": 0,
+    "active_modal_tasks": 0,
+    "persistent_volume_retained": true
+  },
+  "recorded_at": "2026-11-11T17:52:07.7320764+00:00",
+  "schema_version": 1
+}

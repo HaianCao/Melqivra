@@ -178,6 +178,34 @@ class S01BenchmarkTests(unittest.TestCase):
         self.assertEqual("1.6.3", args.provider_cli)
         self.assertEqual("not-applicable", args.colab_cli)
 
+    def test_parser_accepts_explicit_source_pin_and_cpu_offload(self) -> None:
+        parser = self.benchmark.build_parser()
+        args = parser.parse_args(
+            [
+                "--source",
+                "source",
+                "--source-repository",
+                "https://github.com/example/fork.git",
+                "--source-revision",
+                "44c15413f6dc9b55acfbd214209dbb6c0aac74b9",
+                "--fixtures",
+                "fixtures.json",
+                "--cache-manifest",
+                "cache.json",
+                "--result",
+                "result.json",
+                "--run-id",
+                "float32-fix",
+                "--offload-to-cpu",
+            ]
+        )
+        self.assertEqual("https://github.com/example/fork.git", args.source_repository)
+        self.assertEqual(
+            "44c15413f6dc9b55acfbd214209dbb6c0aac74b9",
+            args.source_revision,
+        )
+        self.assertTrue(args.offload_to_cpu)
+
 
 if __name__ == "__main__":
     unittest.main()
