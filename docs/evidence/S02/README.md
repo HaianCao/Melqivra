@@ -2,7 +2,11 @@
 
 Date: 2026-11-12
 
-Implementation checkpoint: `8e62583 feat(s02): add immutable project revision domain`
+Merged implementation checkpoint:
+`bcc5d7c feat(s02): add immutable project revision domain (#11)`.
+
+Protected pull-request CI passed all eight required matrix jobs on PR #11 before
+merge (Ubuntu/Windows on Python 3.11 and 3.13, with quality and test jobs).
 
 ## Environment
 
