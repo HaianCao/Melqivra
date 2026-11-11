@@ -59,6 +59,11 @@ warn_unreachable = true
 show_error_codes = true
 pretty = true
 
+[[tool.mypy.overrides]]
+module = ["modal", "modal.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 [tool.coverage.run]
 branch = true
 source = ["agent_music.scheduler", "agent_music.store"]
