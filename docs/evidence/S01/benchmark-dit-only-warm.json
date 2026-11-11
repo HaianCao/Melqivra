@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "run_id": "s01-t4-dit-only-warm-20261111",
+  "started_at": "2026-11-11T10:12:24.562069+00:00",
+  "environment": {
+    "gpu_name": "Tesla T4",
+    "gpu_memory_bytes": 16106127360,
+    "driver": "580.82.07",
+    "cuda": "12.8",
+    "python": "3.12.3",
+    "pytorch": "2.10.0+cu128",
+    "colab_cli": "0.8.0",
+    "session_name": "melqivra-t4"
+  },
+  "source": {
+    "repository": "https://github.com/ace-step/ACE-Step-1.5.git",
+    "revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94"
+  },
+  "assets": [
+    {
+      "id": "acestep-v15-turbo",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7"
+    },
+    {
+      "id": "acestep-v15-vae",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0"
+    },
+    {
+      "id": "qwen3-embedding-0.6b",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd"
+    },
+    {
+      "id": "acestep-5hz-lm-0.6b",
+      "repository": "ACE-Step/acestep-5Hz-lm-0.6B",
+      "revision": "148d8ea0225bdab342ee1ae3a354275ccd60ca80",
+      "sha256": "5d92a60806e2e88c04de58ddc6dde93f2bc8f1336162b3ad5853886c9bcc6b82"
+    }
+  ],
+  "request": {
+    "fixture_id": "vi-014",
+    "task_type": "text2music",
+    "duration_seconds": 30.0,
+    "seed": 20261111,
+    "diffusion_steps": 8,
+    "shift": 3.0,
+    "batch_size": 1,
+    "precision": "upstream_default",
+    "lm_requested": false,
+    "cache_state": "warm_local_filesystem"
+  },
+  "capabilities": {
+    "lm_initialized": false,
+    "lm_used": false,
+    "task_supported": true,
+    "failure_reason": null
+  },
+  "timings_seconds": {
+    "provision": 0.0,
+    "runtime_setup": 104.478071017,
+    "model_download_or_copy": 88.626130181,
+    "model_load": 27.660723798000618,
+    "inference": 5.601767253000617,
+    "decode": 0.0,
+    "transfer": 0.0,
+    "total": 235.11976292199978
+  },
+  "peak_vram_bytes": 7825463808,
+  "audio_validation": {
+    "duration_seconds": 30.0,
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "finite_samples": true,
+    "silent": false,
+    "clipped": false,
+    "true_peak_dbfs": -1.0,
+    "integrated_lufs": -14.3
+  },
+  "artifacts": [
+    {
+      "path": "f963d520-9ce0-d3b7-9235-6ca85ab73581.wav",
+      "media_type": "audio/wav",
+      "size_bytes": 5760078,
+      "sha256": "9667cb6dfb8d10a54cfcfdfa1e78dbf52a8ed73039ed71bac9469483a97e390e"
+    }
+  ],
+  "result": "passed"
+}

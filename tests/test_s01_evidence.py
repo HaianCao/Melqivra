@@ -71,6 +71,58 @@ class S01EvidenceTests(unittest.TestCase):
             }.issubset(required)
         )
 
+    def test_recorded_t4_benchmarks_have_complete_passing_evidence(self) -> None:
+        schema = load_json(EVIDENCE_ROOT / "benchmark-run.schema.json")
+        required = set(schema["required"])
+        for name in (
+            "benchmark-dit-only-fresh.json",
+            "benchmark-dit-only-warm.json",
+            "benchmark-lm-0.6b.json",
+        ):
+            benchmark = load_json(EVIDENCE_ROOT / name)
+            self.assertTrue(required.issubset(benchmark), name)
+            self.assertEqual("passed", benchmark["result"], name)
+            self.assertEqual("Tesla T4", benchmark["environment"]["gpu_name"])
+            self.assertTrue(benchmark["audio_validation"]["finite_samples"])
+            self.assertFalse(benchmark["audio_validation"]["silent"])
+            self.assertFalse(benchmark["audio_validation"]["clipped"])
+            self.assertGreater(benchmark["peak_vram_bytes"], 0)
+            self.assertGreaterEqual(
+                benchmark["timings_seconds"]["total"],
+                benchmark["timings_seconds"]["model_load"]
+                + benchmark["timings_seconds"]["inference"],
+            )
+
+    def test_warm_cache_and_fixed_seed_observations_are_recorded(self) -> None:
+        fresh = load_json(EVIDENCE_ROOT / "benchmark-dit-only-fresh.json")
+        warm = load_json(EVIDENCE_ROOT / "benchmark-dit-only-warm.json")
+        self.assertLess(
+            warm["timings_seconds"]["model_load"], fresh["timings_seconds"]["model_load"]
+        )
+        self.assertEqual(fresh["artifacts"][0]["sha256"], warm["artifacts"][0]["sha256"])
+
+    def test_lm_run_proves_initialization_and_execution(self) -> None:
+        dit = load_json(EVIDENCE_ROOT / "benchmark-dit-only-warm.json")
+        lm = load_json(EVIDENCE_ROOT / "benchmark-lm-0.6b.json")
+        self.assertTrue(lm["request"]["lm_requested"])
+        self.assertTrue(lm["capabilities"]["lm_initialized"])
+        self.assertTrue(lm["capabilities"]["lm_used"])
+        self.assertGreater(lm["peak_vram_bytes"], dit["peak_vram_bytes"])
+        self.assertEqual(dit["artifacts"][0]["sha256"], lm["artifacts"][0]["sha256"])
+
+    def test_cache_manifest_matches_the_registered_assets(self) -> None:
+        registry = load_json(EVIDENCE_ROOT / "model-registry.json")
+        manifest = load_json(EVIDENCE_ROOT / "cache-manifest.json")
+        expected = {
+            asset["id"]: (asset["size_bytes"], asset["sha256"]) for asset in registry["assets"]
+        }
+        actual = {
+            asset["id"]: (asset["size_bytes"], asset["sha256"])
+            for asset in manifest["verified_assets"]
+        }
+        self.assertEqual(expected, actual)
+        self.assertFalse(manifest["persistent_drive_copy"])
+
 
 if __name__ == "__main__":
     unittest.main()

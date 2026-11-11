@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-11",
+  "session": {
+    "name": "melqivra-t4",
+    "gpu": "Tesla T4",
+    "gpu_memory_mib": 15360,
+    "driver": "580.82.07",
+    "remote_python": "3.13.16"
+  },
+  "transport_healthcheck": {
+    "status": "succeeded",
+    "duration_seconds": 0.02764272689819336,
+    "upload_execute_download": true,
+    "cuda_available": true
+  },
+  "runtime": {
+    "status": "succeeded",
+    "source_repository": "https://github.com/ace-step/ACE-Step-1.5.git",
+    "source_revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+    "uv": "0.13.7",
+    "python": "3.12.3",
+    "pytorch": "2.10.0+cu128",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "setup_duration_seconds": 104.47807101699982
+  }
+}
