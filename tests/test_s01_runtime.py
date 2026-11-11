@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from types import ModuleType
 from typing import Any
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "colab" / "s01_runtime.py"
@@ -90,6 +91,108 @@ class S01RuntimeTests(unittest.TestCase):
             path.write_text("stale", encoding="utf-8")
             self.runtime.atomic_write_json(path, {"status": "succeeded"})
             self.assertEqual({"status": "succeeded"}, json.loads(path.read_text()))
+
+    def _registry_with_asset(self, checkpoint_root: Path) -> dict[str, Any]:
+        model = checkpoint_root / "model.safetensors"
+        payload = b"pinned-model-fixture"
+        model.parent.mkdir(parents=True, exist_ok=True)
+        model.write_bytes(payload)
+        return {
+            "assets": [
+                {
+                    "id": "candidate",
+                    "repository": "ACE-Step/Ace-Step1.5",
+                    "revision": "a" * 40,
+                    "path": "model.safetensors",
+                    "size_bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            ]
+        }
+
+    def test_persistent_cache_population_and_restore_are_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkpoint_root = root / "runtime" / "checkpoints"
+            registry = self._registry_with_asset(checkpoint_root)
+            persistent_path = root / "drive" / self.runtime._cache_key()
+
+            population = self.runtime.populate_persistent_cache(
+                registry=registry,
+                checkpoint_root=checkpoint_root,
+                persistent_path=persistent_path,
+            )
+            self.assertEqual("populated", population["status"])
+            self.assertTrue((persistent_path / self.runtime.CACHE_DESCRIPTOR).is_file())
+
+            registry_path = root / "registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "backend": {"source_revision": self.runtime.SOURCE_REVISION},
+                        "assets": registry["assets"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            restored_root = root / "restored" / "checkpoints"
+            manifest_path = root / "restore-manifest.json"
+            manifest = self.runtime.restore_persistent_cache(
+                registry_path=registry_path,
+                checkpoint_root=restored_root,
+                manifest_path=manifest_path,
+                persistent_cache_root=persistent_path.parent,
+            )
+            self.assertEqual("restored", manifest["restore_status"])
+            self.assertEqual(
+                (checkpoint_root / "model.safetensors").read_bytes(),
+                (restored_root / "model.safetensors").read_bytes(),
+            )
+
+    def test_persistent_cache_rejects_stale_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            persistent_path = Path(directory) / self.runtime._cache_key()
+            registry = self._registry_with_asset(persistent_path)
+            descriptor = self.runtime._cache_descriptor(
+                self.runtime.verify_registered_assets(registry, persistent_path)
+            )
+            descriptor["source_revision"] = "0" * 40
+            self.runtime.atomic_write_json(
+                persistent_path / self.runtime.CACHE_DESCRIPTOR, descriptor
+            )
+            with self.assertRaisesRegex(ValueError, "source revision is stale"):
+                self.runtime.verify_persistent_cache(registry, persistent_path)
+
+    def test_persistent_cache_rejects_corrupt_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            registry = self._registry_with_asset(source)
+            persistent_path = root / "drive" / self.runtime._cache_key()
+            self.runtime.populate_persistent_cache(
+                registry=registry,
+                checkpoint_root=source,
+                persistent_path=persistent_path,
+            )
+            (persistent_path / "model.safetensors").write_bytes(b"corrupt")
+            with self.assertRaisesRegex(ValueError, "Size mismatch"):
+                self.runtime.verify_persistent_cache(registry, persistent_path)
+
+    def test_failed_population_never_publishes_partial_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            registry = self._registry_with_asset(source)
+            persistent_path = root / "drive" / self.runtime._cache_key()
+            with patch.object(self.runtime.shutil, "copytree", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    self.runtime.populate_persistent_cache(
+                        registry=registry,
+                        checkpoint_root=source,
+                        persistent_path=persistent_path,
+                    )
+            self.assertFalse(persistent_path.exists())
+            self.assertEqual([], list(persistent_path.parent.glob(".*.tmp")))
 
 
 if __name__ == "__main__":

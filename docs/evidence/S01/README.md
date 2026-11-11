@@ -62,10 +62,18 @@ and 0.6B LM families, then rejects any registered size or SHA-256 mismatch. The
 first local population verified 7.64 GB of registered large assets in 88.63
 seconds. [cache-manifest.json](cache-manifest.json) records the sanitized result.
 
-The script also implements atomic persistent-cache population, but the Google
-Drive copy was not completed because Drive requires a separate interactive
-authorization. This is a remaining S01 closure item rather than a silent local
-cache substitute.
+Google Drive authorization was completed separately from Colab CLI OAuth. The
+same script then atomically published the verified 7.64 GB cache through a
+hidden temporary directory in 174.38 seconds; end-to-end download, verification,
+and persistence took 265.30 seconds. A fresh T4 with no local model files restored
+the cache from Drive in 113.51 seconds and reverified every registered SHA-256;
+the full restore operation took 277.39 seconds.
+
+Temporary real-Drive probes also proved that a stale source revision and a
+zero-byte model are rejected explicitly. The probes were removed in `finally`
+and did not modify the authoritative cache. The sanitized record is
+[drive-cache-evidence.json](drive-cache-evidence.json). The final T4 session was
+explicitly stopped and the CLI reported no active sessions.
 
 ## First real T4 baselines
 
@@ -99,20 +107,19 @@ the CLI reported no active sessions.
 
 ## Local quality gate
 
-The checkpoint passed the complete repository gate on Windows/Python 3.11: 39
-tests, strict mypy across 16 source files, Ruff format/lint, 81% branch coverage
-for the scheduler/store critical-path scope, wheel/sdist build, and dependency
-audit with no known vulnerabilities. The unpublished local `melqivra` package
-was skipped by the audit as expected.
+The current checkpoint passed the complete repository gate on Windows/Python
+3.11: 44 tests, strict mypy across 16 source files, Ruff format/lint, 81% branch
+coverage for the scheduler/store critical-path scope, wheel/sdist build, and
+dependency audit with no known vulnerabilities. The unpublished local
+`melqivra` package was skipped by the audit as expected.
 
 ## Next evidence
 
-1. Complete separate Google Drive authorization and prove atomic persistent
-   cache population, restore, and corrupt/stale cache rejection.
-2. Measure artifact transfer time instead of the current zero placeholder.
-3. Run a second LM-sensitive fixture to determine why the first LM-on artifact
+1. Run a second LM-sensitive fixture to determine why the first LM-on artifact
    was byte-identical to the fixed-seed DiT-only output.
-4. Exercise reference, repaint, and extend only when upstream reports those
+2. Exercise reference, repaint, and extend only when upstream reports those
    capabilities explicitly; unsupported operations must fail clearly.
-5. Run OOM/failure classification and an additional fixed-seed comparison.
-6. Complete license review and accept the backend ADR before closing S01.
+3. Run OOM/failure classification and an additional fixed-seed comparison.
+4. Measure generated-artifact upload/download separately from the now-measured
+   model-cache transfer path.
+5. Complete license review and accept the backend ADR before closing S01.
