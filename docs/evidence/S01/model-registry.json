@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-11",
+  "status": "candidate",
+  "backend": {
+    "name": "ACE-Step 1.5",
+    "source_repository": "https://github.com/ace-step/ACE-Step-1.5",
+    "release": "v0.1.8",
+    "source_revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+    "source_license": "MIT",
+    "source_license_url": "https://github.com/ace-step/ACE-Step-1.5/blob/dce621408bee8c31b4fcf4811682eb9359e1bc94/LICENSE"
+  },
+  "assets": [
+    {
+      "id": "acestep-v15-turbo",
+      "role": "diffusion_transformer",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "path": "acestep-v15-turbo/model.safetensors",
+      "size_bytes": 4787825604,
+      "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7",
+      "declared_license": "MIT",
+      "license_source": "https://huggingface.co/ACE-Step/Ace-Step1.5/tree/19671f406d603126926c1b7e2adc169acbcade22",
+      "redistribution": "not_bundled"
+    },
+    {
+      "id": "acestep-v15-vae",
+      "role": "audio_vae",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "path": "vae/diffusion_pytorch_model.safetensors",
+      "size_bytes": 337431388,
+      "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0",
+      "declared_license": "MIT",
+      "license_source": "https://huggingface.co/ACE-Step/Ace-Step1.5/tree/19671f406d603126926c1b7e2adc169acbcade22",
+      "redistribution": "not_bundled"
+    },
+    {
+      "id": "qwen3-embedding-0.6b",
+      "role": "text_embedding",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "path": "Qwen3-Embedding-0.6B/model.safetensors",
+      "size_bytes": 1191586416,
+      "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd",
+      "declared_license": "MIT",
+      "license_source": "https://huggingface.co/ACE-Step/Ace-Step1.5/tree/19671f406d603126926c1b7e2adc169acbcade22",
+      "redistribution": "not_bundled",
+      "review_status": "transitive_base_terms_pending"
+    },
+    {
+      "id": "acestep-5hz-lm-0.6b",
+      "role": "music_language_model",
+      "repository": "ACE-Step/acestep-5Hz-lm-0.6B",
+      "revision": "148d8ea0225bdab342ee1ae3a354275ccd60ca80",
+      "path": "model.safetensors",
+      "size_bytes": 1325804024,
+      "sha256": "5d92a60806e2e88c04de58ddc6dde93f2bc8f1336162b3ad5853886c9bcc6b82",
+      "declared_license": "MIT",
+      "license_source": "https://huggingface.co/ACE-Step/acestep-5Hz-lm-0.6B/tree/148d8ea0225bdab342ee1ae3a354275ccd60ca80",
+      "redistribution": "not_bundled",
+      "review_status": "transitive_base_terms_pending"
+    }
+  ],
+  "baseline": {
+    "gpu": "NVIDIA T4 16 GB",
+    "dit_model": "acestep-v15-turbo",
+    "diffusion_steps": 8,
+    "shift": 3.0,
+    "batch_size": 1,
+    "lm_variants": [
+      "disabled",
+      "acestep-5hz-lm-0.6b"
+    ],
+    "precision_variants": [
+      "upstream_default",
+      "fp16_eager",
+      "fp32_fallback"
+    ],
+    "output_master": "wav",
+    "silent_fallback_allowed": false
+  }
+}
