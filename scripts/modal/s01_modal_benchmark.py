@@ -13,7 +13,7 @@ import subprocess
 import time
 from pathlib import Path
 
-import modal  # type: ignore[import-not-found]
+import modal
 
 SOURCE_REPOSITORY = "https://github.com/ace-step/ACE-Step-1.5.git"
 SOURCE_REVISION = "dce621408bee8c31b4fcf4811682eb9359e1bc94"
