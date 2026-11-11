@@ -76,6 +76,61 @@ def fixture_caption(fixture: dict[str, Any]) -> str:
     )
 
 
+def fixture_generation_inputs(fixture: dict[str, Any]) -> tuple[str, str, bool]:
+    """Resolve deterministic caption, lyrics, and instrumental mode for a fixture."""
+
+    caption = fixture_caption(fixture)
+    lyrics = fixture.get("lyrics")
+    if lyrics is None:
+        return caption, "[Instrumental]", True
+    if not isinstance(lyrics, str) or not lyrics.strip():
+        raise ValueError("Fixture lyrics must be a non-empty string when provided")
+    return caption, lyrics, False
+
+
+def sha256_json(value: object) -> str:
+    """Hash one JSON-compatible value with a stable UTF-8 representation."""
+
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def lm_conditioning_evidence(result: Any, *, lm_requested: bool) -> dict[str, object]:
+    """Record privacy-safe fingerprints of LM metadata and generated audio codes."""
+
+    extra_outputs = result.extra_outputs
+    if not isinstance(extra_outputs, dict):
+        raise TypeError("Generation extra_outputs must be an object")
+    metadata = extra_outputs.get("lm_metadata")
+
+    audios = result.audios
+    if not isinstance(audios, list) or not audios or not isinstance(audios[0], dict):
+        raise RuntimeError("Generation returned no audio parameters")
+    params = audios[0].get("params")
+    if not isinstance(params, dict):
+        raise RuntimeError("Generation returned invalid audio parameters")
+    audio_codes = params.get("audio_codes")
+    audio_codes_present = isinstance(audio_codes, str) and bool(audio_codes.strip())
+    metadata_present = isinstance(metadata, dict) and bool(metadata)
+
+    if lm_requested and not audio_codes_present:
+        raise RuntimeError("LM ran without returning generated audio codes")
+
+    return {
+        "lm_metadata_present": metadata_present,
+        "lm_metadata_sha256": sha256_json(metadata) if metadata_present else None,
+        "lm_metadata_fields": sorted(metadata) if isinstance(metadata, dict) else [],
+        "lm_audio_codes_present": audio_codes_present,
+        "lm_audio_codes_sha256": sha256_json(audio_codes) if audio_codes_present else None,
+        "lm_audio_codes_length": len(audio_codes) if isinstance(audio_codes, str) else 0,
+    }
+
+
 def _parse_ffmpeg_loudness(stderr: str) -> tuple[float, float]:
     integrated_matches = re.findall(r"\bI:\s*(-?(?:\d+(?:\.\d+)?|inf))\s+LUFS", stderr)
     peak_matches = re.findall(r"\bPeak:\s*(-?(?:\d+(?:\.\d+)?|inf))\s+dBFS", stderr)
@@ -167,6 +222,26 @@ def sanitize_runtime_environment() -> None:
     os.environ.pop("MPLBACKEND", None)
 
 
+def configure_precision(precision: str) -> None:
+    """Apply an explicit upstream dtype override, or remove inherited overrides."""
+
+    if precision == "upstream_default":
+        os.environ.pop("ACESTEP_DTYPE", None)
+        return
+    os.environ["ACESTEP_DTYPE"] = precision
+
+
+def validate_observed_precision(requested: str, observed: object) -> str:
+    """Return the initialized dtype and reject an ignored explicit override."""
+
+    observed_name = str(observed).removeprefix("torch.")
+    if requested != "upstream_default" and observed_name != requested:
+        raise RuntimeError(
+            f"Requested precision {requested} was not honored; observed {observed_name}"
+        )
+    return observed_name
+
+
 def end_to_end_total(runtime_seconds: float, args: argparse.Namespace) -> float:
     """Include earlier provision, runtime setup, and cache population phases."""
 
@@ -182,6 +257,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     """Load pinned models, generate one sample, and return schema-ready evidence."""
 
     sanitize_runtime_environment()
+    configure_precision(args.precision)
     started_wall = datetime.now(UTC)
     started = time.monotonic()
     source = args.source.resolve()
@@ -196,6 +272,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     if actual_revision != SOURCE_REVISION:
         raise RuntimeError(f"Unexpected source revision: {actual_revision}")
     fixture = select_fixture(args.fixtures, args.fixture_id)
+    caption, lyrics, instrumental = fixture_generation_inputs(fixture)
     cache_manifest = load_json(args.cache_manifest)
     if cache_manifest.get("status") != "succeeded":
         raise RuntimeError("Model cache manifest is not successful")
@@ -218,6 +295,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     )
     if not initialized:
         raise RuntimeError(f"DiT initialization failed: {status}")
+    observed_precision = validate_observed_precision(args.precision, dit_handler.dtype)
 
     llm_handler: Any = None
     lm_initialized = False
@@ -237,9 +315,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
 
     params = inference_module.GenerationParams(
         task_type="text2music",
-        caption=fixture_caption(fixture),
-        lyrics="[Instrumental]",
-        instrumental=True,
+        caption=caption,
+        lyrics=lyrics,
+        instrumental=instrumental,
         vocal_language="vi",
         bpm=int(fixture["tempo_bpm"]),
         duration=float(args.duration),
@@ -295,6 +373,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     )
     if args.lm and not lm_used:
         raise RuntimeError("LM was requested and initialized but no LM timing proves it was used")
+    conditioning = lm_conditioning_evidence(result, lm_requested=bool(args.lm))
 
     gpu = _nvidia_environment()
     total = time.monotonic() - started
@@ -307,6 +386,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "cuda": str(torch.version.cuda),
             "python": platform.python_version(),
             "pytorch": str(torch.__version__),
+            "provider": args.provider,
+            "provider_cli": args.provider_cli,
             "colab_cli": args.colab_cli,
             "session_name": args.session_name,
         },
@@ -331,14 +412,19 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "diffusion_steps": 8,
             "shift": 3.0,
             "batch_size": 1,
-            "precision": "upstream_default",
+            "precision": args.precision,
+            "observed_precision": observed_precision,
             "lm_requested": bool(args.lm),
+            "instrumental": instrumental,
+            "caption_sha256": sha256_json(caption),
+            "lyrics_sha256": sha256_json(lyrics),
         },
         "capabilities": {
             "lm_initialized": lm_initialized,
             "lm_used": lm_used,
             "task_supported": True,
             "failure_reason": None,
+            **conditioning,
         },
         "timings_seconds": {
             "provision": float(args.provision_seconds),
@@ -377,8 +463,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--duration", type=float, default=30.0)
     parser.add_argument("--seed", type=int, default=20261111)
+    parser.add_argument(
+        "--precision",
+        choices=("upstream_default", "float16", "float32"),
+        default="upstream_default",
+    )
     parser.add_argument("--lm", action="store_true")
     parser.add_argument("--session-name", default="melqivra-t4")
+    parser.add_argument("--provider", default="colab")
+    parser.add_argument("--provider-cli")
     parser.add_argument("--colab-cli", default="0.8.0")
     parser.add_argument("--provision-seconds", type=float, default=0.0)
     parser.add_argument("--runtime-setup-seconds", type=float, default=0.0)

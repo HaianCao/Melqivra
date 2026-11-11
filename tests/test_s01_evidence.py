@@ -54,6 +54,11 @@ class S01EvidenceTests(unittest.TestCase):
             self.assertLessEqual(brief["duration_seconds"], 600)
             self.assertGreaterEqual(len(brief["structure"]), 4)
             self.assertIn("no living-artist imitation", brief["constraints"])
+            if "lyrics" in brief:
+                self.assertIsInstance(brief["lyrics"], str)
+                self.assertTrue(brief["lyrics"].strip())
+
+        self.assertGreaterEqual(sum("lyrics" in brief for brief in briefs), 1)
 
     def test_benchmark_schema_requires_safety_critical_evidence(self) -> None:
         schema = load_json(EVIDENCE_ROOT / "benchmark-run.schema.json")
