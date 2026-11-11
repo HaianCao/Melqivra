@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 from collections.abc import Callable
 from typing import Any
@@ -39,6 +38,8 @@ class GpuHarness:
         store: SqliteJobStore | None = None,
         runner: GpuRunner | None = None,
         event_sink: EventSink | None = None,
+        monotonic_clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         settings.validate()
         settings.ensure_directories()
@@ -46,6 +47,8 @@ class GpuHarness:
         self.store = store or SqliteJobStore(settings.database_path)
         self.runner = runner or build_runner(settings)
         self._event_sink = event_sink or (lambda _job_id, _event: None)
+        self._monotonic_clock = monotonic_clock
+        self._wall_clock = wall_clock
         self._wake = asyncio.Event()
         self._stop_requested = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -71,10 +74,14 @@ class GpuHarness:
         self._stop_requested.set()
         self._wake.set()
         if self._task is not None:
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+            task = self._task
             self._task = None
+            task.cancel()
+            outcome = (await asyncio.gather(task, return_exceptions=True))[0]
+            if isinstance(outcome, BaseException) and not isinstance(
+                outcome, asyncio.CancelledError
+            ):
+                raise outcome
         if stop_runner:
             await self.runner.stop()
         self.store.close()
@@ -177,7 +184,7 @@ class GpuHarness:
         if self._last_activity_monotonic is None:
             self._touch_activity()
             return False
-        idle_for = time.monotonic() - self._last_activity_monotonic
+        idle_for = self._monotonic_clock() - self._last_activity_monotonic
         if idle_for < self.settings.idle_timeout_seconds:
             return False
 
@@ -194,11 +201,11 @@ class GpuHarness:
         timeout = self.settings.scheduler_poll_seconds
         if self.runner.state == RunnerState.READY and self._last_activity_monotonic is not None:
             remaining = self.settings.idle_timeout_seconds - (
-                time.monotonic() - self._last_activity_monotonic
+                self._monotonic_clock() - self._last_activity_monotonic
             )
             timeout = min(timeout, max(remaining, 0.001))
         return timeout
 
     def _touch_activity(self) -> None:
-        self._last_activity_monotonic = time.monotonic()
-        self._last_activity_wall = time.time()
+        self._last_activity_monotonic = self._monotonic_clock()
+        self._last_activity_wall = self._wall_clock()

@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -23,8 +25,16 @@ class SqliteJobStoreTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_fifo_claim_across_users(self) -> None:
-        first = self.store.enqueue(user_id="alice", kind="one", payload={})
-        second = self.store.enqueue(user_id="bob", kind="two", payload={})
+        ids_in_reverse_sort_order = [
+            UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            UUID("00000000-0000-0000-0000-000000000000"),
+        ]
+        with (
+            patch("agent_music.store.time.time", return_value=1_000.0),
+            patch("agent_music.store.uuid.uuid4", side_effect=ids_in_reverse_sort_order),
+        ):
+            first = self.store.enqueue(user_id="alice", kind="one", payload={})
+            second = self.store.enqueue(user_id="bob", kind="two", payload={})
 
         claimed_first = self.store.claim_next()
         self.assertIsNotNone(claimed_first)

@@ -142,7 +142,7 @@ class SqliteJobStore:
                     """
                     SELECT id FROM gpu_jobs
                     WHERE state = ? AND cancel_requested = 0
-                    ORDER BY created_at ASC, id ASC
+                    ORDER BY created_at ASC, rowid ASC
                     LIMIT 1
                     """,
                     (JobState.QUEUED.value,),
@@ -307,19 +307,25 @@ class SqliteJobStore:
         if job.state != JobState.QUEUED:
             return None
         with self._lock:
+            target = self._connection.execute(
+                "SELECT rowid FROM gpu_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            if target is None:
+                raise KeyError(job_id)
             row = self._connection.execute(
                 """
                 SELECT COUNT(*) AS count
                 FROM gpu_jobs
                 WHERE state = ?
                   AND cancel_requested = 0
-                  AND (created_at < ? OR (created_at = ? AND id <= ?))
+                  AND (created_at < ? OR (created_at = ? AND rowid <= ?))
                 """,
                 (
                     JobState.QUEUED.value,
                     job.created_at,
                     job.created_at,
-                    job.id,
+                    int(target["rowid"]),
                 ),
             ).fetchone()
         return int(row["count"])
