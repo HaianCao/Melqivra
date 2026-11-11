@@ -160,10 +160,27 @@ The sanitized allocation record is
 [modal-float32-fix-allocation.json](modal-float32-fix-allocation.json). The final
 billing snapshot is $0.2707 metered and $0 billed after credits and allowances.
 
+## Backend and license decision
+
+[ADR-0004](../../adr/0004-ace-step-is-research-only-on-t4.md) rejects the pinned
+ACE-Step candidate as Melqivra's default production backend. Its verified
+instrumental T4 evidence remains useful for research, but vocal, LM, reference,
+repaint, extend, and continuation capabilities are unsupported until a
+separately pinned backend passes their real-GPU contracts. Colab remains a
+viable on-demand runner transport; Modal remains an optional research provider,
+not an automatic fallback.
+
+The license review is complete for non-bundled research use. ACE-Step source and
+model cards declare MIT; the Qwen3 base lineage declares Apache-2.0. Melqivra
+does not bundle or mirror weights, and release notices preserve both attribution
+boundaries. The machine-readable record is
+[license-review.json](license-review.json). Weight redistribution remains
+unapproved and would require a new review.
+
 ## Local quality gate
 
 The current checkpoint passed the complete repository gate on Windows/Python
-3.11: 56 tests, strict mypy across 18 source files, Ruff format/lint, 81% branch
+3.11: 57 tests, strict mypy across 18 source files, Ruff format/lint, 81% branch
 coverage for the scheduler/store critical-path scope, wheel/sdist build, and
 dependency audit with no known vulnerabilities. The unpublished local
 `melqivra` package was skipped by the audit as expected.
@@ -179,4 +196,3 @@ dependency audit with no known vulnerabilities. The unpublished local
    numerical failure as an OOM.
 4. Measure generated-artifact upload/download on a successful future WAV run;
    the vocal failure produced no artifact to transfer.
-5. Complete license review and accept the backend ADR before closing S01.
