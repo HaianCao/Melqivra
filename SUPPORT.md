@@ -25,5 +25,6 @@ output. Do not upload private audio or credentials.
 - The current identity header is for development only and is not production auth.
 - Model quality, runtime availability, and Colab quotas are not guaranteed.
 
-See [ROADMAP.md](ROADMAP.md) for completion status and explicit limitations.
+See the active GitHub milestones and `docs/evidence/` for completion status and
+explicit limitations.
 

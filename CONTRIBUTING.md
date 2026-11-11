@@ -6,7 +6,7 @@ licensing, or the typed tool boundary.
 
 ## Before starting
 
-1. Read [ROADMAP.md](ROADMAP.md) and the relevant ADRs under `docs/adr/`.
+1. Read the relevant ADRs under `docs/adr/` and the active GitHub milestone.
 2. Search existing issues and discussions before proposing a large change.
 3. Open an issue before changing a public contract, persistence schema, runner
    lifecycle, model backend, license, or safety policy.
@@ -51,8 +51,8 @@ fix(s06): recheck queue before idle shutdown
 docs: explain Colab credential isolation
 ```
 
-Each commit should be a coherent, tested, revertible slice. Stage closure and
-tag rules are defined in [ROADMAP.md](ROADMAP.md#34-commit-closure-và-tag).
+Each commit should be a coherent, tested, revertible slice. Stage completion
+requires objective evidence, a dedicated closure commit, and an annotated tag.
 
 ## Pull requests
 
