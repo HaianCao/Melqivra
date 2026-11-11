@@ -1,0 +1,32 @@
+# Local research artifacts (kept outside the product history)
+/AGENTIC_STUDIO_ARCHITECTURE.md
+/PRODUCT_RESEARCH_AND_RELEASE_PLAN.md
+/poc.ipynb
+
+# Runtime configuration and state
+/.env
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+.uv-cache/
+dist/
+build/
+*.egg-info/
+
+# IDE and operating system
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
