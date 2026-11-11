@@ -136,21 +136,43 @@ Upstream issues
 describe the same pre-Ampere vocal float16 overflow and unwired float32 override.
 The sanitized records are
 [modal-t4-evidence.json](modal-t4-evidence.json) and
-[benchmark-lm-contract-vi020.json](benchmark-lm-contract-vi020.json). Current
-Modal billing is $0.2597 metered and $0 billed after credits and allowances.
+[benchmark-lm-contract-vi020.json](benchmark-lm-contract-vi020.json). Billing at
+that checkpoint was $0.2597 metered and $0 billed after credits and allowances.
+
+### Float32 fix allocation attempt
+
+A community fork based directly on the pinned source revision was reviewed and
+pinned at commit `44c15413f6dc9b55acfbd214209dbb6c0aac74b9`. Its two added
+commits wire `ACESTEP_DTYPE`, default pre-Ampere CUDA to float32, and select an
+attention implementation for that float32 path. The benchmark harness now
+accepts an explicit source repository/revision and records CPU-offload state, so
+the fork cannot be mislabeled as the accepted upstream revision.
+
+Three T4 allocation profiles and, after explicit user approval, three L4
+profiles were submitted sequentially. Every call remained pending without a
+container, start time, or GPU execution and was explicitly cancelled. The L4
+attempt limit of three was not exceeded. Consequently, this is provider-capacity
+evidence only: the float32 fix has not executed and no generation or quality
+claim can be made. All Modal apps are stopped, Colab has no active sessions, and
+the persistent model Volume remains available for a later on-demand retry.
+
+The sanitized allocation record is
+[modal-float32-fix-allocation.json](modal-float32-fix-allocation.json). The final
+billing snapshot is $0.2707 metered and $0 billed after credits and allowances.
 
 ## Local quality gate
 
 The current checkpoint passed the complete repository gate on Windows/Python
-3.11: 55 tests, strict mypy across 18 source files, Ruff format/lint, 81% branch
+3.11: 56 tests, strict mypy across 18 source files, Ruff format/lint, 81% branch
 coverage for the scheduler/store critical-path scope, wheel/sdist build, and
 dependency audit with no known vulnerabilities. The unpublished local
 `melqivra` package was skipped by the audit as expected.
 
 ## Next evidence
 
-1. Decide whether the pinned ACE-Step backend can satisfy S01 on T4 given the
-   deterministic vocal float16 failure and invalid 0.6B LM contract.
+1. Retry the exact float32-fix commit only when Modal can allocate a GPU, then
+   decide whether it changes the T4 vocal failure; do not treat pending capacity
+   as a model result.
 2. Exercise reference, repaint, and extend only when upstream reports those
    capabilities explicitly; unsupported operations must fail clearly.
 3. Add the remaining controlled OOM classification without treating the vocal

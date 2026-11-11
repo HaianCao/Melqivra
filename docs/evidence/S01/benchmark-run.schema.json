@@ -102,6 +102,7 @@
         "batch_size": { "type": "integer", "minimum": 1 },
         "precision": { "type": "string" },
         "observed_precision": { "type": "string" },
+        "offload_to_cpu": { "type": "boolean" },
         "lm_requested": { "type": "boolean" },
         "instrumental": { "type": "boolean" },
         "caption_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

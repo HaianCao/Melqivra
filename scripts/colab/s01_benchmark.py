@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+SOURCE_REPOSITORY = "https://github.com/ace-step/ACE-Step-1.5.git"
 SOURCE_REVISION = "dce621408bee8c31b4fcf4811682eb9359e1bc94"
 DEFAULT_SOURCE = Path("/content/melqivra-s01/ACE-Step-1.5")
 DEFAULT_OUTPUT = Path("/content/melqivra-s01/benchmark")
@@ -269,7 +270,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
         text=True,
         timeout=30,
     ).stdout.strip()
-    if actual_revision != SOURCE_REVISION:
+    if actual_revision != args.source_revision:
         raise RuntimeError(f"Unexpected source revision: {actual_revision}")
     fixture = select_fixture(args.fixtures, args.fixture_id)
     caption, lyrics, instrumental = fixture_generation_inputs(fixture)
@@ -291,7 +292,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
         project_root=str(source),
         config_path="acestep-v15-turbo",
         device="cuda",
-        offload_to_cpu=False,
+        offload_to_cpu=bool(args.offload_to_cpu),
     )
     if not initialized:
         raise RuntimeError(f"DiT initialization failed: {status}")
@@ -306,7 +307,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             lm_model_path="acestep-5Hz-lm-0.6B",
             backend="vllm",
             device="cuda",
-            offload_to_cpu=False,
+            offload_to_cpu=bool(args.offload_to_cpu),
             dtype=None,
         )
         if not lm_initialized:
@@ -392,7 +393,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "session_name": args.session_name,
         },
         "source": {
-            "repository": "https://github.com/ace-step/ACE-Step-1.5.git",
+            "repository": args.source_repository,
             "revision": actual_revision,
         },
         "assets": [
@@ -414,6 +415,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "batch_size": 1,
             "precision": args.precision,
             "observed_precision": observed_precision,
+            "offload_to_cpu": bool(args.offload_to_cpu),
             "lm_requested": bool(args.lm),
             "instrumental": instrumental,
             "caption_sha256": sha256_json(caption),
@@ -455,6 +457,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--source-repository", default=SOURCE_REPOSITORY)
+    parser.add_argument("--source-revision", default=SOURCE_REVISION)
     parser.add_argument("--fixtures", type=Path, required=True)
     parser.add_argument("--fixture-id", default="vi-014")
     parser.add_argument("--cache-manifest", type=Path, required=True)
@@ -469,6 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="upstream_default",
     )
     parser.add_argument("--lm", action="store_true")
+    parser.add_argument("--offload-to-cpu", action="store_true")
     parser.add_argument("--session-name", default="melqivra-t4")
     parser.add_argument("--provider", default="colab")
     parser.add_argument("--provider-cli")
