@@ -3,12 +3,20 @@
   "stage": "S00",
   "status": "IN_PROGRESS",
   "recorded_date": "2026-11-11",
-  "source_commit": "c389c79cfaad99f26788f0105bd810d280e1ba05",
+  "source_commit": "dfee7546864321fd15697d28ebcd8b5b18ede990",
   "environment": {
     "operating_system": "Windows x86_64",
-    "python": "3.13.9",
+    "python": "3.11.17",
     "uv": "0.12.23",
     "runner": "fake",
+    "hosted_python": [
+      "3.11",
+      "3.13"
+    ],
+    "hosted_operating_systems": [
+      "ubuntu-latest",
+      "windows-latest"
+    ],
     "docker_desktop": "4.74.0",
     "docker_engine": "29.4.3",
     "container_platform": "linux/amd64",
@@ -20,9 +28,9 @@
     "ruff_lint": "passed",
     "mypy_strict_source_files": 14,
     "mypy_errors": 0,
-    "tests_passed": 20,
+    "tests_passed": 21,
     "tests_failed": 0,
-    "critical_path_branch_coverage_percent": 80,
+    "critical_path_branch_coverage_percent": 81,
     "critical_path_coverage_threshold_percent": 75,
     "sdist_build": "passed",
     "wheel_build": "passed",
@@ -33,11 +41,43 @@
     "docker_health": "passed",
     "docker_fake_job": "passed",
     "docker_restart_persistence": "passed",
-    "docker_non_root_uid": 10001
+    "docker_non_root_uid": 10001,
+    "container_image_id": "sha256:ff382cc4553b8b1b6ee5097d2fa727ae8a67992e73b2e3033d36b7c405ddc2f5"
+  },
+  "hosted_ci": {
+    "run_id": 42968008929,
+    "run_url": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929",
+    "conclusion": "success",
+    "head_sha": "dfee7546864321fd15697d28ebcd8b5b18ede990",
+    "jobs": {
+      "Python 3.11 on ubuntu-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637477",
+      "Python 3.13 on ubuntu-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637102",
+      "Python 3.11 on windows-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637353",
+      "Python 3.13 on windows-latest": "https://github.com/HaianCao/Melqivra/actions/runs/42968008929/job/130349637374"
+    }
+  },
+  "repository_controls": {
+    "visibility": "public",
+    "default_branch": "main",
+    "issues_enabled": true,
+    "discussions_enabled": true,
+    "strict_required_checks": true,
+    "required_check_count": 4,
+    "pull_request_required_for_admins": true,
+    "dismiss_stale_reviews": true,
+    "required_linear_history": true,
+    "required_conversation_resolution": true,
+    "force_pushes_allowed": false,
+    "branch_deletion_allowed": false,
+    "private_vulnerability_reporting": true,
+    "dependabot_vulnerability_alerts": true,
+    "dependabot_security_updates": true,
+    "secret_scanning": true,
+    "secret_scanning_push_protection": true
   },
   "closure_blockers": [
-    "Hosted Windows/Linux CI matrix has not been observed",
-    "Repository-host protection and private reporting settings are unverified"
+    "Merge this evidence update through protected main",
+    "Rerun the complete final-candidate gate",
+    "Create the dedicated S00 closure commit and annotated tag"
   ]
 }
-
