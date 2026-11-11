@@ -299,6 +299,7 @@
       "concept": "Hai người ở hai múi giờ giữ tình bạn bằng những tin nhắn thoại ngắn và một lời hẹn gặp lại.",
       "moods": ["longing", "optimistic"],
       "vocal": "original mixed-gender duet with one concise English response line",
+      "lyrics": "[Verse]\nSáng bên này, mình gửi nhau một câu chào\nĐêm bên kia, bạn giữ hộ trời đầy sao\nTin nhắn ngắn mà con đường như gần lại\nMỗi ngày qua, câu chuyện vẫn nối dài\n[Chorus]\nDù hai múi giờ, ta vẫn chung nhịp đợi\nSee you soon, lời hẹn còn nguyên thôi",
       "structure": ["intro", "verse-a", "verse-b", "chorus", "bridge", "final-chorus", "outro"],
       "code_switch": true,
       "constraints": ["no living-artist imitation", "English under ten percent of lyric lines"]

@@ -99,7 +99,10 @@
         "shift": { "type": "number" },
         "batch_size": { "type": "integer", "minimum": 1 },
         "precision": { "type": "string" },
-        "lm_requested": { "type": "boolean" }
+        "lm_requested": { "type": "boolean" },
+        "instrumental": { "type": "boolean" },
+        "caption_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "lyrics_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },
     "capabilities": {
@@ -109,7 +112,23 @@
         "lm_initialized": { "type": "boolean" },
         "lm_used": { "type": "boolean" },
         "task_supported": { "type": "boolean" },
-        "failure_reason": { "type": ["string", "null"] }
+        "failure_reason": { "type": ["string", "null"] },
+        "lm_metadata_present": { "type": "boolean" },
+        "lm_metadata_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lm_metadata_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "lm_audio_codes_present": { "type": "boolean" },
+        "lm_audio_codes_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "lm_audio_codes_length": { "type": "integer", "minimum": 0 }
       }
     },
     "timings_seconds": {

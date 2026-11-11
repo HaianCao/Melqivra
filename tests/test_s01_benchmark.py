@@ -59,6 +59,54 @@ class S01BenchmarkTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unknown fixture ID"):
                 self.benchmark.select_fixture(path, "missing")
 
+    def test_fixture_generation_inputs_preserve_project_authored_lyrics(self) -> None:
+        fixture = {
+            "concept": "Một lời hẹn qua hai múi giờ.",
+            "genres": ["pop"],
+            "moods": ["hopeful"],
+            "vocal": "original duet",
+            "lyrics": "[Verse]\nMình gửi nhau một câu chào",
+        }
+        caption, lyrics, instrumental = self.benchmark.fixture_generation_inputs(fixture)
+        self.assertIn("Một lời hẹn", caption)
+        self.assertEqual(fixture["lyrics"], lyrics)
+        self.assertFalse(instrumental)
+
+    def test_fixture_generation_inputs_default_to_instrumental(self) -> None:
+        fixture = {
+            "concept": "Nhạc nền buổi chiều.",
+            "genres": ["lo-fi"],
+            "moods": ["focused"],
+            "vocal": "no lead vocal",
+        }
+        _, lyrics, instrumental = self.benchmark.fixture_generation_inputs(fixture)
+        self.assertEqual("[Instrumental]", lyrics)
+        self.assertTrue(instrumental)
+
+    def test_lm_conditioning_evidence_hashes_metadata_and_audio_codes(self) -> None:
+        result = type(
+            "Result",
+            (),
+            {
+                "extra_outputs": {"lm_metadata": {"caption": "rewritten"}},
+                "audios": [{"params": {"audio_codes": "<|audio_code_1|>"}}],
+            },
+        )()
+        evidence = self.benchmark.lm_conditioning_evidence(result, lm_requested=True)
+        self.assertTrue(evidence["lm_metadata_present"])
+        self.assertTrue(evidence["lm_audio_codes_present"])
+        self.assertRegex(str(evidence["lm_metadata_sha256"]), r"^[0-9a-f]{64}$")
+        self.assertRegex(str(evidence["lm_audio_codes_sha256"]), r"^[0-9a-f]{64}$")
+
+    def test_lm_conditioning_evidence_rejects_missing_codes(self) -> None:
+        result = type(
+            "Result",
+            (),
+            {"extra_outputs": {"lm_metadata": {}}, "audios": [{"params": {}}]},
+        )()
+        with self.assertRaisesRegex(RuntimeError, "without returning generated audio codes"):
+            self.benchmark.lm_conditioning_evidence(result, lm_requested=True)
+
     def test_ffmpeg_loudness_parser_uses_summary_values(self) -> None:
         stderr = "I: -70.0 LUFS\nPeak: -20.0 dBFS\nI: -16.4 LUFS\nPeak: -1.2 dBFS"
         self.assertEqual((-16.4, -1.2), self.benchmark._parse_ffmpeg_loudness(stderr))

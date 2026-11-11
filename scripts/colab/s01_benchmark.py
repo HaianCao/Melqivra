@@ -76,6 +76,61 @@ def fixture_caption(fixture: dict[str, Any]) -> str:
     )
 
 
+def fixture_generation_inputs(fixture: dict[str, Any]) -> tuple[str, str, bool]:
+    """Resolve deterministic caption, lyrics, and instrumental mode for a fixture."""
+
+    caption = fixture_caption(fixture)
+    lyrics = fixture.get("lyrics")
+    if lyrics is None:
+        return caption, "[Instrumental]", True
+    if not isinstance(lyrics, str) or not lyrics.strip():
+        raise ValueError("Fixture lyrics must be a non-empty string when provided")
+    return caption, lyrics, False
+
+
+def sha256_json(value: object) -> str:
+    """Hash one JSON-compatible value with a stable UTF-8 representation."""
+
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def lm_conditioning_evidence(result: Any, *, lm_requested: bool) -> dict[str, object]:
+    """Record privacy-safe fingerprints of LM metadata and generated audio codes."""
+
+    extra_outputs = result.extra_outputs
+    if not isinstance(extra_outputs, dict):
+        raise TypeError("Generation extra_outputs must be an object")
+    metadata = extra_outputs.get("lm_metadata")
+
+    audios = result.audios
+    if not isinstance(audios, list) or not audios or not isinstance(audios[0], dict):
+        raise RuntimeError("Generation returned no audio parameters")
+    params = audios[0].get("params")
+    if not isinstance(params, dict):
+        raise RuntimeError("Generation returned invalid audio parameters")
+    audio_codes = params.get("audio_codes")
+    audio_codes_present = isinstance(audio_codes, str) and bool(audio_codes.strip())
+    metadata_present = isinstance(metadata, dict) and bool(metadata)
+
+    if lm_requested and not audio_codes_present:
+        raise RuntimeError("LM ran without returning generated audio codes")
+
+    return {
+        "lm_metadata_present": metadata_present,
+        "lm_metadata_sha256": sha256_json(metadata) if metadata_present else None,
+        "lm_metadata_fields": sorted(metadata) if isinstance(metadata, dict) else [],
+        "lm_audio_codes_present": audio_codes_present,
+        "lm_audio_codes_sha256": sha256_json(audio_codes) if audio_codes_present else None,
+        "lm_audio_codes_length": len(audio_codes) if isinstance(audio_codes, str) else 0,
+    }
+
+
 def _parse_ffmpeg_loudness(stderr: str) -> tuple[float, float]:
     integrated_matches = re.findall(r"\bI:\s*(-?(?:\d+(?:\.\d+)?|inf))\s+LUFS", stderr)
     peak_matches = re.findall(r"\bPeak:\s*(-?(?:\d+(?:\.\d+)?|inf))\s+dBFS", stderr)
@@ -196,6 +251,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     if actual_revision != SOURCE_REVISION:
         raise RuntimeError(f"Unexpected source revision: {actual_revision}")
     fixture = select_fixture(args.fixtures, args.fixture_id)
+    caption, lyrics, instrumental = fixture_generation_inputs(fixture)
     cache_manifest = load_json(args.cache_manifest)
     if cache_manifest.get("status") != "succeeded":
         raise RuntimeError("Model cache manifest is not successful")
@@ -237,9 +293,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
 
     params = inference_module.GenerationParams(
         task_type="text2music",
-        caption=fixture_caption(fixture),
-        lyrics="[Instrumental]",
-        instrumental=True,
+        caption=caption,
+        lyrics=lyrics,
+        instrumental=instrumental,
         vocal_language="vi",
         bpm=int(fixture["tempo_bpm"]),
         duration=float(args.duration),
@@ -295,6 +351,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     )
     if args.lm and not lm_used:
         raise RuntimeError("LM was requested and initialized but no LM timing proves it was used")
+    conditioning = lm_conditioning_evidence(result, lm_requested=bool(args.lm))
 
     gpu = _nvidia_environment()
     total = time.monotonic() - started
@@ -333,12 +390,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "batch_size": 1,
             "precision": "upstream_default",
             "lm_requested": bool(args.lm),
+            "instrumental": instrumental,
+            "caption_sha256": sha256_json(caption),
+            "lyrics_sha256": sha256_json(lyrics),
         },
         "capabilities": {
             "lm_initialized": lm_initialized,
             "lm_used": lm_used,
             "task_supported": True,
             "failure_reason": None,
+            **conditioning,
         },
         "timings_seconds": {
             "provision": float(args.provision_seconds),

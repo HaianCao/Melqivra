@@ -105,18 +105,30 @@ The generated WAV files remain ignored local evidence and are not redistributed
 through Git. The T4 session was explicitly terminated after artifact download;
 the CLI reported no active sessions.
 
+## Second LM-sensitive fixture prepared
+
+Fixture `vi-020` now includes short project-authored Vietnamese lyrics with a
+single code-switch response, so the next fixed-seed comparison is vocal rather
+than the fully specified instrumental baseline. The benchmark resolves
+fixture-defined lyrics explicitly and records privacy-safe SHA-256 fingerprints
+for the source caption/lyrics, LM metadata, and LM-generated audio codes. Raw LM
+reasoning, generated codes, and WAV artifacts remain outside tracked evidence.
+
+This is tooling readiness only. No second LM-sensitive GPU result is claimed
+until paired DiT-only and 0.6B-LM runs complete on the same measured T4 setup.
+
 ## Local quality gate
 
 The current checkpoint passed the complete repository gate on Windows/Python
-3.11: 44 tests, strict mypy across 16 source files, Ruff format/lint, 81% branch
+3.11: 48 tests, strict mypy across 16 source files, Ruff format/lint, 81% branch
 coverage for the scheduler/store critical-path scope, wheel/sdist build, and
 dependency audit with no known vulnerabilities. The unpublished local
 `melqivra` package was skipped by the audit as expected.
 
 ## Next evidence
 
-1. Run a second LM-sensitive fixture to determine why the first LM-on artifact
-   was byte-identical to the fixed-seed DiT-only output.
+1. Run paired DiT-only and 0.6B-LM `vi-020` jobs and compare both conditioning
+   fingerprints and artifact checksums without inferring musical quality.
 2. Exercise reference, repaint, and extend only when upstream reports those
    capabilities explicitly; unsupported operations must fail clearly.
 3. Run OOM/failure classification and an additional fixed-seed comparison.
