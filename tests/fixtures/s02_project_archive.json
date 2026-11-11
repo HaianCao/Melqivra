@@ -1,0 +1,9 @@
+{
+  "archive_version": 1,
+  "project": {"created_at": 1.0, "id": "prj_archive", "title": "Archive"},
+  "revisions": [
+    {"actor": "user", "checksum": "7e6b670dd1b9a030a66dd9f2778daa6ca8f60c892a9a07b1f745ddcb74f73dbe", "created_at": 2.0, "document_type": "lyrics", "id": "rev_one", "parent_revision_id": null, "payload_json": "{\"lines\":[{\"id\":\"lin_one\",\"text\":\"Xin chào\"}]}", "reason": "initial"},
+    {"actor": "agent", "checksum": "2e9a4c344aece002ebd5e7a52b860ba5fb03d7a63395f6d5a8fd689ec6526b5d", "created_at": 3.0, "document_type": "lyrics", "id": "rev_two", "parent_revision_id": "rev_one", "payload_json": "{\"lines\":[{\"id\":\"lin_one\",\"text\":\"Xin chào nhé\"}]}", "reason": "revision"}
+  ],
+  "selections": [{"accepted_revision_id": "rev_one", "document_type": "lyrics", "working_revision_id": "rev_two"}]
+}
