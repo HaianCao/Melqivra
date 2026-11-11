@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/HaianCao/Melqivra/docs/evidence/S01/benchmark-run.schema.json",
+  "title": "Melqivra S01 T4 benchmark run",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "started_at",
+    "environment",
+    "source",
+    "assets",
+    "request",
+    "capabilities",
+    "timings_seconds",
+    "peak_vram_bytes",
+    "audio_validation",
+    "artifacts",
+    "result"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gpu_name",
+        "gpu_memory_bytes",
+        "driver",
+        "cuda",
+        "python",
+        "pytorch",
+        "colab_cli",
+        "session_name"
+      ],
+      "properties": {
+        "gpu_name": { "type": "string" },
+        "gpu_memory_bytes": { "type": "integer", "minimum": 1 },
+        "driver": { "type": "string" },
+        "cuda": { "type": "string" },
+        "python": { "type": "string" },
+        "pytorch": { "type": "string" },
+        "colab_cli": { "type": "string" },
+        "session_name": { "type": "string" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["repository", "revision"],
+      "properties": {
+        "repository": { "type": "string", "format": "uri" },
+        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "repository", "revision", "sha256"],
+        "properties": {
+          "id": { "type": "string" },
+          "repository": { "type": "string" },
+          "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "fixture_id",
+        "task_type",
+        "duration_seconds",
+        "seed",
+        "diffusion_steps",
+        "shift",
+        "batch_size",
+        "precision",
+        "lm_requested"
+      ],
+      "properties": {
+        "fixture_id": { "type": "string" },
+        "task_type": { "type": "string" },
+        "duration_seconds": { "type": "number", "minimum": 10, "maximum": 600 },
+        "seed": { "type": "integer" },
+        "diffusion_steps": { "type": "integer", "minimum": 1 },
+        "shift": { "type": "number" },
+        "batch_size": { "type": "integer", "minimum": 1 },
+        "precision": { "type": "string" },
+        "lm_requested": { "type": "boolean" }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "required": ["lm_initialized", "lm_used", "task_supported"],
+      "properties": {
+        "lm_initialized": { "type": "boolean" },
+        "lm_used": { "type": "boolean" },
+        "task_supported": { "type": "boolean" },
+        "failure_reason": { "type": ["string", "null"] }
+      }
+    },
+    "timings_seconds": {
+      "type": "object",
+      "required": [
+        "provision",
+        "runtime_setup",
+        "model_download_or_copy",
+        "model_load",
+        "inference",
+        "decode",
+        "transfer",
+        "total"
+      ],
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    },
+    "peak_vram_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "audio_validation": {
+      "type": "object",
+      "required": [
+        "duration_seconds",
+        "sample_rate_hz",
+        "channels",
+        "finite_samples",
+        "silent",
+        "clipped",
+        "true_peak_dbfs",
+        "integrated_lufs"
+      ],
+      "properties": {
+        "duration_seconds": { "type": "number", "minimum": 0 },
+        "sample_rate_hz": { "type": "integer", "minimum": 1 },
+        "channels": { "type": "integer", "minimum": 1 },
+        "finite_samples": { "type": "boolean" },
+        "silent": { "type": "boolean" },
+        "clipped": { "type": "boolean" },
+        "true_peak_dbfs": { "type": "number" },
+        "integrated_lufs": { "type": "number" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "media_type", "size_bytes", "sha256"],
+        "properties": {
+          "path": { "type": "string" },
+          "media_type": { "type": "string" },
+          "size_bytes": { "type": "integer", "minimum": 1 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "result": {
+      "type": "string",
+      "enum": ["passed", "failed", "cancelled", "reclaimed"]
+    }
+  }
+}

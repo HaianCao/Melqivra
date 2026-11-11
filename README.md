@@ -22,7 +22,9 @@ Project policies: [contributing](CONTRIBUTING.md),
 
 Development references: [support matrix](docs/development/support-matrix.md),
 [dependency policy](docs/development/dependency-policy.md), and
-[release policy](docs/development/release-policy.md).
+[release policy](docs/development/release-policy.md). Model and weight candidates
+are tracked separately in [MODEL_LICENSES.md](MODEL_LICENSES.md); the repository
+license does not grant redistribution rights for those assets.
 
 ## Available today
 
