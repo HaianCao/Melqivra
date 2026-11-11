@@ -1,0 +1,49 @@
+{
+  "capabilities": {
+    "contract_valid": false,
+    "failure_class": "deterministic_contract_invalid",
+    "failure_reason": "LM returned empty metadata and/or audio codes",
+    "lm_audio_codes_length": 0,
+    "lm_audio_codes_present": false,
+    "lm_audio_codes_sha256": null,
+    "lm_initialized": true,
+    "lm_metadata_fields": [],
+    "lm_metadata_present": false,
+    "lm_metadata_sha256": null,
+    "lm_used": true
+  },
+  "environment": {
+    "cuda": "12.8",
+    "driver": "610.57.04",
+    "gpu_memory_bytes": 16106127360,
+    "gpu_name": "Tesla T4",
+    "provider": "modal",
+    "provider_cli": "1.6.3",
+    "python": "3.12.10",
+    "pytorch": "2.10.0+cu128",
+    "session_name": "melqivra-s01-modal-t4"
+  },
+  "peak_vram_bytes": 4425835520,
+  "request": {
+    "caption_sha256": "58805d1e56651b2f5bcbb3eb928764150b36106c06aa1d56544dc035ec4ab143",
+    "duration_seconds": 30.0,
+    "fixture_id": "vi-020",
+    "lyrics_sha256": "6de9d08afff2346e4318560bbc6dc3c4d24b919899464d72a506edebdfc85d3f",
+    "seed": 20261111
+  },
+  "result": "failed",
+  "run_id": "modal-vi020-20261111-contract-b-lm-contract",
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/ace-step/ACE-Step-1.5.git",
+    "revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94"
+  },
+  "started_at": "2026-11-11T16:32:50.380196+00:00",
+  "timings_seconds": {
+    "inference": 247.489358964,
+    "lm_phase1": 233.13506960868835,
+    "lm_phase2": 14.353054285049438,
+    "model_load": 72.57680488599999,
+    "total": 329.124685196
+  }
+}

@@ -51,6 +51,8 @@
         "cuda": { "type": "string" },
         "python": { "type": "string" },
         "pytorch": { "type": "string" },
+        "provider": { "type": "string" },
+        "provider_cli": { "type": ["string", "null"] },
         "colab_cli": { "type": "string" },
         "session_name": { "type": "string" }
       }
@@ -99,6 +101,7 @@
         "shift": { "type": "number" },
         "batch_size": { "type": "integer", "minimum": 1 },
         "precision": { "type": "string" },
+        "observed_precision": { "type": "string" },
         "lm_requested": { "type": "boolean" },
         "instrumental": { "type": "boolean" },
         "caption_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

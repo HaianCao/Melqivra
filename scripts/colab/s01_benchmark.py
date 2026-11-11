@@ -222,6 +222,26 @@ def sanitize_runtime_environment() -> None:
     os.environ.pop("MPLBACKEND", None)
 
 
+def configure_precision(precision: str) -> None:
+    """Apply an explicit upstream dtype override, or remove inherited overrides."""
+
+    if precision == "upstream_default":
+        os.environ.pop("ACESTEP_DTYPE", None)
+        return
+    os.environ["ACESTEP_DTYPE"] = precision
+
+
+def validate_observed_precision(requested: str, observed: object) -> str:
+    """Return the initialized dtype and reject an ignored explicit override."""
+
+    observed_name = str(observed).removeprefix("torch.")
+    if requested != "upstream_default" and observed_name != requested:
+        raise RuntimeError(
+            f"Requested precision {requested} was not honored; observed {observed_name}"
+        )
+    return observed_name
+
+
 def end_to_end_total(runtime_seconds: float, args: argparse.Namespace) -> float:
     """Include earlier provision, runtime setup, and cache population phases."""
 
@@ -237,6 +257,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     """Load pinned models, generate one sample, and return schema-ready evidence."""
 
     sanitize_runtime_environment()
+    configure_precision(args.precision)
     started_wall = datetime.now(UTC)
     started = time.monotonic()
     source = args.source.resolve()
@@ -274,6 +295,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     )
     if not initialized:
         raise RuntimeError(f"DiT initialization failed: {status}")
+    observed_precision = validate_observed_precision(args.precision, dit_handler.dtype)
 
     llm_handler: Any = None
     lm_initialized = False
@@ -364,6 +386,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "cuda": str(torch.version.cuda),
             "python": platform.python_version(),
             "pytorch": str(torch.__version__),
+            "provider": args.provider,
+            "provider_cli": args.provider_cli,
             "colab_cli": args.colab_cli,
             "session_name": args.session_name,
         },
@@ -388,7 +412,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "diffusion_steps": 8,
             "shift": 3.0,
             "batch_size": 1,
-            "precision": "upstream_default",
+            "precision": args.precision,
+            "observed_precision": observed_precision,
             "lm_requested": bool(args.lm),
             "instrumental": instrumental,
             "caption_sha256": sha256_json(caption),
@@ -438,8 +463,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--duration", type=float, default=30.0)
     parser.add_argument("--seed", type=int, default=20261111)
+    parser.add_argument(
+        "--precision",
+        choices=("upstream_default", "float16", "float32"),
+        default="upstream_default",
+    )
     parser.add_argument("--lm", action="store_true")
     parser.add_argument("--session-name", default="melqivra-t4")
+    parser.add_argument("--provider", default="colab")
+    parser.add_argument("--provider-cli")
     parser.add_argument("--colab-cli", default="0.8.0")
     parser.add_argument("--provision-seconds", type=float, default=0.0)
     parser.add_argument("--runtime-setup-seconds", type=float, default=0.0)

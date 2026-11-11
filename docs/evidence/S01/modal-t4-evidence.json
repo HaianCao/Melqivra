@@ -1,0 +1,105 @@
+{
+  "billing": {
+    "billed_cost_usd": "0.00000000",
+    "credits_usd": "-0.25000000",
+    "ephemeral_apps_metered_usd": "0.25010026",
+    "metered_cost_usd": "0.25972577",
+    "network_egress_allowance_usd": "-0.00972577",
+    "network_egress_metered_usd": "0.00972577",
+    "recorded_at": "2026-11-11T16:46:09.1970784+00:00"
+  },
+  "cache": {
+    "asset_bytes": 7642647432,
+    "cache_key": "ace-step-1.5-dce621408bee",
+    "download_verify_persist_seconds": 53.270261471000005,
+    "modal_function_total_seconds": 60.583933202999994,
+    "persistent_copy_seconds": 22.600551575999994,
+    "raw_record_sha256": "cf43ebe0da227acf1ea5bcffaece5c3af55c4c3bfb2d1e1316027c5939c2bd2d",
+    "status": "succeeded",
+    "verified_asset_count": 4,
+    "volume_name": "melqivra-s01-model-cache-dce621408bee"
+  },
+  "lifecycle": {
+    "active_apps": 0,
+    "active_tasks": 0,
+    "latest_app_stopped_at": "2026-11-11T16:38:29+00:00",
+    "persistent_volume_retained": true,
+    "scale_to_zero_verified": true
+  },
+  "lm_contract_attempts": [
+    {
+      "failure_class": "deterministic_contract_invalid",
+      "failure_reason": "LM returned no metadata; Modal logs also recorded zero generated audio codes",
+      "lm_audio_codes_length": 0,
+      "raw_record_sha256": "f94f4d1b43898b0b852127e307e0dc5cf808b2866ba3d868617b1d35492b6364",
+      "result": "failed",
+      "run_group": "modal-vi020-20261111-contract-a"
+    },
+    {
+      "failure_class": "deterministic_contract_invalid",
+      "failure_reason": "LM returned empty metadata and zero audio codes",
+      "lm_audio_codes_length": 0,
+      "lm_initialized": true,
+      "lm_used": true,
+      "peak_vram_bytes": 4425835520,
+      "raw_record_sha256": "e8143f394f583e33f53fa498d0f4d994e11e7a03574c737259757b514c3a838e",
+      "result": "failed",
+      "run_group": "modal-vi020-20261111-contract-b",
+      "timings_seconds": {
+        "inference": 247.489358964,
+        "lm_phase1": 233.13506960868835,
+        "lm_phase2": 14.353054285049438,
+        "model_load": 72.57680488599999,
+        "total": 329.124685196
+      }
+    }
+  ],
+  "recorded_at": "2026-11-11T16:46:09.1970784+00:00",
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/ace-step/ACE-Step-1.5.git",
+    "revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94"
+  },
+  "upstream_corroboration": [
+    {
+      "issue": 1055,
+      "state": "closed",
+      "url": "https://github.com/ace-step/ACE-Step-1.5/issues/1055"
+    },
+    {
+      "issue": 1243,
+      "state": "closed",
+      "url": "https://github.com/ace-step/ACE-Step-1.5/issues/1243"
+    }
+  ],
+  "vocal_dit_attempts": [
+    {
+      "failure_class": "resource_backend_numerical_limitation",
+      "failure_reason": "All 48000 vocal latents became NaN in float16 on the pre-Ampere Tesla T4",
+      "nan_latents": 48000,
+      "observed_precision": "float16",
+      "raw_record_sha256": "546e34ed71dcd0234f4c56ca3607bb59e85fd8cf54f145791bdf0ca5ff6a4585",
+      "requested_precision": "upstream_default",
+      "result": "failed",
+      "run_group": "modal-vi020-20261111-a",
+      "total_latents": 48000
+    },
+    {
+      "failure_class": "unsupported_precision_override",
+      "failure_reason": "The pinned runtime ignored ACESTEP_DTYPE=float32, remained on float16, and reproduced the identical all-NaN failure",
+      "nan_latents": 48000,
+      "observed_precision": "float16",
+      "override_honored": false,
+      "raw_record_sha256": "546e34ed71dcd0234f4c56ca3607bb59e85fd8cf54f145791bdf0ca5ff6a4585",
+      "requested_precision": "float32",
+      "result": "failed",
+      "run_group": "modal-vi020-20261111-fp32-a",
+      "total_latents": 48000
+    }
+  ],
+  "wav_artifact": {
+    "created": false,
+    "transfer_measured": false,
+    "transfer_status": "blocked_by_deterministic_vocal_generation_failure"
+  }
+}

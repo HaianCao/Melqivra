@@ -105,33 +105,56 @@ The generated WAV files remain ignored local evidence and are not redistributed
 through Git. The T4 session was explicitly terminated after artifact download;
 the CLI reported no active sessions.
 
-## Second LM-sensitive fixture prepared
+## Modal T4 and second LM-sensitive fixture
 
-Fixture `vi-020` now includes short project-authored Vietnamese lyrics with a
-single code-switch response, so the next fixed-seed comparison is vocal rather
-than the fully specified instrumental baseline. The benchmark resolves
-fixture-defined lyrics explicitly and records privacy-safe SHA-256 fingerprints
-for the source caption/lyrics, LM metadata, and LM-generated audio codes. Raw LM
-reasoning, generated codes, and WAV artifacts remain outside tracked evidence.
+Modal CLI 1.6.3 is authenticated in WSL2 and provides an on-demand alternative
+that does not require repeated Google Drive authorization. A persistent Volume
+holds the same four checksummed model assets (7,642,647,432 bytes). Initial
+download, verification, and persistence took 53.27 seconds; the Modal function
+completed in 60.58 seconds, including a 22.60-second persistent copy. The Volume
+is retained for later on-demand use, but every experiment app is stopped with
+zero active tasks.
 
-This is tooling readiness only. No second LM-sensitive GPU result is claimed
-until paired DiT-only and 0.6B-LM runs complete on the same measured T4 setup.
+Fixture `vi-020` contains short project-authored Vietnamese lyrics and one
+code-switch response. On a Tesla T4, its DiT-only vocal generation failed
+deterministically because all 48,000 float16 latents became NaN. An explicit
+`ACESTEP_DTYPE=float32` retry produced the identical error because the pinned
+ACE-Step revision ignored the override and remained on float16. The harness now
+records requested and observed precision and rejects an ignored explicit
+override before generation instead of silently accepting fallback.
+
+Two isolated 0.6B LM contract probes both initialized and executed the LM, but
+returned empty metadata and zero audio codes. The recorded repeat used 4.43 GB
+peak allocated VRAM, loaded in 72.58 seconds, and spent 247.49 seconds in LM
+inference. This is classified as a deterministic invalid conditioning contract,
+not successful LM-sensitive generation. No WAV was created, so generated-WAV
+transfer timing remains open rather than being recorded as zero.
+
+Upstream issues
+[#1055](https://github.com/ace-step/ACE-Step-1.5/issues/1055) and
+[#1243](https://github.com/ace-step/ACE-Step-1.5/issues/1243) independently
+describe the same pre-Ampere vocal float16 overflow and unwired float32 override.
+The sanitized records are
+[modal-t4-evidence.json](modal-t4-evidence.json) and
+[benchmark-lm-contract-vi020.json](benchmark-lm-contract-vi020.json). Current
+Modal billing is $0.2597 metered and $0 billed after credits and allowances.
 
 ## Local quality gate
 
 The current checkpoint passed the complete repository gate on Windows/Python
-3.11: 48 tests, strict mypy across 16 source files, Ruff format/lint, 81% branch
+3.11: 55 tests, strict mypy across 18 source files, Ruff format/lint, 81% branch
 coverage for the scheduler/store critical-path scope, wheel/sdist build, and
 dependency audit with no known vulnerabilities. The unpublished local
 `melqivra` package was skipped by the audit as expected.
 
 ## Next evidence
 
-1. Run paired DiT-only and 0.6B-LM `vi-020` jobs and compare both conditioning
-   fingerprints and artifact checksums without inferring musical quality.
+1. Decide whether the pinned ACE-Step backend can satisfy S01 on T4 given the
+   deterministic vocal float16 failure and invalid 0.6B LM contract.
 2. Exercise reference, repaint, and extend only when upstream reports those
    capabilities explicitly; unsupported operations must fail clearly.
-3. Run OOM/failure classification and an additional fixed-seed comparison.
-4. Measure generated-artifact upload/download separately from the now-measured
-   model-cache transfer path.
+3. Add the remaining controlled OOM classification without treating the vocal
+   numerical failure as an OOM.
+4. Measure generated-artifact upload/download on a successful future WAV run;
+   the vocal failure produced no artifact to transfer.
 5. Complete license review and accept the backend ADR before closing S01.
