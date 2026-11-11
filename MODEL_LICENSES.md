@@ -4,8 +4,8 @@ This inventory is separate from Melqivra's Apache-2.0 source-code license.
 Repository licensing does not grant permission to redistribute model weights,
 datasets, codecs, reference audio, or generated artifacts.
 
-Status: S01 candidate review; no model assets are bundled or approved for a
-Melqivra release yet.
+Status: S01 review complete for non-bundled research use. No model assets are
+approved for redistribution in a Melqivra release.
 
 ## ACE-Step 1.5 source
 
@@ -33,8 +33,9 @@ Melqivra release yet.
   benchmark on a Colab T4
 - Redistribution decision: not bundled; cache only for the user who retrieved
   the assets, with exact revision and checksum metadata
-- Open review item: verify the transitive terms and attribution requirements of
-  the embedded Qwen3-derived component before release approval
+- Transitive boundary: the corresponding upstream Qwen3 Embedding 0.6B and
+  Qwen3 0.6B Base repositories declare Apache-2.0. Preserve that license and
+  attribution in release notices even though Melqivra does not bundle weights.
 
 ## ACE-Step 5 Hz language model 0.6B
 
@@ -47,13 +48,19 @@ Melqivra release yet.
   DiT-only generation
 - Redistribution decision: not bundled; retrieve by revision and verify the
   cached file checksum
-- Open review item: verify base-model notices and attribution before release
-  approval
+- Transitive boundary: Qwen3 0.6B Base declares Apache-2.0. Preserve the base
+  attribution and license in release notices; do not infer that the ACE-Step
+  model-card MIT declaration removes upstream notice obligations.
 
 ## Current decision boundary
 
-These records establish reproducible candidates, not a shipping decision. S01
-must still prove the exact assets on a fresh T4, validate the upstream and
-transitive license terms, record cache manifests, and accept a backend ADR.
-Alternative models require their own code, weight, dataset, and output-terms
-review before they can enter the default product path.
+ADR-0004 rejects the pinned ACE-Step candidate as the default production backend
+and retains it for non-bundled research only. Operators may retrieve exact
+upstream revisions into their own cache; Melqivra releases do not contain or
+mirror the weights.
+
+Release notices must preserve the ACE-Step MIT notice and identify the Qwen3
+Apache-2.0 lineage. Generated artifacts record model and license provenance, but
+no ownership or unrestricted-use guarantee is inferred from a model-card license.
+Alternative models, redistributed weights, or changed output terms require a new
+code, weight, dataset, and license review before entering the product path.

@@ -1,0 +1,54 @@
+{
+  "components": [
+    {
+      "declared_license": "MIT",
+      "evidence_sha256": "05a6bce42a62636d2cfb24139cc008b6b899754e244175814bb5dd2f4a485357",
+      "evidence_url": "https://raw.githubusercontent.com/ace-step/ACE-Step-1.5/dce621408bee8c31b4fcf4811682eb9359e1bc94/LICENSE",
+      "id": "ace-step-source",
+      "revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94"
+    },
+    {
+      "declared_license": "MIT",
+      "evidence_kind": "hugging_face_model_card_metadata",
+      "id": "ace-step-turbo-bundle",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22"
+    },
+    {
+      "declared_license": "MIT",
+      "evidence_kind": "hugging_face_model_card_metadata",
+      "id": "ace-step-5hz-lm-0.6b",
+      "repository": "ACE-Step/acestep-5Hz-lm-0.6B",
+      "revision": "148d8ea0225bdab342ee1ae3a354275ccd60ca80"
+    },
+    {
+      "declared_license": "Apache-2.0",
+      "evidence_sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+      "evidence_url": "https://huggingface.co/Qwen/Qwen3-0.6B-Base/resolve/da87bfb608c14b7cf20ba1ce41287e8de496c0cd/LICENSE",
+      "id": "qwen3-0.6b-base",
+      "repository": "Qwen/Qwen3-0.6B-Base",
+      "revision": "da87bfb608c14b7cf20ba1ce41287e8de496c0cd"
+    },
+    {
+      "base_model": "Qwen/Qwen3-0.6B-Base",
+      "declared_license": "Apache-2.0",
+      "id": "qwen3-embedding-0.6b-upstream",
+      "repository": "Qwen/Qwen3-Embedding-0.6B",
+      "revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
+    }
+  ],
+  "decision": {
+    "ace_step_default_backend": "rejected",
+    "generated_artifact_policy": "record model and license provenance; no model-card output ownership guarantee is inferred",
+    "redistribution": "not_approved",
+    "runtime_retrieval": "operator_downloads_exact_upstream_revisions",
+    "status": "accepted_for_non_bundled_research_use"
+  },
+  "notice_policy": {
+    "apache_2_0": "preserve license and attribution for Qwen3-derived components in release notices",
+    "mit": "preserve ACE-Step copyright and permission notice",
+    "weights": "do not bundle or mirror model weights without a new review"
+  },
+  "recorded_at": "2026-11-12T00:00:00+07:00",
+  "schema_version": 1
+}

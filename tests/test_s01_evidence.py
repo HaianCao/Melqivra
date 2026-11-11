@@ -152,6 +152,16 @@ class S01EvidenceTests(unittest.TestCase):
         self.assertIn("Size mismatch", probes["corrupt"]["message"])
         self.assertEqual(0, evidence["session_cleanup"]["active_sessions_after"])
 
+    def test_license_review_rejects_default_backend_and_weight_redistribution(self) -> None:
+        evidence = load_json(EVIDENCE_ROOT / "license-review.json")
+        decision = evidence["decision"]
+        self.assertEqual("rejected", decision["ace_step_default_backend"])
+        self.assertEqual("not_approved", decision["redistribution"])
+        components = {component["id"]: component for component in evidence["components"]}
+        self.assertEqual("MIT", components["ace-step-source"]["declared_license"])
+        self.assertEqual("Apache-2.0", components["qwen3-0.6b-base"]["declared_license"])
+        self.assertRegex(components["qwen3-0.6b-base"]["evidence_sha256"], r"^[0-9a-f]{64}$")
+
 
 if __name__ == "__main__":
     unittest.main()
