@@ -17,7 +17,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+"coverage[toml]>=7.6,<8",
   "httpx>=0.28,<1",
+"mypy>=1.13,<2",
+"pip-audit>=2.7,<3",
+"pre-commit>=4,<5",
   "pytest>=8.3,<10",
   "pytest-asyncio>=0.24,<2",
   "ruff>=0.9,<1",
@@ -40,4 +44,25 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 addopts = "-q"
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "scripts"]
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+
+[tool.coverage.run]
+branch = true
+source = ["agent_music.scheduler", "agent_music.store"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+skip_covered = true
+exclude_also = [
+"if TYPE_CHECKING:",
+"raise NotImplementedError",
+]
 

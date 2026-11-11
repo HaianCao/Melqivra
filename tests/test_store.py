@@ -79,6 +79,56 @@ class SqliteJobStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Lost GPU job lease"):
             self.store.complete(job.id, claimed.lease_token + 1, {"ok": True})
 
+    def test_queue_position_and_queued_cancellation(self) -> None:
+        first = self.store.enqueue(user_id="alice", kind="one", payload={})
+        second = self.store.enqueue(user_id="bob", kind="two", payload={})
+
+        self.assertEqual(1, self.store.queue_position(first.id))
+        self.assertEqual(2, self.store.queue_position(second.id))
+        cancelled = self.store.request_cancel(first.id)
+
+        self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertTrue(cancelled.cancel_requested)
+        self.assertIsNone(self.store.queue_position(first.id))
+        self.assertEqual(1, self.store.queue_position(second.id))
+
+    def test_running_cancellation_preserves_fencing(self) -> None:
+        job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+        claimed = self.store.claim_next()
+        assert claimed is not None and claimed.lease_token is not None
+
+        requested = self.store.request_cancel(job.id)
+        self.assertEqual(JobState.RUNNING, requested.state)
+        self.assertTrue(requested.cancel_requested)
+
+        self.store.cancel_running(job.id, claimed.lease_token)
+        cancelled = self.store.get(job.id)
+        self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertEqual("Job cancelled", cancelled.error)
+
+    def test_failed_and_interrupted_jobs_have_explicit_states(self) -> None:
+        failed_job = self.store.enqueue(user_id="alice", kind="fail", payload={})
+        failed_claim = self.store.claim_next()
+        assert failed_claim is not None and failed_claim.lease_token is not None
+        self.store.fail(failed_job.id, failed_claim.lease_token, "model failed")
+        failed = self.store.get(failed_job.id)
+        self.assertEqual(JobState.FAILED, failed.state)
+        self.assertEqual("model failed", failed.error)
+
+        interrupted_job = self.store.enqueue(user_id="bob", kind="recover", payload={})
+        interrupted_claim = self.store.claim_next()
+        assert interrupted_claim is not None
+        self.assertEqual(1, self.store.recover_interrupted())
+
+        recovered = self.store.get(interrupted_job.id)
+        self.assertEqual(JobState.QUEUED, recovered.state)
+        self.assertIsNone(recovered.lease_token)
+        self.assertIn("safely requeued", recovered.error or "")
+
+    def test_missing_job_raises_key_error(self) -> None:
+        with self.assertRaises(KeyError):
+            self.store.get("missing")
+
 
 if __name__ == "__main__":
     unittest.main()

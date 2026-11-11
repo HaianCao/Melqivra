@@ -1,0 +1,36 @@
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: Ruff lint
+        entry: uv run --frozen ruff check src tests scripts
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: Ruff format
+        entry: uv run --frozen ruff format --check src tests scripts
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]
+      - id: mypy
+        name: Mypy strict
+        entry: uv run --frozen mypy
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]
+      - id: unit-tests
+        name: Unit tests with critical-path coverage
+        entry: uv run --frozen coverage run -m unittest discover -s tests -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: coverage-gate
+        name: Critical-path coverage gate
+        entry: uv run --frozen coverage report
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+

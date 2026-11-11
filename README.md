@@ -134,6 +134,24 @@ dependencies:
 python -m unittest discover -s tests -v
 ~~~
 
+The complete local quality gate is:
+
+~~~shell
+uv sync --locked --extra dev
+uv run --frozen ruff format --check src tests scripts
+uv run --frozen ruff check src tests scripts
+uv run --frozen mypy
+uv run --frozen coverage run -m unittest discover -s tests -v
+uv run --frozen coverage report
+uv build
+uv run --frozen pip-audit
+~~~
+
+Install the repository-managed hooks with `uv run pre-commit install
+--install-hooks --hook-type pre-commit --hook-type pre-push`. CI runs the same
+core gates on Python 3.11 and 3.13 on both Linux and Windows. GitHub Actions are
+pinned to immutable commit SHAs.
+
 Tests cover on-demand start, strict serialization across users, warm-session
 reuse, idle shutdown, FIFO ordering, idempotency, and fencing.
 

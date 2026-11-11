@@ -6,14 +6,16 @@ the official Colab CLI. Only allowlisted job kinds are accepted.
 
 from __future__ import annotations
 
+import importlib
 import json
 import platform
 import subprocess
 import sys
 import time
 import traceback
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REQUEST_PATH = Path("/content/agent_music_job.json")
 DEFAULT_RESULT_PATH = Path("/content/agent_music_result.json")
@@ -58,13 +60,14 @@ def handle_music_generate(job: dict[str, Any]) -> dict[str, Any]:
     """Call the separately installed music worker implementation."""
 
     try:
-        from agent_music_worker import generate
+        worker_module = importlib.import_module("agent_music_worker")
     except ImportError as error:
         raise RuntimeError(
             "agent_music_worker is not installed in the Colab runtime. "
             "The GPU harness is healthy, but the ACE-Step generation plugin "
             "must be bootstrapped before music.generate jobs."
         ) from error
+    generate = cast(Callable[[dict[str, Any]], object], worker_module.generate)
     result = generate(job)
     if not isinstance(result, dict):
         raise TypeError("agent_music_worker.generate must return a dict")
@@ -81,6 +84,7 @@ HANDLERS = {
 def main() -> int:
     started = time.time()
     job: dict[str, Any] = {}
+    result: dict[str, Any]
     result_path = DEFAULT_RESULT_PATH
     try:
         job = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))

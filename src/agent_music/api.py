@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -70,7 +71,7 @@ def create_app(
     resolved_harness = harness or GpuHarness(resolved_settings)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.harness = resolved_harness
         await resolved_harness.start()
         try:
@@ -85,7 +86,7 @@ def create_app(
     )
 
     def get_harness(request: Request) -> GpuHarness:
-        return request.app.state.harness
+        return cast(GpuHarness, request.app.state.harness)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
