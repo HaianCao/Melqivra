@@ -6,6 +6,11 @@ harness that starts a Google Colab T4 only when work arrives, serializes jobs
 from multiple users, keeps the session warm for five minutes, and then shuts it
 down automatically when the queue remains empty.
 
+Project policies: [contributing](CONTRIBUTING.md),
+[security](SECURITY.md), [support](SUPPORT.md),
+[code of conduct](CODE_OF_CONDUCT.md), and
+[architecture decisions](docs/adr/README.md).
+
 ## Implemented in this stage
 
 - Durable SQLite FIFO queue.
