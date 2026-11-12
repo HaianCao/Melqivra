@@ -69,13 +69,28 @@ downloaded and verified all six large weight SHA-256 values in 121.64 seconds.
 No GPU was allocated; all apps are stopped, active containers are zero, and
 billed cost remains $0 before the authorized T4 job.
 
-The complete local gate passes with 145 tests, strict mypy across 47 source
+The authorized durable Modal job then succeeded with two distinct 20.08-second,
+48 kHz stereo PCM16 vocal takes. Remote validation rejected neither silence nor
+clipping; the two seeds and SHA-256 values differ as required. The worker spent
+244.23 seconds and the durable end-to-end job spent 480.06 seconds. Peak VRAM
+was 15,272,909,312 bytes for the first take and 14,803,810,816 bytes for the
+second, leaving only 0.78 GiB and 1.21 GiB on a 15 GiB T4. The technical
+contract passed, but the safety margin is narrow and subjective music quality,
+instrumental behavior, and repeated-seed determinism are not yet claimed.
+Both WAVs downloaded in 6.51 seconds and passed independent local size,
+SHA-256, PCM16, duration, finite-sample, silence, and clipping verification in
+[heartmula-t4-verification.json](heartmula-t4-verification.json).
+
+The complete local gate passes with 147 tests, strict mypy across 48 source
 files, Ruff format/lint, 83% scheduler/store critical-path branch coverage,
 successful wheel/sdist builds, and no known audited vulnerabilities.
 
 ## Remaining before closure
 
-1. Run the one authorized bounded T4 preflight, then continue only if the backend passes memory,
-   audio, language, vocal/instrumental, determinism, and licensing gates.
-2. Download and locally verify the resulting artifact checksums/WAV contracts.
-3. Persist validated take artifacts/manifests and prove 2+ playable takes E2E.
+1. Have the user review the two vocal takes for subjective musical/vocal quality.
+2. Decide whether the narrow T4 VRAM margin is acceptable or requires a safer
+   backend/runtime before production acceptance.
+3. Design the separate instrumental-capability experiment, but do not allocate
+   another GPU without explicit cost approval.
+4. Persist validated takes as immutable project artifacts/manifests rather than
+   evidence-only Modal Volume files.

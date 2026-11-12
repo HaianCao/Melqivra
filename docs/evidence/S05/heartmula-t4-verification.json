@@ -1,0 +1,43 @@
+{
+  "passed": true,
+  "request_id": "heartmula_vocal_20261112_a",
+  "schema_version": 1,
+  "takes": [
+    {
+      "relative_path": "heartmula_vocal_20261112_a/take_a.wav",
+      "sha256": "22a38eb139e8d93a33f2e87a388738ca86a0c1d6b71ec8ed657c6019ff0e9308",
+      "size_bytes": 3855434,
+      "take_id": "take_a",
+      "validation": {
+        "absolute_peak": 0.893402099609375,
+        "channels": 2,
+        "clipped": false,
+        "duration_matches": true,
+        "duration_seconds": 20.079979166666668,
+        "finite_samples": true,
+        "passed": true,
+        "sample_rate_hz": 48000,
+        "sample_width_bytes": 2,
+        "silent": false
+      }
+    },
+    {
+      "relative_path": "heartmula_vocal_20261112_a/take_b.wav",
+      "sha256": "adcc740d56613ffcd728a654fd14a0eb3877441487022e6e8a5a85140604e0c5",
+      "size_bytes": 3855434,
+      "take_id": "take_b",
+      "validation": {
+        "absolute_peak": 0.57635498046875,
+        "channels": 2,
+        "clipped": false,
+        "duration_matches": true,
+        "duration_seconds": 20.079979166666668,
+        "finite_samples": true,
+        "passed": true,
+        "sample_rate_hz": 48000,
+        "sample_width_bytes": 2,
+        "silent": false
+      }
+    }
+  ]
+}
