@@ -38,7 +38,12 @@ identity, exact source revisions, language, vocal intent, approved contract
 checksum, two-to-four take seeds, output integrity, and all-or-nothing batch
 validation. No model assets are bundled or downloaded by this checkpoint.
 
-The complete local gate passes with 128 tests, strict mypy across 39 source
+Generation submission now creates a pending GPU approval bound to the accepted
+contract SHA-256. Pending, rejected, cross-user, cross-project, stale-checksum,
+or changed-revision requests cannot enqueue work. Only the exact approved
+contract serializes into a durable `music.generate` job.
+
+The complete local gate passes with 132 tests, strict mypy across 40 source
 files, Ruff format/lint, 83% scheduler/store critical-path branch coverage,
 successful wheel/sdist builds, and no known audited vulnerabilities.
 

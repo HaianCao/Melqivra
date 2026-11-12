@@ -131,6 +131,26 @@ class ApprovalLedger:
             and request.decision is ApprovalDecision.APPROVED
         )
 
+    def require_approved(
+        self,
+        *,
+        approval_id: str,
+        user_id: UserId,
+        project_id: ProjectId,
+        action: str,
+        risk: RiskClass,
+    ) -> ApprovalRequest:
+        """Resolve one exact approval without leaking other users' requests."""
+
+        current = self._requests.get(approval_id)
+        if current is None or current.user_id != user_id or current.project_id != project_id:
+            raise ToolPolicyError("Approval is unavailable")
+        if current.action != action or current.risk is not risk:
+            raise ToolPolicyError("Approval does not match the requested action")
+        if current.decision is not ApprovalDecision.APPROVED:
+            raise ToolPolicyError("Approval is not approved")
+        return current
+
 
 @dataclass(frozen=True, slots=True)
 class AgentEvent:

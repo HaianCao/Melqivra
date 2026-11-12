@@ -199,6 +199,61 @@ class MusicGenerationBackend(Protocol):
     ) -> GenerationBatchResult: ...
 
 
+def request_to_json(request: MusicGenerationRequest) -> JsonObject:
+    """Serialize one validated request for the provider-neutral worker."""
+
+    request.validate()
+    return {
+        "schema_version": request.schema_version,
+        "job_id": request.job_id,
+        "project_id": str(request.project_id),
+        "contract_checksum": request.contract_checksum,
+        "source_revision_ids": [str(item) for item in request.source_revision_ids],
+        "backend_id": request.backend_id,
+        "backend_revision": request.backend_revision,
+        "operation": request.operation,
+        "language": request.language,
+        "vocal_mode": request.vocal_mode.value,
+        "prompt": request.prompt,
+        "lyrics": request.lyrics,
+        "duration_seconds": request.duration_seconds,
+        "takes": [
+            {
+                "take_id": take.take_id,
+                "label": take.label,
+                "seed": take.seed,
+                "settings": take.settings,
+            }
+            for take in request.takes
+        ],
+    }
+
+
+def request_from_json(payload: JsonObject) -> MusicGenerationRequest:
+    """Decode and validate an untrusted remote generation request."""
+
+    request = MusicGenerationRequest(
+        schema_version=_integer(payload, "schema_version"),
+        job_id=_string(payload, "job_id"),
+        project_id=ProjectId(_string(payload, "project_id")),
+        contract_checksum=_string(payload, "contract_checksum"),
+        source_revision_ids=tuple(
+            RevisionId(item) for item in _string_list(payload, "source_revision_ids")
+        ),
+        backend_id=_string(payload, "backend_id"),
+        backend_revision=_string(payload, "backend_revision"),
+        operation=_string(payload, "operation"),
+        language=_string(payload, "language"),
+        vocal_mode=VocalMode(_string(payload, "vocal_mode")),
+        prompt=_string(payload, "prompt"),
+        lyrics=_optional_string(payload, "lyrics"),
+        duration_seconds=_number(payload, "duration_seconds"),
+        takes=tuple(_take_from_json(item) for item in _object_list(payload, "takes")),
+    )
+    request.validate()
+    return request
+
+
 class MusicBackendRegistry:
     """Explicit backend registry with no implicit model or revision fallback."""
 
@@ -273,3 +328,69 @@ def execute_generation(
         observed.add(take.take_id)
     on_progress({"type": "stage", "stage": "batch_validated", "progress": 1.0})
     return result
+
+
+def _take_from_json(payload: JsonObject) -> TakeSpec:
+    settings = payload.get("settings")
+    if not isinstance(settings, dict):
+        raise GenerationContractError("Take settings must be an object")
+    return TakeSpec(
+        _string(payload, "take_id"),
+        _string(payload, "label"),
+        _integer(payload, "seed"),
+        settings,
+    )
+
+
+def _string(payload: JsonObject, name: str) -> str:
+    value = payload.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise GenerationContractError(f"{name} must be a non-empty string")
+    return value
+
+
+def _optional_string(payload: JsonObject, name: str) -> str | None:
+    value = payload.get(name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise GenerationContractError(f"{name} must be a string or null")
+    return value
+
+
+def _integer(payload: JsonObject, name: str) -> int:
+    value = payload.get(name)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise GenerationContractError(f"{name} must be an integer")
+    return value
+
+
+def _number(payload: JsonObject, name: str) -> float:
+    value = payload.get(name)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise GenerationContractError(f"{name} must be a number")
+    return float(value)
+
+
+def _string_list(payload: JsonObject, name: str) -> tuple[str, ...]:
+    value = payload.get(name)
+    if not isinstance(value, list):
+        raise GenerationContractError(f"{name} must be a string array")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise GenerationContractError(f"{name} must be a string array")
+        result.append(item)
+    return tuple(result)
+
+
+def _object_list(payload: JsonObject, name: str) -> tuple[JsonObject, ...]:
+    value = payload.get(name)
+    if not isinstance(value, list):
+        raise GenerationContractError(f"{name} must be an object array")
+    result: list[JsonObject] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise GenerationContractError(f"{name} must be an object array")
+        result.append(item)
+    return tuple(result)
