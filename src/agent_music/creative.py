@@ -107,6 +107,7 @@ class BackendCapabilities:
     max_duration_seconds: float
     supported_languages: frozenset[str]
     supports_vocals: bool = True
+    supports_instrumental: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -559,9 +560,12 @@ def compile_generation_plan(
     duration = brief.duration_seconds
     if duration is None or duration > capabilities.max_duration_seconds:
         raise UnsupportedCapabilityError("Requested duration exceeds backend capability")
-    if brief.language not in capabilities.supported_languages:
+    instrumental = brief.vocal.casefold() == "instrumental"
+    if instrumental and not capabilities.supports_instrumental:
+        raise UnsupportedCapabilityError("Backend does not support instrumental generation")
+    if not instrumental and brief.language not in capabilities.supported_languages:
         raise UnsupportedCapabilityError("Requested language is unsupported")
-    if brief.vocal.casefold() != "instrumental" and not capabilities.supports_vocals:
+    if not instrumental and not capabilities.supports_vocals:
         raise UnsupportedCapabilityError("Backend does not support vocals")
     validate_blueprint(blueprint, target_duration=duration)
     variations = tuple(
@@ -576,8 +580,9 @@ def compile_generation_plan(
         )
         for index in range(take_count)
     )
-    requested = [operation, f"language:{brief.language}"]
-    if brief.vocal.casefold() != "instrumental":
+    requested = [operation]
+    if not instrumental:
+        requested.append(f"language:{brief.language}")
         requested.append("vocals")
     settings: JsonObject = {
         "duration_seconds": duration,

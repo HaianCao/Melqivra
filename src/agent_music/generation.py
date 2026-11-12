@@ -306,12 +306,13 @@ def validate_generation_request(
         raise UnsupportedGenerationError("Request selected a different backend revision")
     if request.operation not in descriptor.operations:
         raise UnsupportedGenerationError("Backend does not support the requested operation")
-    if request.language.casefold() not in {
-        language.casefold() for language in descriptor.supported_languages
-    }:
-        raise UnsupportedGenerationError("Backend has not verified the requested language")
-    if request.vocal_mode is VocalMode.VOCAL and not descriptor.supports_vocals:
-        raise UnsupportedGenerationError("Backend does not support vocals")
+    if request.vocal_mode is VocalMode.VOCAL:
+        if request.language.casefold() not in {
+            language.casefold() for language in descriptor.supported_languages
+        }:
+            raise UnsupportedGenerationError("Backend has not verified the requested language")
+        if not descriptor.supports_vocals:
+            raise UnsupportedGenerationError("Backend does not support vocals")
     if request.vocal_mode is VocalMode.INSTRUMENTAL and not descriptor.supports_instrumental:
         raise UnsupportedGenerationError("Backend does not support instrumental generation")
     if (

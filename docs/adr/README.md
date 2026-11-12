@@ -16,6 +16,7 @@ with a new ADR that links to and supersedes the old one.
 | [0003](0003-capability-based-runner-abstraction.md) | Capability-based runner abstraction | Accepted |
 | [0004](0004-ace-step-is-research-only-on-t4.md) | Keep pinned ACE-Step research-only on T4 | Accepted |
 | [0005](0005-modal-is-the-default-remote-transport.md) | Modal is the default remote transport | Accepted |
+| [0006](0006-require-client-approved-multi-backend-routing.md) | Require client-approved multi-backend routing | Accepted |
 
 Use [0000-template.md](0000-template.md) for new decisions.
 

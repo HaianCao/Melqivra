@@ -222,6 +222,48 @@ class CreativePlanningTests(unittest.TestCase):
         self.assertIn("4 takes", approval)
         self.assertIn("Final Chorus", approval)
 
+    def test_instrumental_planning_ignores_lyric_language_but_requires_support(self) -> None:
+        brief = build_brief(DocumentId("doc_brief"), _request(vocal="instrumental"))
+        blueprint = plan_blueprint(DocumentId("doc_blueprint"), brief)
+        capabilities = BackendCapabilities(
+            frozenset({"text_to_music"}),
+            240.0,
+            frozenset({"und"}),
+            supports_vocals=False,
+            supports_instrumental=True,
+        )
+        compiled = compile_generation_plan(
+            DocumentId("doc_plan"),
+            brief_revision_id=RevisionId("rev_brief"),
+            blueprint_revision_id=RevisionId("rev_blueprint"),
+            lyrics_revision_id=None,
+            brief=brief,
+            blueprint=blueprint,
+            operation="text_to_music",
+            take_count=2,
+            base_seed=42,
+            capabilities=capabilities,
+        )
+        self.assertNotIn("language:vi", compiled.plan.requested_capabilities)
+        with self.assertRaisesRegex(UnsupportedCapabilityError, "instrumental"):
+            compile_generation_plan(
+                DocumentId("doc_other"),
+                brief_revision_id=RevisionId("rev_brief"),
+                blueprint_revision_id=RevisionId("rev_blueprint"),
+                lyrics_revision_id=None,
+                brief=brief,
+                blueprint=blueprint,
+                operation="text_to_music",
+                take_count=2,
+                base_seed=42,
+                capabilities=BackendCapabilities(
+                    frozenset({"text_to_music"}),
+                    240.0,
+                    frozenset({"und"}),
+                    supports_instrumental=False,
+                ),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

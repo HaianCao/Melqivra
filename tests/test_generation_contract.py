@@ -137,6 +137,27 @@ class GenerationContractTests(unittest.TestCase):
             )
         self.assertEqual(0, backend.calls)
 
+    def test_instrumental_request_does_not_claim_lyric_language_support(self) -> None:
+        descriptor = MusicBackendDescriptor(
+            backend_id="instrumental_backend",
+            source_revision="source-pin",
+            model_ids=("model@revision",),
+            license_ids=("MIT",),
+            operations=frozenset({"text2music"}),
+            supported_languages=frozenset({"und"}),
+            supports_vocals=False,
+            supports_instrumental=True,
+            min_duration_seconds=20.0,
+            max_duration_seconds=240.0,
+        )
+        request = self.request(
+            backend_id="instrumental_backend",
+            vocal_mode=VocalMode.INSTRUMENTAL,
+            lyrics=None,
+        )
+        result = execute_generation(StubBackend(descriptor), request, lambda _event: None)
+        self.assertEqual(2, len(result.takes))
+
     def test_take_batch_requires_unique_ids_seeds_and_two_to_four_items(self) -> None:
         backend = StubBackend(self.descriptor)
         duplicate = TakeSpec("take_faithful", "duplicate", 11, {})
