@@ -367,6 +367,20 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             raise RuntimeError(f"LM initialization failed: {llm_status}")
     model_load = time.monotonic() - load_started
 
+    controlled_oom: BaseException | None = None
+    if args.controlled_allocator_oom:
+        free_bytes, _ = torch.cuda.mem_get_info()
+        try:
+            torch.empty(
+                int(free_bytes) + 1024 * 1024,
+                dtype=torch.uint8,
+                device="cuda",
+            )
+        except torch.OutOfMemoryError as error:
+            controlled_oom = error
+        else:
+            raise RuntimeError("Controlled CUDA allocator OOM did not occur")
+
     pressure_allocations: list[Any] = []
     if args.expect_oom and args.oom_headroom_mib is not None:
         headroom_bytes = int(args.oom_headroom_mib) * 1024 * 1024
@@ -411,18 +425,19 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     inference_started = time.monotonic()
-    raised_oom: BaseException | None = None
+    raised_oom: BaseException | None = controlled_oom
     result: Any = None
-    try:
-        result = inference_module.generate_music(
-            dit_handler,
-            llm_handler,
-            params=params,
-            config=config,
-            save_dir=str(args.output_dir),
-        )
-    except torch.OutOfMemoryError as error:
-        raised_oom = error
+    if controlled_oom is None:
+        try:
+            result = inference_module.generate_music(
+                dit_handler,
+                llm_handler,
+                params=params,
+                config=config,
+                save_dir=str(args.output_dir),
+            )
+        except torch.OutOfMemoryError as error:
+            raised_oom = error
     inference_seconds = time.monotonic() - inference_started
     if args.expect_oom:
         returned_error = None if raised_oom is not None else result.error
@@ -477,9 +492,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
                 "offload_to_cpu": bool(args.offload_to_cpu),
                 "lm_requested": bool(args.lm),
                 "oom_headroom_mib": args.oom_headroom_mib,
+                "controlled_allocator_oom": bool(args.controlled_allocator_oom),
             },
             "failure": {
                 "class": "cuda_out_of_memory",
+                "trigger": (
+                    "controlled_allocator_overallocation"
+                    if args.controlled_allocator_oom
+                    else "generation_under_controlled_pressure"
+                ),
                 "exception_type": (
                     type(raised_oom).__name__ if raised_oom is not None else "GenerationResult"
                 ),
@@ -639,6 +660,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--expect-oom", action="store_true")
     parser.add_argument("--oom-headroom-mib", type=int)
+    parser.add_argument("--controlled-allocator-oom", action="store_true")
     parser.add_argument(
         "--precision",
         choices=("upstream_default", "float16", "float32"),
@@ -661,12 +683,21 @@ def validate_arguments(args: argparse.Namespace) -> None:
 
     if args.batch_size < 1:
         raise SystemExit("--batch-size must be positive")
-    if args.expect_oom and args.batch_size == 1 and args.oom_headroom_mib is None:
+    if (
+        args.expect_oom
+        and args.batch_size == 1
+        and args.oom_headroom_mib is None
+        and not args.controlled_allocator_oom
+    ):
         raise SystemExit("--expect-oom with batch size one requires controlled CUDA headroom")
     if args.oom_headroom_mib is not None and not args.expect_oom:
         raise SystemExit("--oom-headroom-mib requires --expect-oom")
     if args.oom_headroom_mib is not None and args.oom_headroom_mib < 256:
         raise SystemExit("--oom-headroom-mib must be at least 256")
+    if args.controlled_allocator_oom and not args.expect_oom:
+        raise SystemExit("--controlled-allocator-oom requires --expect-oom")
+    if args.controlled_allocator_oom and args.oom_headroom_mib is not None:
+        raise SystemExit("controlled allocator OOM cannot also reserve CUDA headroom")
 
 
 def main() -> int:
