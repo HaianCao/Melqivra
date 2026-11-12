@@ -10,10 +10,22 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from agent_music.config import HarnessSettings
+from agent_music.config import (
+    DEFAULT_MODAL_RUNNER_FILE,
+    DEFAULT_REMOTE_WORKER_FILE,
+    HarnessSettings,
+)
 
 
 class HarnessSettingsTests(unittest.TestCase):
+    def test_default_remote_assets_are_installed_package_files(self) -> None:
+        settings = HarnessSettings()
+
+        self.assertTrue(DEFAULT_MODAL_RUNNER_FILE.is_file())
+        self.assertTrue(DEFAULT_REMOTE_WORKER_FILE.is_file())
+        self.assertEqual(DEFAULT_MODAL_RUNNER_FILE, settings.modal_runner_file)
+        self.assertEqual(DEFAULT_REMOTE_WORKER_FILE, settings.colab_remote_worker_file)
+
     def test_modal_is_the_default_runner(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             settings = HarnessSettings.from_env()

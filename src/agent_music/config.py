@@ -6,6 +6,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+PACKAGE_ROOT = Path(__file__).resolve().parent
+DEFAULT_MODAL_RUNNER_FILE = PACKAGE_ROOT / "remote" / "modal_app.py"
+DEFAULT_REMOTE_WORKER_FILE = PACKAGE_ROOT / "remote" / "worker.py"
+
 
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -32,7 +36,7 @@ class HarnessSettings:
 
     modal_executable: str = "modal"
     modal_app_name: str = "melqivra-gpu-runner"
-    modal_runner_file: Path = Path("scripts/modal/runner_app.py")
+    modal_runner_file: Path = DEFAULT_MODAL_RUNNER_FILE
     modal_remote_output_root: str = "/tmp/agent_music_output"
     modal_command_timeout_seconds: float = 1_800.0
 
@@ -46,7 +50,7 @@ class HarnessSettings:
     colab_remote_request_path: str = "/content/agent_music_job.json"
     colab_remote_result_path: str = "/content/agent_music_result.json"
     colab_remote_output_root: str = "/content/agent_music_output"
-    colab_remote_worker_file: Path = Path("scripts/colab/remote_worker.py")
+    colab_remote_worker_file: Path = DEFAULT_REMOTE_WORKER_FILE
     colab_command_timeout_seconds: float = 900.0
 
     fake_job_seconds: float = 0.05
@@ -65,7 +69,7 @@ class HarnessSettings:
             job_timeout_seconds=float(os.getenv("GPU_JOB_TIMEOUT_SECONDS", "1800")),
             modal_executable=os.getenv("MODAL_EXECUTABLE", "modal"),
             modal_app_name=os.getenv("MODAL_APP_NAME", "melqivra-gpu-runner"),
-            modal_runner_file=Path(os.getenv("MODAL_RUNNER_FILE", "scripts/modal/runner_app.py")),
+            modal_runner_file=Path(os.getenv("MODAL_RUNNER_FILE", str(DEFAULT_MODAL_RUNNER_FILE))),
             modal_remote_output_root=os.getenv(
                 "MODAL_REMOTE_OUTPUT_ROOT", "/tmp/agent_music_output"
             ),
@@ -89,7 +93,7 @@ class HarnessSettings:
             colab_remote_worker_file=Path(
                 os.getenv(
                     "COLAB_REMOTE_WORKER_FILE",
-                    "scripts/colab/remote_worker.py",
+                    str(DEFAULT_REMOTE_WORKER_FILE),
                 )
             ),
             colab_command_timeout_seconds=float(os.getenv("COLAB_COMMAND_TIMEOUT_SECONDS", "900")),

@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from agent_music.config import HarnessSettings  # noqa: E402
+from agent_music.config import DEFAULT_MODAL_RUNNER_FILE, HarnessSettings  # noqa: E402
 from agent_music.models import JobState  # noqa: E402
 from agent_music.scheduler import GpuHarness  # noqa: E402
 
@@ -34,7 +34,7 @@ async def run_smoke(*, modal_executable: str, timeout_seconds: float) -> dict[st
             job_timeout_seconds=timeout_seconds,
             modal_executable=modal_executable,
             modal_app_name="melqivra-strategy-smoke",
-            modal_runner_file=ROOT / "scripts" / "modal" / "runner_app.py",
+            modal_runner_file=DEFAULT_MODAL_RUNNER_FILE,
             modal_command_timeout_seconds=timeout_seconds,
         )
         harness = GpuHarness(settings)

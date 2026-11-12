@@ -23,7 +23,7 @@ class RunnerStrategy(Protocol):
 
 
 class ModalRunnerStrategy:
-    """Build the default on-demand Modal T4 runner."""
+    """Build the default scale-to-zero Modal execution runner."""
 
     name = "modal"
 
