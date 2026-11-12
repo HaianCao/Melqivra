@@ -27,16 +27,23 @@ def emit(event: dict[str, Any]) -> None:
 
 
 def gpu_info() -> dict[str, Any]:
-    result = subprocess.run(
-        [
-            "nvidia-smi",
-            "--query-gpu=name,memory.total,driver_version",
-            "--format=csv,noheader,nounits",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,driver_version",
+                "--format=csv,noheader,nounits",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return {
+            "available": False,
+            "nvidia_smi": "",
+            "error": "nvidia-smi executable not found",
+        }
     return {
         "available": result.returncode == 0,
         "nvidia_smi": result.stdout.strip(),

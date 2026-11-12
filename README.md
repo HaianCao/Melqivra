@@ -111,7 +111,7 @@ back automatically:
 
 | `GPU_RUNNER` | Strategy | Lifecycle |
 |---|---|---|
-| `modal` | Modal T4 | One bounded app per job; scales to zero after execution |
+| `modal` | Modal | CPU transport checks; T4 only for GPU jobs; scales to zero |
 | `colab` | Named Colab T4 session | Starts on demand; scheduler stops after idle grace |
 | `fake` | Deterministic CPU fake | Development and CI only |
 | `local` | Local CUDA placeholder | Fails until the S11 implementation exists |
@@ -150,10 +150,11 @@ MODAL_RUNNER_FILE=scripts/modal/runner_app.py
 ~~~
 
 Run `uv run melqivra doctor` from the same environment that owns the Modal
-profile. The scheduler submits only file-backed requests, the Modal function is
-fixed to a T4 with one container, and the app scales to zero after each job.
-Use `harness.healthcheck` for the real transport smoke test. Private payload
-content is not placed in CLI arguments or provider log events.
+profile. The scheduler submits only file-backed requests. Health, echo, and
+unsupported-kind validation run without a GPU; `music.generate` is fixed to a
+T4 with one container. Every function scales to zero after each job. Use
+`harness.healthcheck` for the real transport smoke test. Private payload content
+is not placed in CLI arguments or provider log events.
 
 Switch to Colab by changing one setting:
 

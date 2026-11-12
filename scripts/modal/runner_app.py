@@ -11,29 +11,18 @@ from typing import Any, cast
 
 import modal
 
-ROOT = Path(__file__).resolve().parents[2]
-LOCAL_WORKER = ROOT / "scripts" / "colab" / "remote_worker.py"
 REMOTE_WORKER = Path("/opt/melqivra/remote_worker.py")
 
-image = modal.Image.debian_slim(python_version="3.12").add_local_file(
-    str(LOCAL_WORKER),
-    remote_path=str(REMOTE_WORKER),
-)
+image = modal.Image.debian_slim(python_version="3.12")
+if modal.is_local():
+    root = Path(__file__).resolve().parents[2]
+    local_worker = root / "scripts" / "colab" / "remote_worker.py"
+    image = image.add_local_file(str(local_worker), remote_path=str(REMOTE_WORKER))
 app = modal.App()
+GPU_JOB_KINDS = {"music.generate"}
 
 
-@app.function(  # type: ignore[untyped-decorator]
-    image=image,
-    gpu="T4",
-    cpu=2,
-    memory=4_096,
-    max_containers=1,
-    scaledown_window=2,
-    timeout=1_800,
-)
-def run_job(request_json: str) -> dict[str, Any]:
-    """Execute one request on T4 and return its typed worker result."""
-
+def _execute_worker(request_json: str) -> dict[str, Any]:
     request = json.loads(request_json)
     if not isinstance(request, dict):
         raise TypeError("Modal request must be a JSON object")
@@ -72,10 +61,43 @@ def run_job(request_json: str) -> dict[str, Any]:
         return cast(dict[str, Any], result)
 
 
+@app.function(  # type: ignore[untyped-decorator]
+    image=image,
+    cpu=2,
+    memory=1_024,
+    max_containers=1,
+    scaledown_window=2,
+    timeout=300,
+)
+def run_control_job(request_json: str) -> dict[str, Any]:
+    """Execute non-GPU health, echo, or unsupported-kind validation work."""
+
+    return _execute_worker(request_json)
+
+
+@app.function(  # type: ignore[untyped-decorator]
+    image=image,
+    gpu="T4",
+    cpu=2,
+    memory=4_096,
+    max_containers=1,
+    scaledown_window=2,
+    timeout=1_800,
+)
+def run_gpu_job(request_json: str) -> dict[str, Any]:
+    """Execute an allowlisted GPU job on T4 only."""
+
+    return _execute_worker(request_json)
+
+
 @app.local_entrypoint()  # type: ignore[untyped-decorator]
 def main(request_file: str) -> str:
     """Read private job content from a file rather than placing it in CLI arguments."""
 
     request_json = Path(request_file).read_text(encoding="utf-8")
-    result = run_job.remote(request_json)
+    request = json.loads(request_json)
+    if not isinstance(request, dict):
+        raise TypeError("Modal request must be a JSON object")
+    function = run_gpu_job if request.get("kind") in GPU_JOB_KINDS else run_control_job
+    result = function.remote(request_json)
     return json.dumps(result, ensure_ascii=False, sort_keys=True)

@@ -42,7 +42,7 @@ class ModalClient(Protocol):
 
 
 class ModalRunner(GpuRunner):
-    """Run each job in a bounded Modal T4 app that scales to zero immediately."""
+    """Run bounded Modal jobs, reserving T4 allocation for GPU job kinds."""
 
     def __init__(
         self,

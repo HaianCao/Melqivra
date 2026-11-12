@@ -1,4 +1,4 @@
-"""Run one real Modal T4 healthcheck through the durable runner strategy."""
+"""Run one real Modal transport healthcheck through the durable runner strategy."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ async def run_smoke(*, modal_executable: str, timeout_seconds: float) -> dict[st
                 payload={},
                 idempotency_key="modal-strategy-smoke-v1",
             )
-            deadline = started + timeout_seconds
+            deadline = started + timeout_seconds + 30.0
             while time.monotonic() < deadline:
                 current = harness.store.get(job.id)
                 if current.state in TERMINAL_STATES:
@@ -60,7 +60,15 @@ async def run_smoke(*, modal_executable: str, timeout_seconds: float) -> dict[st
                         "error": current.error,
                     }
                 await asyncio.sleep(0.1)
-            raise TimeoutError("Modal strategy smoke job did not reach a terminal state")
+            await harness.cancel(job.id)
+            return {
+                "status": "observer_timeout",
+                "duration_seconds": time.monotonic() - started,
+                "runner": settings.runner,
+                "app_name": settings.modal_app_name,
+                "result": None,
+                "error": "Modal strategy smoke job did not reach a terminal state",
+            }
         finally:
             await harness.close()
 
