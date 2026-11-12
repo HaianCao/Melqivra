@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-12",
+  "target": {
+    "gpu": "NVIDIA Tesla T4",
+    "memory_bytes": 16106127360,
+    "provider": "Modal by default; Colab explicitly selectable",
+    "requirements": [
+      "vocal and instrumental intent remains explicit",
+      "multiple languages with explicit verified-language rejection",
+      "two to four seeded takes",
+      "production-compatible license",
+      "no bundled weights",
+      "no model, precision, GPU, operation, or provider fallback"
+    ]
+  },
+  "candidates": [
+    {
+      "id": "heartmula_3b",
+      "repository": "https://github.com/HeartMuLa/heartlib",
+      "source_revision": "5858ca8f1ffe58d62be7c007ea55f1033c5ca456",
+      "model_ids": [
+        "HeartMuLa/HeartMuLa-oss-3B-happy-new-year@00a79ac9477f64593eba2ca96a25807cb2f55be6",
+        "HeartMuLa/HeartCodec-oss-20260123@f889dab0532cfa4bf459f2a3367eb6d346b8eeda"
+      ],
+      "license": "Apache-2.0 for source and declared model weights",
+      "declared_languages": ["zh", "en", "ja", "ko", "es"],
+      "declared_max_duration_seconds": 240,
+      "source_weight_bytes": {
+        "music_model_approx": 15800000000,
+        "codec_approx": 6640000000
+      },
+      "low_memory_path": "sequential lazy loading on one GPU",
+      "status": "bounded_t4_probe_candidate",
+      "unproven_gates": [
+        "Tesla T4 float16 numerical behavior",
+        "peak VRAM and cleanup",
+        "instrumental generation",
+        "explicit seed determinism",
+        "Vietnamese and languages outside the five model-card tags",
+        "audio validation and transfer"
+      ],
+      "sources": [
+        "https://github.com/HeartMuLa/heartlib/tree/5858ca8f1ffe58d62be7c007ea55f1033c5ca456",
+        "https://huggingface.co/HeartMuLa/HeartMuLa-oss-3B-happy-new-year/tree/00a79ac9477f64593eba2ca96a25807cb2f55be6",
+        "https://huggingface.co/HeartMuLa/HeartCodec-oss-20260123/tree/f889dab0532cfa4bf459f2a3367eb6d346b8eeda"
+      ]
+    },
+    {
+      "id": "songgeneration_base_new",
+      "repository": "https://github.com/RuyangFan/SongGen",
+      "source_revision": "58a32bc82ff1a8f48bf6e6056ca56c3c2d32a92d",
+      "declared_languages": ["zh", "en"],
+      "declared_gpu_memory_gib": 10,
+      "status": "rejected",
+      "reason": "license forbids commercial or production use",
+      "source": "https://github.com/RuyangFan/SongGen/blob/58a32bc82ff1a8f48bf6e6056ca56c3c2d32a92d/LICENSE"
+    },
+    {
+      "id": "yue2_3b",
+      "repository": "https://github.com/multimodal-art-projection/YuE",
+      "source_revision": "1116bea76032bee5668e5f097294d082fa0b84f0",
+      "license": "Apache-2.0",
+      "status": "rejected_for_reference_deployment",
+      "reason": "supported baseline requires BF16 and 24 GB VRAM",
+      "source": "https://github.com/multimodal-art-projection/YuE/tree/1116bea76032bee5668e5f097294d082fa0b84f0"
+    }
+  ],
+  "decision": {
+    "accepted_production_backend": null,
+    "next_candidate": "heartmula_3b",
+    "gpu_authorized_now": false,
+    "next_step": "finish CPU adapter and exact bounded probe contract"
+  }
+}
