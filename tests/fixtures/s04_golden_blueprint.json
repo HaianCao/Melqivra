@@ -1,0 +1,15 @@
+{
+  "section_ids": [
+    "sec_intro",
+    "sec_verse_1",
+    "sec_pre_chorus",
+    "sec_chorus_1",
+    "sec_verse_2",
+    "sec_bridge",
+    "sec_final_chorus",
+    "sec_outro"
+  ],
+  "durations": [14.4, 30.6, 16.2, 32.4, 28.8, 21.6, 27.0, 9.0],
+  "climax": "sec_final_chorus",
+  "instrumentation": ["piano", "acoustic guitar", "bass", "strings"]
+}
