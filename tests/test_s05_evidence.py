@@ -19,6 +19,8 @@ from agent_music.s05_preflight import (
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "docs" / "evidence" / "S05" / "heartmula-probe-contract.json"
 RUNTIME_EVIDENCE = ROOT / "docs" / "evidence" / "S05" / "heartmula-runtime-preflight.json"
+T4_RUN = ROOT / "docs" / "evidence" / "S05" / "heartmula-t4-run.json"
+T4_VERIFICATION = ROOT / "docs" / "evidence" / "S05" / "heartmula-t4-verification.json"
 MODAL_APP = ROOT / "scripts" / "modal" / "s05_heartmula_app.py"
 
 
@@ -67,6 +69,27 @@ class S05EvidenceTests(unittest.TestCase):
         self.assertEqual(0, evidence["cleanup"]["active_apps"])
         self.assertEqual(0, evidence["cleanup"]["active_containers"])
         self.assertEqual(0.0, evidence["billing_before_gpu"]["billed_usd"])
+
+    def test_t4_run_and_downloaded_artifacts_pass_without_overclaiming(self) -> None:
+        run = cast(dict[str, Any], json.loads(T4_RUN.read_text(encoding="utf-8")))
+        verification = cast(
+            dict[str, Any],
+            json.loads(T4_VERIFICATION.read_text(encoding="utf-8")),
+        )
+        self.assertEqual("succeeded", run["status"])
+        self.assertEqual("Tesla T4", run["gpu"])
+        self.assertEqual(2, len(run["takes"]))
+        self.assertTrue(verification["passed"])
+        self.assertEqual(
+            {take["sha256"] for take in run["takes"]},
+            {take["sha256"] for take in verification["takes"]},
+        )
+        self.assertEqual("narrow", run["assessment"]["vram_safety_margin"])
+        self.assertEqual("not_yet_reviewed", run["assessment"]["subjective_music_quality"])
+        self.assertEqual("not_claimed", run["assessment"]["instrumental_capability"])
+        self.assertTrue(run["cleanup"]["app_stopped"])
+        self.assertEqual(0, run["cleanup"]["active_containers"])
+        self.assertEqual(0.0, run["billing_after_gpu"]["billed_usd"])
 
 
 if __name__ == "__main__":

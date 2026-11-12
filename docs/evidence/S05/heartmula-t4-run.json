@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-12",
+  "status": "succeeded",
+  "provider": "modal",
+  "runner": "modal",
+  "gpu": "Tesla T4",
+  "app_name": "melqivra-s05-heartmula-probe",
+  "request_id": "heartmula_vocal_20261112_a",
+  "job_id": "8aa14409-6318-45a4-975a-8b7fe3688cfe",
+  "contract_checksum": "888f0ad5d88b7059dc0a2c9d110fabe87a1ef8117b53ae05f96d0ba6185c2448",
+  "backend_id": "heartmula_3b",
+  "backend_revision": "5858ca8f1ffe58d62be7c007ea55f1033c5ca456",
+  "duration": {
+    "durable_job_seconds": 480.057257853,
+    "remote_worker_seconds": 244.22846865653992,
+    "artifact_transfer_seconds": 6.51
+  },
+  "request": {
+    "language": "en",
+    "vocal_mode": "vocal",
+    "duration_seconds": 20.0,
+    "take_count": 2,
+    "settings": {
+      "topk": 50,
+      "temperature": 1.0,
+      "cfg_scale": 1.5
+    },
+    "automatic_retry": false,
+    "fallback": false
+  },
+  "takes": [
+    {
+      "take_id": "take_a",
+      "seed": 2026111201,
+      "relative_path": "heartmula_vocal_20261112_a/take_a.wav",
+      "media_type": "audio/wav",
+      "size_bytes": 3855434,
+      "sha256": "22a38eb139e8d93a33f2e87a388738ca86a0c1d6b71ec8ed657c6019ff0e9308",
+      "duration_seconds": 20.079979166666668,
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "sample_width_bytes": 2,
+      "absolute_peak": 0.893402099609375,
+      "silent": false,
+      "clipped": false,
+      "peak_vram_bytes": 15272909312,
+      "vram_margin_bytes": 833218048
+    },
+    {
+      "take_id": "take_b",
+      "seed": 2026111202,
+      "relative_path": "heartmula_vocal_20261112_a/take_b.wav",
+      "media_type": "audio/wav",
+      "size_bytes": 3855434,
+      "sha256": "adcc740d56613ffcd728a654fd14a0eb3877441487022e6e8a5a85140604e0c5",
+      "duration_seconds": 20.079979166666668,
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "sample_width_bytes": 2,
+      "absolute_peak": 0.57635498046875,
+      "silent": false,
+      "clipped": false,
+      "peak_vram_bytes": 14803810816,
+      "vram_margin_bytes": 1302316544
+    }
+  ],
+  "translation": {
+    "tags": "approved prompt passed unchanged",
+    "lyrics": "approved lyrics passed unchanged",
+    "case_preservation": "upstream lowercase transform explicitly neutralized",
+    "music_model_precision": "float16",
+    "codec_precision": "float32",
+    "lazy_load": true
+  },
+  "cleanup": {
+    "app_stopped": true,
+    "active_containers": 0
+  },
+  "billing_after_gpu": {
+    "metered_usd": 0.58,
+    "billed_usd": 0.0
+  },
+  "assessment": {
+    "technical_audio_contract": "passed",
+    "two_take_contract": "passed",
+    "subjective_music_quality": "not_yet_reviewed",
+    "instrumental_capability": "not_claimed",
+    "determinism": "not_yet_repeated",
+    "vram_safety_margin": "narrow"
+  }
+}
