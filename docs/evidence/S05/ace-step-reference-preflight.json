@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-13",
+  "status": "private_preflight_ready_gpu_blocked",
+  "gpu_allocated": false,
+  "source_media": {
+    "kind": "user-provided singing video without accompaniment",
+    "sha256": "6aa163d61e733ac31021efaab673e378f72a0db45c22a627a684fa9cf9e78cc8",
+    "size_bytes": 4599735,
+    "committed": false
+  },
+  "reference_audio": {
+    "sha256": "6a8c6d8dcafea6f74571a4d498f9bcace80b7bc5ee2229d628dd9d1a186997dd",
+    "size_bytes": 1920078,
+    "duration_seconds": 20.0,
+    "sample_rate_hz": 48000,
+    "channels": 1,
+    "sample_width_bytes": 2,
+    "finite_samples": true,
+    "silent": false,
+    "clipped": false,
+    "committed": false
+  },
+  "private_inputs": {
+    "sha256": "5089d4eeba8097bf0c4b9ef3fab9a49e92a48f6e3b689ef9bfea2b859a65b1d4",
+    "caption_sha256": "f50f03acede30c2777f8f113a56fe785e3b8c1aed4c0186a1336bd1620f6d5d0",
+    "lyrics_sha256": "c066e0e1c33bed2056c1b0129dbacd8f61880ec45e9e727beda23e8c3bdf2713",
+    "committed": false
+  },
+  "authorization": {
+    "consent_recorded": false,
+    "allowed_for_gpu": false,
+    "provider_cost_ceiling_approved": false
+  }
+}

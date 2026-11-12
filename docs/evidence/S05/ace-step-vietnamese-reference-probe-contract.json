@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-13",
+  "status": "prepared_not_authorized",
+  "purpose": "Smallest bounded diagnostic of the former Colab Vietnamese reference-vocal path on a reproducible T4 backend pin",
+  "authorization": {
+    "gpu_execution_approved": false,
+    "reference_media_reuse_approved": false,
+    "required_before_run": [
+      "client confirms ownership or sufficient rights and consent for the reference voice and media",
+      "client approves the exact T4 time and provider cost ceiling",
+      "all CPU-only code and evidence gates pass"
+    ]
+  },
+  "source": {
+    "repository": "https://github.com/peter571/ACE-Step-1.5.git",
+    "revision": "44c15413f6dc9b55acfbd214209dbb6c0aac74b9",
+    "upstream_base_revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+    "runtime_source_patch_allowed": false,
+    "precision_contract": "float32"
+  },
+  "probe": {
+    "provider": "modal",
+    "gpu": "T4",
+    "max_containers": 1,
+    "automatic_retry": false,
+    "provider_fallback": false,
+    "gpu_fallback": false,
+    "precision_fallback": false,
+    "model_fallback": false,
+    "take_count": 1,
+    "duration_seconds": 20,
+    "seed": 12345,
+    "inference_steps": 8,
+    "shift": 3.0,
+    "thinking": true,
+    "lm_initialization_called_in_original_poc": true,
+    "lm_observed_initialized_in_original_poc": false,
+    "initialize_lm_for_probe": false,
+    "use_lm": false,
+    "language": "vi",
+    "operation": "reference_conditioned_text2music",
+    "max_gpu_execution_seconds": 600,
+    "hard_job_timeout_seconds": 900,
+    "scale_down_window_seconds": 2
+  },
+  "reference_media": {
+    "source": "local private video; never committed or uploaded before approval",
+    "extraction": "local FFmpeg audio-only extraction",
+    "clip_duration_seconds": 20,
+    "format": "mono PCM16 WAV at 48000 Hz",
+    "maximum_expected_bytes": 2000000,
+    "upload_limit_bytes": 10000000,
+    "privacy": "record only checksum, duration, format, and consent record; never lyrics, filename, or identity in public evidence",
+    "prepared_reference_sha256": "6a8c6d8dcafea6f74571a4d498f9bcace80b7bc5ee2229d628dd9d1a186997dd",
+    "prepared_private_inputs_sha256": "5089d4eeba8097bf0c4b9ef3fab9a49e92a48f6e3b689ef9bfea2b859a65b1d4"
+  },
+  "success_contract": [
+    "the allocated device is exactly a Tesla T4",
+    "the exact source and model revisions are recorded",
+    "the runtime reports float32 for the protected numerical path",
+    "the output is finite, non-silent, non-clipped, and duration-valid",
+    "peak VRAM and OOM classification are recorded",
+    "the artifact downloads with a matching SHA-256",
+    "the app stops with zero active containers"
+  ],
+  "stop_conditions": [
+    "no T4 container before the bounded timeout",
+    "source or model revision mismatch",
+    "reference consent or checksum mismatch",
+    "precision override is ignored",
+    "NaN, OOM, silence, clipping, corruption, or wrong duration",
+    "first attempt reaches any terminal state; no automatic retry"
+  ],
+  "cost_control": {
+    "provider_price_precheck_required": true,
+    "approved_max_metered_usd": null,
+    "execution_must_remain_blocked_while_null": true
+  }
+}

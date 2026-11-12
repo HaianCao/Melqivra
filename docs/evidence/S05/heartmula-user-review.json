@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-13",
+  "request_id": "heartmula_vocal_20261112_a",
+  "review_source": "explicit client feedback in the active project session",
+  "subjective_music_quality": "good",
+  "preferred_backend_take_id": "take_b",
+  "preferred_take_sha256": "adcc740d56613ffcd728a654fd14a0eb3877441487022e6e8a5a85140604e0c5",
+  "backend_decision": {
+    "heartmula_remains_available": true,
+    "heartmula_is_not_exclusive": true,
+    "additional_backend_options_requested": true,
+    "automatic_fallback_allowed": false,
+    "exact_backend_requires_client_approval": true
+  }
+}

@@ -83,6 +83,25 @@ class S01BenchmarkTests(unittest.TestCase):
         self.assertEqual("[Instrumental]", lyrics)
         self.assertTrue(instrumental)
 
+    def test_private_generation_inputs_are_loaded_without_evidence_content(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "private.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "caption": "private caption",
+                        "lyrics": "private lyrics",
+                        "tempo_bpm": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            caption, lyrics, instrumental, tempo = self.benchmark.private_generation_inputs(path)
+        self.assertEqual("private caption", caption)
+        self.assertEqual("private lyrics", lyrics)
+        self.assertFalse(instrumental)
+        self.assertEqual(0, tempo)
+
     def test_lm_conditioning_evidence_hashes_metadata_and_audio_codes(self) -> None:
         result = type(
             "Result",
@@ -205,6 +224,27 @@ class S01BenchmarkTests(unittest.TestCase):
             args.source_revision,
         )
         self.assertTrue(args.offload_to_cpu)
+
+    def test_parser_accepts_private_inputs_and_thinking_without_lm(self) -> None:
+        args = self.benchmark.build_parser().parse_args(
+            [
+                "--inputs-file",
+                "private.json",
+                "--cache-manifest",
+                "cache.json",
+                "--result",
+                "result.json",
+                "--run-id",
+                "private-reference",
+                "--thinking-without-lm",
+            ]
+        )
+        self.benchmark.validate_arguments(args)
+        self.assertEqual(Path("private.json"), args.inputs_file)
+        self.assertTrue(args.thinking_without_lm)
+        args.lm = True
+        with self.assertRaisesRegex(SystemExit, "mutually exclusive"):
+            self.benchmark.validate_arguments(args)
 
     def test_parser_accepts_reference_repaint_and_controlled_oom_inputs(self) -> None:
         parser = self.benchmark.build_parser()
