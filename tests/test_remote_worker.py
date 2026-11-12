@@ -10,8 +10,9 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-WORKER = ROOT / "scripts" / "colab" / "remote_worker.py"
+from agent_music.config import DEFAULT_REMOTE_WORKER_FILE
+
+WORKER = DEFAULT_REMOTE_WORKER_FILE
 
 
 class RemoteWorkerTests(unittest.TestCase):

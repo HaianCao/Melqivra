@@ -31,6 +31,12 @@ async def _doctor(settings: HarnessSettings) -> int:
     print(f"idle_timeout_seconds={settings.idle_timeout_seconds}")
     print(f"max_concurrency={settings.gpu_max_concurrency}")
     if settings.runner == "modal":
+        if not settings.modal_runner_file.is_file():
+            print(
+                f"ERROR: Modal runner file not found: {settings.modal_runner_file}",
+                file=sys.stderr,
+            )
+            return 1
         executable = shutil.which(settings.modal_executable)
         if executable is None:
             print("ERROR: Modal CLI executable not found", file=sys.stderr)
@@ -50,6 +56,12 @@ async def _doctor(settings: HarnessSettings) -> int:
             return 1
         print(version.stdout)
     if settings.runner == "colab":
+        if not settings.colab_remote_worker_file.is_file():
+            print(
+                f"ERROR: remote worker file not found: {settings.colab_remote_worker_file}",
+                file=sys.stderr,
+            )
+            return 1
         executable = shutil.which(settings.colab_executable)
         if executable is None:
             print("ERROR: Colab CLI executable not found", file=sys.stderr)

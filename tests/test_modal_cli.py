@@ -20,7 +20,7 @@ class ModalCliClientTests(unittest.TestCase):
 
     def test_job_command_uses_files_and_scale_to_zero_app_name(self) -> None:
         argv = self.client.run_job_argv(
-            Path("scripts/modal/runner_app.py"),
+            Path("agent_music/remote/modal_app.py"),
             Path("/tmp/private job.json"),
             Path("/tmp/result.json"),
         )

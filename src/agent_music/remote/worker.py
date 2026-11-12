@@ -1,8 +1,4 @@
-"""Self-contained remote harness worker.
-
-Colab uploads and executes this file directly. Modal packages and invokes the
-same file inside its T4 function. Only allowlisted job kinds are accepted.
-"""
+"""Self-contained allowlisted worker shared by remote runner providers."""
 
 from __future__ import annotations
 
@@ -72,7 +68,7 @@ def handle_music_generate(job: dict[str, Any]) -> dict[str, Any]:
     except ImportError as error:
         raise RuntimeError(
             "agent_music_worker is not installed in the remote runtime. "
-            "The GPU harness is healthy, but the ACE-Step generation plugin "
+            "The GPU harness is healthy, but the music-generation plugin "
             "must be bootstrapped before music.generate jobs."
         ) from error
     generate = cast(Callable[[dict[str, Any]], object], worker_module.generate)

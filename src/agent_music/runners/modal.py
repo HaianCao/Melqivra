@@ -1,4 +1,4 @@
-"""Modal T4 implementation of the GPU runner strategy."""
+"""Scale-to-zero Modal implementation of the execution-runner strategy."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Bounded Modal T4 wrapper for the shared allowlisted remote worker."""
+"""Bounded Modal wrapper for the shared allowlisted remote worker."""
 
 from __future__ import annotations
 
@@ -11,12 +11,11 @@ from typing import Any, cast
 
 import modal
 
-REMOTE_WORKER = Path("/opt/melqivra/remote_worker.py")
+REMOTE_WORKER = Path("/opt/melqivra/worker.py")
 
 image = modal.Image.debian_slim(python_version="3.12")
 if modal.is_local():
-    root = Path(__file__).resolve().parents[2]
-    local_worker = root / "scripts" / "colab" / "remote_worker.py"
+    local_worker = Path(__file__).with_name("worker.py")
     image = image.add_local_file(str(local_worker), remote_path=str(REMOTE_WORKER))
 app = modal.App()
 GPU_JOB_KINDS = {"music.generate"}
@@ -92,7 +91,7 @@ def run_gpu_job(request_json: str) -> dict[str, Any]:
 
 @app.local_entrypoint()  # type: ignore[untyped-decorator]
 def main(request_file: str) -> str:
-    """Read private job content from a file rather than placing it in CLI arguments."""
+    """Read private job content from a file rather than CLI arguments."""
 
     request_json = Path(request_file).read_text(encoding="utf-8")
     request = json.loads(request_json)

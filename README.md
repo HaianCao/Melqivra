@@ -51,13 +51,13 @@ license does not grant redistribution rights for those assets.
 - Identity/copyright safeguards and explicit lyrics-rights declarations.
 - Capability-aware 2–4 take planning and human-readable contract review.
 
-Real music generation is intentionally not claimed yet. A
-music.generate job currently fails clearly until agent_music_worker has
-been installed in the selected remote runtime; harness health jobs already
-exercise the real Modal and Colab transports. The S01 research harness has separately produced and
-validated pinned 30-second ACE-Step audio on a real T4, including explicit
-LM-off and 0.6B-LM-used evidence, but that benchmark path is not yet the product
-worker. See [the S01 evidence](docs/evidence/S01/README.md).
+Real music generation is intentionally not claimed yet. A `music.generate` job
+currently fails clearly until `agent_music_worker` has been installed in the
+selected remote runtime; harness health jobs already exercise the real Modal and
+Colab transports. The S01 research harness has separately produced and validated
+pinned 30-second ACE-Step audio on a real T4, including explicit LM-off and
+0.6B-LM-used evidence, but that benchmark path is not yet the product worker. See
+[the S01 evidence](docs/evidence/S01/README.md).
 
 Run the S04 CPU-only creative-contract demonstration:
 
@@ -146,7 +146,6 @@ Copy `.env.example` to `.env`. The default selection is:
 ~~~dotenv
 GPU_RUNNER=modal
 MODAL_APP_NAME=melqivra-gpu-runner
-MODAL_RUNNER_FILE=scripts/modal/runner_app.py
 ~~~
 
 Run `uv run melqivra doctor` from the same environment that owns the Modal
@@ -154,7 +153,9 @@ profile. The scheduler submits only file-backed requests. Health, echo, and
 unsupported-kind validation run without a GPU; `music.generate` is fixed to a
 T4 with one container. Every function scales to zero after each job. Use
 `harness.healthcheck` for the real transport smoke test. Private payload content
-is not placed in CLI arguments or provider log events.
+is not placed in CLI arguments or provider log events. The Modal app and shared
+worker are installed package assets, so the default also works from a built
+wheel rather than requiring a repository checkout.
 
 Switch to Colab by changing one setting:
 
@@ -193,7 +194,7 @@ The scheduler performs:
 2. colab new --gpu T4 only if no session exists.
 3. Optional Drive mount.
 4. Upload the job request.
-5. Execute scripts/colab/remote_worker.py.
+5. Execute the packaged `agent_music/remote/worker.py` allowlisted worker.
 6. Download and validate the JSON result.
 7. Keep the session warm while the queue is active.
 8. Call colab stop after 300 seconds with no queued or running job.
