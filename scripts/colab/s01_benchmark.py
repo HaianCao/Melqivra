@@ -369,13 +369,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
 
     controlled_oom: BaseException | None = None
     if args.controlled_allocator_oom:
-        free_bytes, _ = torch.cuda.mem_get_info()
+        total_bytes = int(torch.cuda.get_device_properties(0).total_memory)
         try:
             torch.empty(
-                int(free_bytes) + 1024 * 1024,
+                total_bytes * 2,
                 dtype=torch.uint8,
                 device="cuda",
-            )
+            ).fill_(1)
         except torch.OutOfMemoryError as error:
             controlled_oom = error
         else:
