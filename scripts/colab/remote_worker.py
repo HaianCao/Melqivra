@@ -1,11 +1,12 @@
-"""Self-contained Colab-side harness worker.
+"""Self-contained remote harness worker.
 
-The harness uploads one request to /content and executes this file through
-the official Colab CLI. Only allowlisted job kinds are accepted.
+Colab uploads and executes this file directly. Modal packages and invokes the
+same file inside its T4 function. Only allowlisted job kinds are accepted.
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import json
 import platform
@@ -13,7 +14,7 @@ import subprocess
 import sys
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -63,7 +64,7 @@ def handle_music_generate(job: dict[str, Any]) -> dict[str, Any]:
         worker_module = importlib.import_module("agent_music_worker")
     except ImportError as error:
         raise RuntimeError(
-            "agent_music_worker is not installed in the Colab runtime. "
+            "agent_music_worker is not installed in the remote runtime. "
             "The GPU harness is healthy, but the ACE-Step generation plugin "
             "must be bootstrapped before music.generate jobs."
         ) from error
@@ -81,15 +82,25 @@ HANDLERS = {
 }
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build provider-neutral file-path arguments with Colab-compatible defaults."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--request", type=Path, default=REQUEST_PATH)
+    parser.add_argument("--result", type=Path)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     started = time.time()
     job: dict[str, Any] = {}
     result: dict[str, Any]
-    result_path = DEFAULT_RESULT_PATH
+    args = build_parser().parse_args(argv)
+    result_path = args.result or DEFAULT_RESULT_PATH
     try:
-        job = json.loads(REQUEST_PATH.read_text(encoding="utf-8"))
+        job = json.loads(args.request.read_text(encoding="utf-8"))
         configured_result_path = job.get("result_path")
-        if configured_result_path:
+        if args.result is None and configured_result_path:
             result_path = Path(str(configured_result_path))
         kind = str(job.get("kind", ""))
         handler = HANDLERS.get(kind)

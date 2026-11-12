@@ -14,6 +14,13 @@ from agent_music.config import HarnessSettings
 
 
 class HarnessSettingsTests(unittest.TestCase):
+    def test_modal_is_the_default_runner(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = HarnessSettings.from_env()
+
+        self.assertEqual("modal", settings.runner)
+        self.assertEqual("melqivra-gpu-runner", settings.modal_app_name)
+
     def test_environment_values_are_parsed_explicitly(self) -> None:
         environment = {
             "GPU_RUNNER": "COLAB",
@@ -39,6 +46,9 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(idle_timeout_seconds=0),
             HarnessSettings(scheduler_poll_seconds=0),
             HarnessSettings(job_timeout_seconds=0),
+            HarnessSettings(modal_command_timeout_seconds=0),
+            HarnessSettings(modal_app_name="Invalid_Name"),
+            HarnessSettings(colab_command_timeout_seconds=0),
         )
         for settings in invalid_settings:
             with self.subTest(settings=settings):

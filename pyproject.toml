@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "melqivra"
 version = "0.1.0"
-description = "Open-source agentic music studio with durable local and Colab GPU execution"
+description = "Open-source agentic music studio with durable Modal and Colab GPU execution"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }

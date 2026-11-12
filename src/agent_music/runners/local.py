@@ -29,7 +29,7 @@ class LocalCudaRunner(GpuRunner):
     async def ensure_ready(self) -> None:
         raise RuntimeError(
             "LocalCudaRunner requires the ACE-Step worker implementation; "
-            "use GPU_RUNNER=fake or GPU_RUNNER=colab for this harness release"
+            "use GPU_RUNNER=modal, colab, or fake for this harness release"
         )
 
     async def run(self, job: GpuJob, on_event: EventCallback) -> dict[str, Any]:
