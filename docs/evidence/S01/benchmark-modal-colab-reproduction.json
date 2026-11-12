@@ -1,0 +1,105 @@
+{
+  "artifacts": [
+    {
+      "media_type": "audio/wav",
+      "path": "f963d520-9ce0-d3b7-9235-6ca85ab73581.wav",
+      "sha256": "adcde481123030501c46d7eeb2a7cb120ee07b088e7d55807ce4d47c84a06429",
+      "size_bytes": 5760078
+    }
+  ],
+  "assets": [
+    {
+      "id": "acestep-v15-turbo",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7"
+    },
+    {
+      "id": "acestep-v15-vae",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "da17edb604c40deaf09e9b24974e590d1ca83a374070e5d0884cfa4bed9a99b0"
+    },
+    {
+      "id": "qwen3-embedding-0.6b",
+      "repository": "ACE-Step/Ace-Step1.5",
+      "revision": "19671f406d603126926c1b7e2adc169acbcade22",
+      "sha256": "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd"
+    },
+    {
+      "id": "acestep-5hz-lm-0.6b",
+      "repository": "ACE-Step/acestep-5Hz-lm-0.6B",
+      "revision": "148d8ea0225bdab342ee1ae3a354275ccd60ca80",
+      "sha256": "5d92a60806e2e88c04de58ddc6dde93f2bc8f1336162b3ad5853886c9bcc6b82"
+    }
+  ],
+  "audio_validation": {
+    "channels": 2,
+    "clipped": false,
+    "duration_seconds": 30.0,
+    "finite_samples": true,
+    "integrated_lufs": -14.3,
+    "sample_rate_hz": 48000,
+    "silent": false,
+    "true_peak_dbfs": -1.0
+  },
+  "capabilities": {
+    "failure_reason": null,
+    "lm_audio_codes_length": 0,
+    "lm_audio_codes_present": false,
+    "lm_audio_codes_sha256": null,
+    "lm_initialized": false,
+    "lm_metadata_fields": [],
+    "lm_metadata_present": false,
+    "lm_metadata_sha256": null,
+    "lm_used": false,
+    "task_supported": true
+  },
+  "environment": {
+    "colab_cli": "not-applicable",
+    "cuda": "12.8",
+    "driver": "620.70.06",
+    "gpu_memory_bytes": 16106127360,
+    "gpu_name": "Tesla T4",
+    "provider": "modal",
+    "provider_cli": "1.6.3",
+    "python": "3.12.10",
+    "pytorch": "2.10.0+cu128",
+    "session_name": "melqivra-s01-modal-t4"
+  },
+  "peak_vram_bytes": 7825463808,
+  "request": {
+    "batch_size": 1,
+    "caption_sha256": "0424e317a9664eaf00a5c94af83486b8bd36ac772ee651c6b8bb5d0710b3da0a",
+    "diffusion_steps": 8,
+    "duration_seconds": 30.0,
+    "fixture_id": "vi-014",
+    "instrumental": true,
+    "lm_requested": false,
+    "lyrics_sha256": "ee4756535647ef5e3e497d302f180926bbbccccc44d23c2b18f09066f13f95f0",
+    "observed_precision": "float16",
+    "offload_to_cpu": false,
+    "precision": "upstream_default",
+    "seed": 20261111,
+    "shift": 3.0,
+    "task_type": "text2music"
+  },
+  "result": "passed",
+  "run_id": "colab-vi014-repro-20261112-a-dit-only",
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/ace-step/ACE-Step-1.5.git",
+    "revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94"
+  },
+  "started_at": "2026-11-12T08:36:52.820152+00:00",
+  "timings_seconds": {
+    "decode": 0.0,
+    "inference": 5.059601376000003,
+    "model_download_or_copy": 0.0,
+    "model_load": 8.432618796999996,
+    "provision": 0.0,
+    "runtime_setup": 0.0,
+    "total": 26.50954129299999,
+    "transfer": 0.0
+  }
+}

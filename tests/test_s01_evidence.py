@@ -83,6 +83,7 @@ class S01EvidenceTests(unittest.TestCase):
             "benchmark-dit-only-fresh.json",
             "benchmark-dit-only-warm.json",
             "benchmark-lm-0.6b.json",
+            "benchmark-modal-colab-reproduction.json",
         ):
             benchmark = load_json(EVIDENCE_ROOT / name)
             self.assertTrue(required.issubset(benchmark), name)
@@ -97,6 +98,49 @@ class S01EvidenceTests(unittest.TestCase):
                 benchmark["timings_seconds"]["model_load"]
                 + benchmark["timings_seconds"]["inference"],
             )
+
+    def test_modal_reproduction_matches_colab_contract_and_records_transfer(self) -> None:
+        colab = load_json(EVIDENCE_ROOT / "benchmark-dit-only-fresh.json")
+        modal = load_json(EVIDENCE_ROOT / "benchmark-modal-colab-reproduction.json")
+        verification = load_json(EVIDENCE_ROOT / "modal-colab-reproduction-verification.json")
+
+        self.assertEqual(colab["source"], modal["source"])
+        self.assertEqual(colab["assets"], modal["assets"])
+        for key in (
+            "fixture_id",
+            "task_type",
+            "duration_seconds",
+            "seed",
+            "diffusion_steps",
+            "shift",
+            "batch_size",
+            "precision",
+            "lm_requested",
+        ):
+            self.assertEqual(colab["request"][key], modal["request"][key], key)
+        for key in (
+            "duration_seconds",
+            "sample_rate_hz",
+            "channels",
+            "finite_samples",
+            "silent",
+            "clipped",
+            "true_peak_dbfs",
+            "integrated_lufs",
+        ):
+            self.assertEqual(colab["audio_validation"][key], modal["audio_validation"][key], key)
+        self.assertNotEqual(colab["artifacts"][0]["sha256"], modal["artifacts"][0]["sha256"])
+        self.assertEqual("passed", verification["status"])
+        self.assertTrue(verification["exact_request_match"])
+        self.assertTrue(verification["exact_source_and_assets_match"])
+        self.assertTrue(verification["technical_audio_contract_match"])
+        self.assertFalse(verification["artifact_checksum_match"])
+        self.assertEqual(
+            modal["artifacts"][0]["sha256"],
+            verification["modal_artifact"]["sha256"],
+        )
+        self.assertGreater(verification["transfer"]["seconds"], 0)
+        self.assertGreater(verification["transfer"]["bytes_per_second"], 0)
 
     def test_warm_cache_and_fixed_seed_observations_are_recorded(self) -> None:
         fresh = load_json(EVIDENCE_ROOT / "benchmark-dit-only-fresh.json")

@@ -1,0 +1,24 @@
+{
+  "artifact_checksum_match": false,
+  "comparison_note": "different checksum but matching validated technical contract",
+  "exact_request_match": true,
+  "exact_source_and_assets_match": true,
+  "modal_artifact": {
+    "path": "f963d520-9ce0-d3b7-9235-6ca85ab73581.wav",
+    "sha256": "adcde481123030501c46d7eeb2a7cb120ee07b088e7d55807ce4d47c84a06429",
+    "size_bytes": 5760078
+  },
+  "status": "passed",
+  "technical_audio_contract_match": true,
+  "transfer": {
+    "bytes_per_second": 370184.9614395887,
+    "seconds": 15.56
+  },
+  "wav_metadata": {
+    "channels": 2,
+    "duration_seconds": 30.0,
+    "frames": 1440000,
+    "sample_rate_hz": 48000,
+    "sample_width_bytes": 2
+  }
+}
