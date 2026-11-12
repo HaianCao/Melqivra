@@ -6,7 +6,7 @@ import json
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, cast
@@ -22,6 +22,10 @@ class ToolPolicyError(RuntimeError):
     """A tool call failed authorization, validation, or approval policy."""
 
 
+class AgentCancelledError(PlannerError):
+    """The caller cancelled agent execution before the next side effect."""
+
+
 class Role(StrEnum):
     SYSTEM = "system"
     USER = "user"
@@ -35,6 +39,7 @@ class Message:
     content: str
     name: str | None = None
     tool_call_id: str | None = None
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +54,88 @@ class PlannerReply:
     text: str
     tool_calls: tuple[ToolCall, ...] = ()
     finish_reason: str | None = None
+
+
+class EventKind(StrEnum):
+    """Stable streaming event families exposed to chat clients."""
+
+    TEXT = "text"
+    PROPOSAL = "proposal"
+    DIFF = "diff"
+    APPROVAL = "approval"
+    RESULT = "result"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class RiskClass(StrEnum):
+    """Consequential action categories that require explicit consent."""
+
+    GPU = "gpu"
+    EXTERNAL = "external"
+    IDENTITY = "identity"
+    DESTRUCTIVE = "destructive"
+
+
+class ApprovalDecision(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalRequest:
+    approval_id: str
+    action: str
+    risk: RiskClass
+    project_id: ProjectId
+    user_id: UserId
+    decision: ApprovalDecision = ApprovalDecision.PENDING
+
+
+class ApprovalLedger:
+    """In-memory policy object used by service layers before durable S07 storage."""
+
+    def __init__(self) -> None:
+        self._requests: dict[str, ApprovalRequest] = {}
+
+    def propose(self, request: ApprovalRequest) -> ApprovalRequest:
+        if request.approval_id in self._requests:
+            raise ValueError("Duplicate approval ID")
+        self._requests[request.approval_id] = request
+        return request
+
+    def decide(self, *, approval_id: str, user_id: UserId, approved: bool) -> ApprovalRequest:
+        current = self._requests.get(approval_id)
+        if current is None or current.user_id != user_id:
+            raise KeyError(approval_id)
+        if current.decision is not ApprovalDecision.PENDING:
+            raise ValueError("Approval is already decided")
+        decided = ApprovalRequest(
+            current.approval_id,
+            current.action,
+            current.risk,
+            current.project_id,
+            current.user_id,
+            ApprovalDecision.APPROVED if approved else ApprovalDecision.REJECTED,
+        )
+        self._requests[approval_id] = decided
+        return decided
+
+    def approved_actions(self, *, user_id: UserId, project_id: ProjectId) -> frozenset[str]:
+        return frozenset(
+            request.action
+            for request in self._requests.values()
+            if request.user_id == user_id
+            and request.project_id == project_id
+            and request.decision is ApprovalDecision.APPROVED
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AgentEvent:
+    kind: EventKind
+    data: JsonObject
 
 
 class Planner(Protocol):
@@ -67,6 +154,7 @@ class ToolContext:
     project_id: ProjectId
     actor: str
     approved_actions: frozenset[str] = frozenset()
+    turn_id: str = "turn_unknown"
 
 
 ToolHandler = Callable[[ToolContext, JsonObject], JsonObject]
@@ -91,6 +179,8 @@ class AuditEvent:
     tool_name: str
     tool_call_id: str
     outcome: str
+    result_revision_id: str | None = None
+    turn_id: str = "turn_unknown"
 
 
 class ToolRegistry:
@@ -98,7 +188,8 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolDefinition] = {}
-        self._results: dict[tuple[UserId, str], JsonObject] = {}
+        self._results: dict[tuple[UserId, ProjectId, str], JsonObject] = {}
+        self._call_fingerprints: dict[tuple[UserId, ProjectId, str], str] = {}
         self._audit: list[AuditEvent] = []
 
     @property
@@ -124,11 +215,21 @@ class ToolRegistry:
         )
 
     def invoke(self, context: ToolContext, call: ToolCall) -> JsonObject:
-        key = (context.user_id, call.id)
+        key = (context.user_id, context.project_id, call.id)
+        fingerprint = json.dumps(
+            {"name": call.name, "arguments": call.arguments},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         if key in self._results:
+            if self._call_fingerprints[key] != fingerprint:
+                self._record(context, call, "idempotency_conflict")
+                raise ToolPolicyError("Tool call ID was reused with different input")
             return self._results[key]
         definition = self._tools.get(call.name)
         if definition is None:
+            self._record(context, call, "not_allowlisted")
             raise ToolPolicyError("Tool is not allowlisted")
         if not definition.authorize(context, call.arguments):
             self._record(context, call, "unauthorized")
@@ -145,10 +246,23 @@ class ToolRegistry:
             self._record(context, call, "invalid")
             raise ToolPolicyError("Tool arguments are invalid") from error
         self._results[key] = result
-        self._record(context, call, "success")
+        self._call_fingerprints[key] = fingerprint
+        revision_id = result.get("revision_id")
+        self._record(
+            context,
+            call,
+            "success",
+            str(revision_id) if isinstance(revision_id, str) else None,
+        )
         return result
 
-    def _record(self, context: ToolContext, call: ToolCall, outcome: str) -> None:
+    def _record(
+        self,
+        context: ToolContext,
+        call: ToolCall,
+        outcome: str,
+        result_revision_id: str | None = None,
+    ) -> None:
         self._audit.append(
             AuditEvent(
                 context.user_id,
@@ -157,6 +271,8 @@ class ToolRegistry:
                 call.name,
                 call.id,
                 outcome,
+                result_revision_id,
+                context.turn_id,
             )
         )
 
@@ -188,9 +304,7 @@ class OpenAICompatibleClient:
     def complete(self, messages: Sequence[Message], tools: Sequence[JsonObject]) -> PlannerReply:
         payload: JsonObject = {
             "model": self._model,
-            "messages": [
-                {"role": message.role.value, "content": message.content} for message in messages
-            ],
+            "messages": [self._encode_message(message) for message in messages],
             "temperature": 0,
         }
         if tools:
@@ -218,19 +332,50 @@ class OpenAICompatibleClient:
         raise PlannerError("Planner retry budget exhausted")
 
     @staticmethod
+    def _encode_message(message: Message) -> JsonObject:
+        encoded: JsonObject = {"role": message.role.value, "content": message.content}
+        if message.name is not None:
+            encoded["name"] = message.name
+        if message.tool_call_id is not None:
+            encoded["tool_call_id"] = message.tool_call_id
+        if message.tool_calls:
+            encoded["tool_calls"] = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(
+                            call.arguments,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                    },
+                }
+                for call in message.tool_calls
+            ]
+        return encoded
+
+    @staticmethod
     def _decode(raw: bytes) -> PlannerReply:
         try:
             payload = json.loads(raw)
             choice = payload["choices"][0]
             message = choice["message"]
-            calls = tuple(
-                ToolCall(
-                    id=str(item["id"]),
-                    name=str(item["function"]["name"]),
-                    arguments=cast(JsonObject, json.loads(item["function"]["arguments"])),
+            decoded_calls = []
+            for item in message.get("tool_calls", []):
+                arguments = json.loads(item["function"]["arguments"])
+                if not isinstance(arguments, dict):
+                    raise TypeError("Tool arguments must be an object")
+                decoded_calls.append(
+                    ToolCall(
+                        id=str(item["id"]),
+                        name=str(item["function"]["name"]),
+                        arguments=cast(JsonObject, arguments),
+                    )
                 )
-                for item in message.get("tool_calls", [])
-            )
+            calls = tuple(decoded_calls)
             return PlannerReply(
                 text=str(message.get("content") or ""),
                 tool_calls=calls,
@@ -244,7 +389,9 @@ class OpenAICompatibleClient:
 class HarnessLimits:
     max_turns: int = 8
     max_tool_calls: int = 12
+    max_context_tokens: int = 8_000
     max_seconds: float = 60.0
+    max_repeated_failures: int = 2
 
 
 class AgentHarness:
@@ -257,25 +404,139 @@ class AgentHarness:
         self._registry = registry
         self._limits = limits or HarnessLimits()
 
-    def run(self, context: ToolContext, messages: Sequence[Message]) -> PlannerReply:
+    def run(
+        self,
+        context: ToolContext,
+        messages: Sequence[Message],
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> PlannerReply:
+        final: PlannerReply | None = None
+        for event in self.run_stream(context, messages, is_cancelled=is_cancelled):
+            if event.kind is EventKind.TEXT:
+                text = event.data.get("text")
+                finish_reason = event.data.get("finish_reason")
+                final = PlannerReply(
+                    str(text) if isinstance(text, str) else "",
+                    finish_reason=(str(finish_reason) if isinstance(finish_reason, str) else None),
+                )
+        if final is None:
+            raise PlannerError("Agent ended without a final response")
+        return final
+
+    def run_stream(
+        self,
+        context: ToolContext,
+        messages: Sequence[Message],
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> Iterator[AgentEvent]:
         conversation = list(messages)
         started = time.monotonic()
         tool_count = 0
+        failures: dict[tuple[str, str], int] = {}
         for _ in range(self._limits.max_turns):
+            self._check_cancelled(is_cancelled)
             if time.monotonic() - started > self._limits.max_seconds:
                 raise PlannerError("Agent time limit exceeded")
+            if self._estimated_tokens(conversation) > self._limits.max_context_tokens:
+                raise PlannerError("Agent token limit exceeded")
             reply = self._planner.complete(conversation, self._registry.schemas())
             if not reply.tool_calls:
-                return reply
+                yield AgentEvent(
+                    EventKind.TEXT,
+                    {"text": reply.text, "finish_reason": reply.finish_reason},
+                )
+                return
+            conversation.append(Message(Role.ASSISTANT, reply.text, tool_calls=reply.tool_calls))
             for call in reply.tool_calls:
+                self._check_cancelled(is_cancelled)
                 tool_count += 1
                 if tool_count > self._limits.max_tool_calls:
                     raise PlannerError("Agent tool limit exceeded")
-                result = self._registry.invoke(context, call)
+                yield AgentEvent(
+                    EventKind.PROPOSAL,
+                    {"tool_name": call.name, "tool_call_id": call.id},
+                )
+                try:
+                    result = self._registry.invoke(context, call)
+                except ToolPolicyError as error:
+                    signature = (call.name, str(error))
+                    failures[signature] = failures.get(signature, 0) + 1
+                    event_kind = (
+                        EventKind.APPROVAL
+                        if str(error) == "Tool requires approval"
+                        else EventKind.WARNING
+                    )
+                    if failures[signature] >= self._limits.max_repeated_failures:
+                        event_kind = EventKind.ERROR
+                    yield AgentEvent(
+                        event_kind,
+                        {
+                            "tool_name": call.name,
+                            "tool_call_id": call.id,
+                            "error": str(error),
+                        },
+                    )
+                    if failures[signature] >= self._limits.max_repeated_failures:
+                        raise PlannerError("Agent repeated the same tool failure") from error
+                    conversation.append(
+                        Message(Role.TOOL, json.dumps({"error": str(error)}), call.name, call.id)
+                    )
+                    continue
                 conversation.append(
                     Message(Role.TOOL, json.dumps(result, ensure_ascii=False), call.name, call.id)
                 )
+                event_kind = EventKind.DIFF if "revision_id" in result else EventKind.RESULT
+                yield AgentEvent(event_kind, result)
         raise PlannerError("Agent turn limit exceeded")
+
+    @staticmethod
+    def _estimated_tokens(messages: Sequence[Message]) -> int:
+        return sum((len(message.content) + 3) // 4 + 4 for message in messages)
+
+    @staticmethod
+    def _check_cancelled(is_cancelled: Callable[[], bool] | None) -> None:
+        if is_cancelled is not None and is_cancelled():
+            raise AgentCancelledError("Agent execution cancelled")
+
+
+@dataclass(frozen=True, slots=True)
+class ContextSource:
+    """One deterministic, attributable context fragment."""
+
+    source_id: str
+    content: str
+    priority: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltContext:
+    message: Message
+    source_ids: tuple[str, ...]
+    estimated_tokens: int
+
+
+def build_project_context(sources: Sequence[ContextSource], *, max_tokens: int) -> BuiltContext:
+    """Build stable untrusted context under an approximate token budget."""
+
+    if max_tokens <= 0:
+        raise ValueError("Context token budget must be positive")
+    selected: list[ContextSource] = []
+    used = 0
+    for source in sorted(sources, key=lambda item: (-item.priority, item.source_id)):
+        cost = (len(source.content) + 3) // 4 + 8
+        if used + cost <= max_tokens:
+            selected.append(source)
+            used += cost
+    body = "\n".join(
+        f'<source id="{source.source_id}">{source.content}</source>' for source in selected
+    )
+    return BuiltContext(
+        untrusted_project_context(body),
+        tuple(source.source_id for source in selected),
+        used,
+    )
 
 
 def untrusted_project_context(content: str) -> Message:
