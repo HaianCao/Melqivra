@@ -50,15 +50,25 @@ lazy loading, pins seeds per take, normalizes output to PCM16 WAV, and rejects
 silent, clipped, truncated, incomplete, or path-escaping results. The installed
 `agent_music_worker` now has a real typed execution boundary, but it remains
 default-off until `MUSIC_BACKEND` and the verified model root are configured.
+The complete pin includes the metadata/tokenizer repository required by upstream,
+and the adapter explicitly neutralizes upstream's implicit lowercase transform so
+approved casing is not silently changed before tokenization.
 
-The complete local gate passes with 138 tests, strict mypy across 44 source
+The exact cost-bounded experiment is recorded in
+[heartmula-probe-contract.json](heartmula-probe-contract.json). It permits one
+durable two-take, 20-second-per-take English vocal job only after the local gate,
+CPU-only Modal image contract, and checksummed cache population succeed. It has
+one T4 container, a two-second scale-down window, no retry, and no provider,
+precision, model, or GPU fallback.
+
+The complete local gate passes with 143 tests, strict mypy across 47 source
 files, Ruff format/lint, 83% scheduler/store critical-path branch coverage,
 successful wheel/sdist builds, and no known audited vulnerabilities.
 
 ## Remaining before closure
 
-1. Connect an explicit client approval to durable `music.generate` submission.
-2. Implement and CPU-test the isolated HeartMuLa candidate adapter and worker.
-3. Run one bounded T4 preflight, then continue only if the backend passes memory,
+1. Pass the CPU-only Modal image contract and populate the exact checksummed cache.
+2. Run the one authorized bounded T4 preflight, then continue only if the backend passes memory,
    audio, language, vocal/instrumental, determinism, and licensing gates.
+3. Download and locally verify the resulting artifact checksums/WAV contracts.
 4. Persist validated take artifacts/manifests and prove 2+ playable takes E2E.
