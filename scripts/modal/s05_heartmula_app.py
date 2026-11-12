@@ -17,6 +17,10 @@ from typing import Any, cast
 
 import modal
 
+if modal.is_local():
+    local_root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(local_root / "src"))
+
 from agent_music.backends.heartmula import HEARTMULA_SOURCE_REVISION
 from agent_music.s05_preflight import (
     HEARTMULA_BASE_REPOSITORY,
@@ -48,7 +52,7 @@ app = modal.App("melqivra-s05-heartmula")
 volume = modal.Volume.from_name(HEARTMULA_VOLUME_NAME, create_if_missing=True)
 
 image = (
-    modal.Image.debian_slim(python_version="3.10")
+    modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "git", "libsndfile1")
     .pip_install("uv==0.13.7")
     .run_commands(
@@ -72,7 +76,6 @@ image = (
 )
 
 if modal.is_local():
-    local_root = Path(__file__).resolve().parents[2]
     image = image.add_local_dir(
         str(local_root / "src" / "agent_music"),
         remote_path=str(PRODUCT_ROOT / "src" / "agent_music"),
