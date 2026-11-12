@@ -75,7 +75,7 @@ class GenerationContractTests(unittest.TestCase):
     def request(self, **changes: object) -> MusicGenerationRequest:
         values: dict[str, object] = {
             "schema_version": 1,
-            "job_id": "job_s05",
+            "request_id": "request_s05",
             "project_id": ProjectId("project_s05"),
             "contract_checksum": "a" * 64,
             "source_revision_ids": (
