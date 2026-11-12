@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-12",
+  "status": "cache_ready_gpu_not_run",
+  "image_contract": {
+    "python": "3.11.12",
+    "torch": "2.6.0+cu124",
+    "torch_cuda": "12.4",
+    "heartlib": "0.1.0",
+    "source_revision": "5858ca8f1ffe58d62be7c007ea55f1033c5ca456",
+    "pipeline_sha256": "ca68bbad28f0fde12ad58e738527be3bb914fe86c13710108c3a15c8c361bf90",
+    "result": "passed"
+  },
+  "cpu_attempts": [
+    {
+      "result": "failed_before_image_execution",
+      "classification": "local launcher import path",
+      "gpu_allocated": false,
+      "cache_downloaded": false
+    },
+    {
+      "result": "failed_at_remote_import",
+      "classification": "Python 3.10 is below Melqivra's supported runtime",
+      "gpu_allocated": false,
+      "cache_downloaded": false
+    },
+    {
+      "result": "passed",
+      "classification": "Python 3.11 image/source/dependency contract",
+      "gpu_allocated": false,
+      "cache_downloaded": false
+    }
+  ],
+  "cache": {
+    "volume": "melqivra-s05-heartmula-3b-5858ca8f1ffe",
+    "status": "downloaded_and_verified",
+    "elapsed_seconds": 121.637226547,
+    "total_bytes": 22400063678,
+    "verified_hashes": true,
+    "weight_sha256": {
+      "HeartMuLa-oss-3B/model-00001-of-00004.safetensors": "4815367cdbddc0192abe3dbe81e2ae6a6e8978a39ad4dd1d26a20e445b3aeea6",
+      "HeartMuLa-oss-3B/model-00002-of-00004.safetensors": "f079416ba4c0570231f7a2830a2e95033336a8b3528d1c033a07923a25f4b5d7",
+      "HeartMuLa-oss-3B/model-00003-of-00004.safetensors": "b43cd60ff50033fa9a5e08c4eb26edff55d5e95e0a313592804ab026ed3b895d",
+      "HeartMuLa-oss-3B/model-00004-of-00004.safetensors": "07c5f5820c0c00f0b8ad4544ed8a24ae1888f7d8c8a5d8bb3cdaba418a39cf2f",
+      "HeartCodec-oss/model-00001-of-00002.safetensors": "50d2c022468a0e127992d99e02117d2efbad2b10fddc8ceaf09550f154e185d4",
+      "HeartCodec-oss/model-00002-of-00002.safetensors": "6f319d0f5b31858dfe98bd8fc89d3083cbfff74ac75a0531f1a7b86949197917"
+    }
+  },
+  "cleanup": {
+    "active_apps": 0,
+    "active_containers": 0
+  },
+  "billing_before_gpu": {
+    "metered_usd": 0.47,
+    "billed_usd": 0.0
+  },
+  "next_action": "run exactly one durable two-take T4 vocal job without retry or fallback"
+}

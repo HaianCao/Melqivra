@@ -61,14 +61,21 @@ CPU-only Modal image contract, and checksummed cache population succeed. It has
 one T4 container, a two-second scale-down window, no retry, and no provider,
 precision, model, or GPU fallback.
 
-The complete local gate passes with 143 tests, strict mypy across 47 source
+The CPU/image/cache result is recorded in
+[heartmula-runtime-preflight.json](heartmula-runtime-preflight.json). After two
+cheap CPU-only bootstrap failures were corrected, the Python 3.11 image passed
+the exact source hash/import contract. The 22,400,063,678-byte cache then
+downloaded and verified all six large weight SHA-256 values in 121.64 seconds.
+No GPU was allocated; all apps are stopped, active containers are zero, and
+billed cost remains $0 before the authorized T4 job.
+
+The complete local gate passes with 145 tests, strict mypy across 47 source
 files, Ruff format/lint, 83% scheduler/store critical-path branch coverage,
 successful wheel/sdist builds, and no known audited vulnerabilities.
 
 ## Remaining before closure
 
-1. Pass the CPU-only Modal image contract and populate the exact checksummed cache.
-2. Run the one authorized bounded T4 preflight, then continue only if the backend passes memory,
+1. Run the one authorized bounded T4 preflight, then continue only if the backend passes memory,
    audio, language, vocal/instrumental, determinism, and licensing gates.
-3. Download and locally verify the resulting artifact checksums/WAV contracts.
-4. Persist validated take artifacts/manifests and prove 2+ playable takes E2E.
+2. Download and locally verify the resulting artifact checksums/WAV contracts.
+3. Persist validated take artifacts/manifests and prove 2+ playable takes E2E.

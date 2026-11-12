@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-11-12",
-  "status": "cpu_contract_ready",
+  "status": "cache_ready_gpu_not_run",
   "operator_authorization": {
     "scope": "one bounded S05 HeartMuLa T4 vocal batch after CPU validation",
     "approval_source": "explicit user instruction in the active session",
@@ -35,7 +35,7 @@
     "weight_sha256_required": true
   },
   "runtime": {
-    "python": "3.10",
+    "python": "3.11",
     "music_model_precision": "float16",
     "codec_precision": "float32",
     "lazy_load": true,
