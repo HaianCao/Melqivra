@@ -21,6 +21,7 @@ from agent_music.generation import (
 )
 
 HEARTMULA_SOURCE_REVISION = "5858ca8f1ffe58d62be7c007ea55f1033c5ca456"
+HEARTMULA_BASE_MODEL_ID = "HeartMuLa/HeartMuLaGen@2e18e01702011f4f7dc8642b6260967df62417ea"
 HEARTMULA_MODEL_ID = (
     "HeartMuLa/HeartMuLa-oss-3B-happy-new-year@00a79ac9477f64593eba2ca96a25807cb2f55be6"
 )
@@ -29,7 +30,7 @@ HEARTCODEC_MODEL_ID = "HeartMuLa/HeartCodec-oss-20260123@f889dab0532cfa4bf459f2a
 HEARTMULA_DESCRIPTOR = MusicBackendDescriptor(
     backend_id="heartmula_3b",
     source_revision=HEARTMULA_SOURCE_REVISION,
-    model_ids=(HEARTMULA_MODEL_ID, HEARTCODEC_MODEL_ID),
+    model_ids=(HEARTMULA_BASE_MODEL_ID, HEARTMULA_MODEL_ID, HEARTCODEC_MODEL_ID),
     license_ids=("Apache-2.0",),
     operations=frozenset({"text2music"}),
     supported_languages=frozenset({"zh", "en", "ja", "ko", "es"}),
@@ -63,6 +64,13 @@ class HeartMuLaSettings(TypedDict):
     cfg_scale: float
 
 
+class _CasePreservingText(str):
+    """Neutralize HeartMuLa's implicit lowercase transform at the adapter edge."""
+
+    def lower(self) -> str:
+        return self
+
+
 class HeartLibEngine:
     """Lazy import wrapper around the exact upstream HeartMuLa pipeline."""
 
@@ -90,16 +98,22 @@ class HeartLibEngine:
             raise RuntimeError(f"Expected Tesla T4, received {gpu_name}")
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+        torch.cuda.reset_peak_memory_stats(0)
         pipeline = self._get_pipeline(torch)
         raw_path = output_path.with_suffix(".raw.wav")
-        pipeline(
-            {"lyrics": lyrics, "tags": tags},
-            max_audio_length_ms=round(duration_seconds * 1000),
-            save_path=str(raw_path),
-            topk=topk,
-            temperature=temperature,
-            cfg_scale=cfg_scale,
-        )
+        with torch.no_grad():
+            pipeline(
+                {
+                    "lyrics": _CasePreservingText(lyrics),
+                    "tags": _CasePreservingText(tags),
+                },
+                max_audio_length_ms=round(duration_seconds * 1000),
+                save_path=str(raw_path),
+                topk=topk,
+                temperature=temperature,
+                cfg_scale=cfg_scale,
+            )
+        torch.cuda.synchronize(0)
         ffmpeg = shutil.which("ffmpeg")
         if ffmpeg is None:
             raise RuntimeError("ffmpeg is required to normalize HeartMuLa output")
@@ -212,6 +226,7 @@ class HeartMuLaBackend:
                 "translation": {
                     "tags": "approved prompt passed unchanged",
                     "lyrics": "approved lyrics passed unchanged",
+                    "case_preservation": "upstream lowercase transform explicitly neutralized",
                     "precision": {"music_model": "float16", "codec": "float32"},
                     "lazy_load": True,
                 },

@@ -9,7 +9,12 @@ import unittest
 import wave
 from pathlib import Path
 
-from agent_music.backends.heartmula import HEARTMULA_DESCRIPTOR, HeartMuLaBackend
+from agent_music.backends.heartmula import (
+    HEARTMULA_BASE_MODEL_ID,
+    HEARTMULA_DESCRIPTOR,
+    HeartMuLaBackend,
+    _CasePreservingText,
+)
 from agent_music.domain import ProjectId, RevisionId
 from agent_music.generation import (
     GenerationContractError,
@@ -66,6 +71,11 @@ def request() -> MusicGenerationRequest:
 
 
 class HeartMuLaBackendTests(unittest.TestCase):
+    def test_complete_model_set_and_approved_case_are_pinned(self) -> None:
+        self.assertIn(HEARTMULA_BASE_MODEL_ID, HEARTMULA_DESCRIPTOR.model_ids)
+        approved = _CasePreservingText("[Verse]\nWe Begin Again")
+        self.assertEqual("[Verse]\nWe Begin Again", approved.lower())
+
     def test_exact_inputs_produce_two_valid_manifest_entries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             engine = RecordingEngine()
