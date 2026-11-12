@@ -36,10 +36,12 @@ license does not grant redistribution rights for those assets.
 - Five-minute idle grace period, configured by
   GPU_IDLE_TIMEOUT_SECONDS with a default of 300.
 - Session reuse when another job arrives during the grace period.
-- Colab CLI runner using argument arrays without shell interpolation.
+- Strategy-selected Modal or Colab runner using argument arrays without shell
+  interpolation.
 - Fake runner for development and CI without a GPU.
 - FastAPI endpoints for submit, inspect, cancel, and runner status.
-- Self-contained Colab-side health/transport worker.
+- One self-contained allowlisted health/transport worker shared by Modal and
+  Colab.
 - Immutable, checksummed project revisions and portable project archives.
 - OpenAI-compatible planner client with allowlisted authenticated domain tools.
 - Structured briefs and duration-balanced blueprints.
@@ -51,8 +53,8 @@ license does not grant redistribution rights for those assets.
 
 Real music generation is intentionally not claimed yet. A
 music.generate job currently fails clearly until agent_music_worker has
-been installed in the Colab runtime; harness health jobs already exercise the
-real Colab transport. The S01 research harness has separately produced and
+been installed in the selected remote runtime; harness health jobs already
+exercise the real Modal and Colab transports. The S01 research harness has separately produced and
 validated pinned 30-second ACE-Step audio on a real T4, including explicit
 LM-off and 0.6B-LM-used evidence, but that benchmark path is not yet the product
 worker. See [the S01 evidence](docs/evidence/S01/README.md).
@@ -84,6 +86,9 @@ Melqivra is designed around a few durable rules:
 
 - Python 3.11 or newer.
 - uv is recommended.
+- For default Modal mode: the official Modal CLI, an authenticated account, and
+  a valid workspace. Run the API in the same Linux/WSL environment that owns the
+  Modal profile.
 - For Colab mode: Google Colab CLI running on Linux or macOS. On Windows, use
   WSL2 or a Linux container because upstream does not currently support native
   Windows.
@@ -100,7 +105,16 @@ uv run melqivra serve --host 127.0.0.1 --port 8000
 The earlier `agent-music` command remains available as a compatibility alias
 during the pre-release period.
 
-Fake mode is the default and requires no GPU.
+Modal T4 is the application default. Set `GPU_RUNNER=fake` for credential-free
+CPU-only development and CI. Provider selection is explicit and never falls
+back automatically:
+
+| `GPU_RUNNER` | Strategy | Lifecycle |
+|---|---|---|
+| `modal` | Modal T4 | One bounded app per job; scales to zero after execution |
+| `colab` | Named Colab T4 session | Starts on demand; scheduler stops after idle grace |
+| `fake` | Deterministic CPU fake | Development and CI only |
+| `local` | Local CUDA placeholder | Fails until the S11 implementation exists |
 
 Submit a job:
 
@@ -115,6 +129,36 @@ Inspect runner state:
 
 ~~~shell
 curl http://127.0.0.1:8000/v1/gpu/runner
+~~~
+
+## Modal T4 mode (default)
+
+Install and authenticate the official CLI in Linux/WSL:
+
+~~~shell
+uv tool install modal
+modal setup
+modal token info
+~~~
+
+Copy `.env.example` to `.env`. The default selection is:
+
+~~~dotenv
+GPU_RUNNER=modal
+MODAL_APP_NAME=melqivra-gpu-runner
+MODAL_RUNNER_FILE=scripts/modal/runner_app.py
+~~~
+
+Run `uv run melqivra doctor` from the same environment that owns the Modal
+profile. The scheduler submits only file-backed requests, the Modal function is
+fixed to a T4 with one container, and the app scales to zero after each job.
+Use `harness.healthcheck` for the real transport smoke test. Private payload
+content is not placed in CLI arguments or provider log events.
+
+Switch to Colab by changing one setting:
+
+~~~dotenv
+GPU_RUNNER=colab
 ~~~
 
 ## Colab T4 mode
@@ -173,9 +217,9 @@ stage.
 docker compose up --build
 ~~~
 
-The default container uses the fake runner. Colab OAuth and CLI support should
-be configured in WSL2 first; a dedicated credential-isolated Colab broker
-container is planned after the ACE-Step worker stage.
+The default container deliberately uses the fake runner so the credential-free
+quickstart remains reproducible. Set `COMPOSE_GPU_RUNNER` only in a container
+image that also contains the selected provider CLI and isolated credentials.
 
 ## Verification
 

@@ -28,6 +28,7 @@ class DoctorTests(unittest.TestCase):
             settings = HarnessSettings(
                 database_path=root / "state" / "harness.db",
                 artifact_root=root / "artifacts",
+                runner="fake",
                 colab_cli_config=root / "colab" / "sessions.json",
             )
             output = io.StringIO()
@@ -59,6 +60,23 @@ class DoctorTests(unittest.TestCase):
 
             self.assertEqual(1, exit_code)
             self.assertIn("Colab CLI executable not found", error.getvalue())
+
+    def test_modal_doctor_fails_cleanly_when_cli_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = HarnessSettings(
+                database_path=root / "state" / "harness.db",
+                artifact_root=root / "artifacts",
+                runner="modal",
+            )
+            error = io.StringIO()
+
+            with patch("agent_music.cli.shutil.which", return_value=None):
+                with contextlib.redirect_stderr(error):
+                    exit_code = asyncio.run(_doctor(settings))
+
+            self.assertEqual(1, exit_code)
+            self.assertIn("Modal CLI executable not found", error.getvalue())
 
     def test_imports_do_not_create_runtime_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

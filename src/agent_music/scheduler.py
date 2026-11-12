@@ -10,22 +10,10 @@ from typing import Any
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, JobState, RunnerSnapshot, RunnerState
 from agent_music.runners.base import GpuRunner
-from agent_music.runners.colab import ColabRunner
-from agent_music.runners.fake import FakeRunner
-from agent_music.runners.local import LocalCudaRunner
+from agent_music.runners.strategy import build_runner
 from agent_music.store import SqliteJobStore
 
 EventSink = Callable[[str, dict[str, Any]], None]
-
-
-def build_runner(settings: HarnessSettings) -> GpuRunner:
-    """Build the configured runner."""
-
-    if settings.runner == "fake":
-        return FakeRunner(job_seconds=settings.fake_job_seconds)
-    if settings.runner == "colab":
-        return ColabRunner(settings)
-    return LocalCudaRunner()
 
 
 class GpuHarness:

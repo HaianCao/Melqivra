@@ -24,11 +24,17 @@ class HarnessSettings:
 
     database_path: Path = Path("data/harness.db")
     artifact_root: Path = Path("data/artifacts")
-    runner: str = "fake"
+    runner: str = "modal"
     gpu_max_concurrency: int = 1
     idle_timeout_seconds: float = 300.0
     scheduler_poll_seconds: float = 0.5
     job_timeout_seconds: float = 1_800.0
+
+    modal_executable: str = "modal"
+    modal_app_name: str = "melqivra-gpu-runner"
+    modal_runner_file: Path = Path("scripts/modal/runner_app.py")
+    modal_remote_output_root: str = "/tmp/agent_music_output"
+    modal_command_timeout_seconds: float = 1_800.0
 
     colab_executable: str = "colab"
     colab_session_name: str = "melqivra-t4"
@@ -52,11 +58,18 @@ class HarnessSettings:
         settings = cls(
             database_path=Path(os.getenv("HARNESS_DATABASE_PATH", "data/harness.db")),
             artifact_root=Path(os.getenv("ARTIFACT_ROOT", "data/artifacts")),
-            runner=os.getenv("GPU_RUNNER", "fake").strip().lower(),
+            runner=os.getenv("GPU_RUNNER", "modal").strip().lower(),
             gpu_max_concurrency=int(os.getenv("GPU_MAX_CONCURRENCY", "1")),
             idle_timeout_seconds=float(os.getenv("GPU_IDLE_TIMEOUT_SECONDS", "300")),
             scheduler_poll_seconds=float(os.getenv("GPU_SCHEDULER_POLL_SECONDS", "0.5")),
             job_timeout_seconds=float(os.getenv("GPU_JOB_TIMEOUT_SECONDS", "1800")),
+            modal_executable=os.getenv("MODAL_EXECUTABLE", "modal"),
+            modal_app_name=os.getenv("MODAL_APP_NAME", "melqivra-gpu-runner"),
+            modal_runner_file=Path(os.getenv("MODAL_RUNNER_FILE", "scripts/modal/runner_app.py")),
+            modal_remote_output_root=os.getenv(
+                "MODAL_REMOTE_OUTPUT_ROOT", "/tmp/agent_music_output"
+            ),
+            modal_command_timeout_seconds=float(os.getenv("MODAL_COMMAND_TIMEOUT_SECONDS", "1800")),
             colab_executable=os.getenv("COLAB_EXECUTABLE", "colab"),
             colab_session_name=os.getenv("COLAB_SESSION_NAME", "melqivra-t4"),
             colab_gpu=os.getenv("COLAB_GPU", "T4"),
@@ -88,8 +101,8 @@ class HarnessSettings:
     def validate(self) -> None:
         """Reject unsafe or unsupported combinations early."""
 
-        if self.runner not in {"fake", "colab", "local"}:
-            raise ValueError("GPU_RUNNER must be fake, colab, or local")
+        if self.runner not in {"modal", "colab", "fake", "local"}:
+            raise ValueError("GPU_RUNNER must be modal, colab, fake, or local")
         if self.gpu_max_concurrency != 1:
             raise ValueError("This harness intentionally supports GPU_MAX_CONCURRENCY=1 only")
         if self.idle_timeout_seconds <= 0:
@@ -98,6 +111,17 @@ class HarnessSettings:
             raise ValueError("GPU_SCHEDULER_POLL_SECONDS must be positive")
         if self.job_timeout_seconds <= 0:
             raise ValueError("GPU_JOB_TIMEOUT_SECONDS must be positive")
+        if self.modal_command_timeout_seconds <= 0:
+            raise ValueError("MODAL_COMMAND_TIMEOUT_SECONDS must be positive")
+        if not self.modal_app_name or any(
+            character not in "abcdefghijklmnopqrstuvwxyz0123456789-"
+            for character in self.modal_app_name
+        ):
+            raise ValueError(
+                "MODAL_APP_NAME must contain lowercase ASCII letters, digits, or hyphens"
+            )
+        if self.colab_command_timeout_seconds <= 0:
+            raise ValueError("COLAB_COMMAND_TIMEOUT_SECONDS must be positive")
 
     def ensure_directories(self) -> None:
         """Create local state directories."""

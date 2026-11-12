@@ -99,6 +99,7 @@ def create_app(
         return {
             **asdict(snapshot),
             "state": snapshot.state.value,
+            "strategy": active.settings.runner,
             "idle_timeout_seconds": active.settings.idle_timeout_seconds,
             "max_concurrency": active.settings.gpu_max_concurrency,
         }

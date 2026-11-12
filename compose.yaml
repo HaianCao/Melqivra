@@ -5,7 +5,10 @@ services:
     environment:
       HARNESS_DATABASE_PATH: /data/harness.db
       ARTIFACT_ROOT: /data/artifacts
-      GPU_RUNNER: ${GPU_RUNNER:-fake}
+      # Keep the credential-free container quickstart explicit. The host/WSL
+      # application default is Modal; opt into another container strategy with
+      # COMPOSE_GPU_RUNNER.
+      GPU_RUNNER: ${COMPOSE_GPU_RUNNER:-fake}
       GPU_MAX_CONCURRENCY: "1"
       GPU_IDLE_TIMEOUT_SECONDS: ${GPU_IDLE_TIMEOUT_SECONDS:-300}
       COLAB_SESSION_NAME: ${COLAB_SESSION_NAME:-melqivra-t4}
