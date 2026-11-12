@@ -127,8 +127,9 @@ Two isolated 0.6B LM contract probes both initialized and executed the LM, but
 returned empty metadata and zero audio codes. The recorded repeat used 4.43 GB
 peak allocated VRAM, loaded in 72.58 seconds, and spent 247.49 seconds in LM
 inference. This is classified as a deterministic invalid conditioning contract,
-not successful LM-sensitive generation. No WAV was created, so generated-WAV
-transfer timing remains open rather than being recorded as zero.
+not successful LM-sensitive generation. No WAV was created by that vocal probe;
+generated-WAV transfer was measured separately with the successful instrumental
+reproduction below.
 
 Upstream issues
 [#1055](https://github.com/ace-step/ACE-Step-1.5/issues/1055) and
@@ -160,6 +161,36 @@ The sanitized allocation record is
 [modal-float32-fix-allocation.json](modal-float32-fix-allocation.json). The final
 billing snapshot is $0.2707 metered and $0 billed after credits and allowances.
 
+## Modal reproduction of the Colab instrumental PoC
+
+On 2026-11-12, the bounded Modal T4 function reproduced the successful Colab
+`vi-014` DiT-only contract using the same ACE-Step source revision, checksummed
+model assets, fixture, seed 20261111, 30-second duration, eight diffusion steps,
+shift 3.0, batch one, LM-off path, and upstream-default precision. The observed
+precision was float16 with no CPU offload. Model load took 8.43 seconds,
+inference took 5.06 seconds, peak allocated VRAM was 7.83 GB, and the complete
+remote benchmark took 26.51 seconds.
+
+The 5,760,078-byte WAV passed remote-to-local size and SHA-256 verification. Its
+download took 15.56 seconds at 370,184.96 bytes/second. Like the Colab baseline,
+it is 48 kHz stereo, exactly 30.0 seconds, finite, non-silent, non-clipped,
+-14.3 LUFS, and -1.0 dBFS true peak. The Modal artifact checksum
+`adcde481123030501c46d7eeb2a7cb120ee07b088e7d55807ce4d47c84a06429` differs
+from the Colab checksum
+`9667cb6dfb8d10a54cfcfdfa1e78dbf52a8ed73039ed71bac9469483a97e390e`.
+Modal used driver 620.70.06 and Python 3.12.10, while Colab used driver
+580.82.07 and Python 3.12.3; both used a Tesla T4, CUDA 12.8, and Torch
+2.10.0+cu128. The original Colab WAV is no longer available locally, so this
+evidence proves the same pinned generation contract and matching technical audio
+properties, not byte identity or subjective musical equivalence.
+
+The sanitized records are
+[benchmark-modal-colab-reproduction.json](benchmark-modal-colab-reproduction.json)
+and
+[modal-colab-reproduction-verification.json](modal-colab-reproduction-verification.json).
+The Modal app scaled to zero with zero active tasks. The final billing snapshot
+was $0.30 metered and $0 billed after credits and allowances.
+
 ## Backend and license decision
 
 [ADR-0004](../../adr/0004-ace-step-is-research-only-on-t4.md) rejects the pinned
@@ -180,7 +211,7 @@ unapproved and would require a new review.
 ## Local quality gate
 
 The current checkpoint passed the complete repository gate on Windows/Python
-3.11: 57 tests, strict mypy across 18 source files, Ruff format/lint, 81% branch
+3.11: 98 tests, strict mypy across 30 source files, Ruff format/lint, 81% branch
 coverage for the scheduler/store critical-path scope, wheel/sdist build, and
 dependency audit with no known vulnerabilities. The unpublished local
 `melqivra` package was skipped by the audit as expected.
@@ -194,5 +225,3 @@ dependency audit with no known vulnerabilities. The unpublished local
    capabilities explicitly; unsupported operations must fail clearly.
 3. Add the remaining controlled OOM classification without treating the vocal
    numerical failure as an OOM.
-4. Measure generated-artifact upload/download on a successful future WAV run;
-   the vocal failure produced no artifact to transfer.
