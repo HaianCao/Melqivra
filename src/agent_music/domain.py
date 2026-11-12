@@ -94,6 +94,8 @@ class Brief:
     references: tuple[str, ...] = ()
     exclusions: tuple[str, ...] = ()
     user_lyrics: str | None = None
+    lyrics_rights: str = "unknown"
+    style_description: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +110,7 @@ class Section:
     instrumentation: tuple[str, ...]
     delivery: str
     transition: str
+    is_climax: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +138,7 @@ class Lyrics:
     id: DocumentId
     language: str
     lines: tuple[LyricLine, ...]
+    source_rights: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
