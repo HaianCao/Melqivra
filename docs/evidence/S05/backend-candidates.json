@@ -32,15 +32,19 @@
         "codec_approx": 6640000000
       },
       "low_memory_path": "sequential lazy loading on one GPU",
-      "status": "bounded_t4_probe_candidate",
+      "status": "verified_s05_vocal_candidate",
       "unproven_gates": [
-        "Tesla T4 float16 numerical behavior",
-        "peak VRAM and cleanup",
         "instrumental generation",
         "explicit seed determinism",
-        "Vietnamese and languages outside the five model-card tags",
-        "audio validation and transfer"
+        "Vietnamese and languages outside the five model-card tags"
       ],
+      "verified_t4_result": {
+        "take_count": 2,
+        "duration_seconds_per_take": 20.08,
+        "artifact_transfer_verified": true,
+        "cleanup_verified": true,
+        "vram_safety_margin": "narrow"
+      },
       "translation_constraint": "The pinned upstream lowercases tags and lyrics; the adapter must explicitly neutralize that transform so approved text reaches tokenization unchanged.",
       "sources": [
         "https://github.com/HeartMuLa/heartlib/tree/5858ca8f1ffe58d62be7c007ea55f1033c5ca456",
@@ -69,9 +73,10 @@
     }
   ],
   "decision": {
-    "accepted_production_backend": null,
-    "next_candidate": "heartmula_3b",
-    "gpu_authorized_now": true,
-    "next_step": "pass local and CPU-only Modal contracts, populate the exact cache, then run one durable bounded T4 vocal batch"
+    "accepted_capability_route": "heartmula_3b vocals for zh/en/ja/ko/es with a visible T4 memory warning",
+    "exclusive_backend": false,
+    "next_experiment": "pinned ACE-Step float32 Vietnamese reference-vocal diagnostic",
+    "gpu_authorized_now": false,
+    "next_step": "obtain reference-media consent and a client-approved provider cost ceiling before one bounded T4 attempt"
   }
 }

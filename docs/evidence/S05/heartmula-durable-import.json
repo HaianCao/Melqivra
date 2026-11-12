@@ -1,0 +1,35 @@
+{
+  "batch_id": "batch_276303a3b349630f16bf22ef",
+  "contract_checksum": "888f0ad5d88b7059dc0a2c9d110fabe87a1ef8117b53ae05f96d0ba6185c2448",
+  "gpu_allocated": false,
+  "idempotent_retry_verified": true,
+  "job_id": "dec5e73b-12a3-41c3-b48e-57c52c752e1b",
+  "job_state": "succeeded",
+  "private_creative_text_persisted": false,
+  "recorded_at": "2026-11-13",
+  "request_id": "heartmula_vocal_20261112_a",
+  "restart_verified": true,
+  "schema_version": 1,
+  "status": "succeeded",
+  "takes": [
+    {
+      "artifact_relative_path": "projects/project_s05_heartmula_probe/artifacts/batch_276303a3b349630f16bf22ef/art_3b3468bd52edca5feb862f43_wav",
+      "audio_sha256": "22a38eb139e8d93a33f2e87a388738ca86a0c1d6b71ec8ed657c6019ff0e9308",
+      "audio_size_bytes": 3855434,
+      "backend_take_id": "take_a",
+      "persisted_take_id": "take_3b3468bd52edca5feb862f43"
+    },
+    {
+      "artifact_relative_path": "projects/project_s05_heartmula_probe/artifacts/batch_276303a3b349630f16bf22ef/art_fe18a8ef870327cb8903b760_wav",
+      "audio_sha256": "adcc740d56613ffcd728a654fd14a0eb3877441487022e6e8a5a85140604e0c5",
+      "audio_size_bytes": 3855434,
+      "backend_take_id": "take_b",
+      "persisted_take_id": "take_fe18a8ef870327cb8903b760"
+    }
+  ],
+  "user_preference": {
+    "backend_take_id": "take_b",
+    "persisted_take_id": "take_fe18a8ef870327cb8903b760",
+    "subjective_music_quality": "good"
+  }
+}

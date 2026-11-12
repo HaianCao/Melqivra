@@ -90,6 +90,22 @@ def fixture_generation_inputs(fixture: dict[str, Any]) -> tuple[str, str, bool]:
     return caption, lyrics, False
 
 
+def private_generation_inputs(path: Path) -> tuple[str, str, bool, int]:
+    """Load ignored user inputs without copying their content into evidence."""
+
+    payload = load_json(path)
+    caption = payload.get("caption")
+    lyrics = payload.get("lyrics")
+    tempo_bpm = payload.get("tempo_bpm", 0)
+    if not isinstance(caption, str) or not caption.strip():
+        raise ValueError("Private generation caption must be a non-empty string")
+    if not isinstance(lyrics, str) or not lyrics.strip():
+        raise ValueError("Private generation lyrics must be a non-empty string")
+    if not isinstance(tempo_bpm, int) or isinstance(tempo_bpm, bool) or tempo_bpm < 0:
+        raise ValueError("Private generation tempo_bpm must be a non-negative integer")
+    return caption, lyrics, False, tempo_bpm
+
+
 def sha256_json(value: object) -> str:
     """Hash one JSON-compatible value with a stable UTF-8 representation."""
 
@@ -317,8 +333,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     ).stdout.strip()
     if actual_revision != args.source_revision:
         raise RuntimeError(f"Unexpected source revision: {actual_revision}")
-    fixture = select_fixture(args.fixtures, args.fixture_id)
-    caption, lyrics, instrumental = fixture_generation_inputs(fixture)
+    if args.inputs_file is not None:
+        caption, lyrics, instrumental, tempo_bpm = private_generation_inputs(args.inputs_file)
+    else:
+        if args.fixtures is None:
+            raise ValueError("Fixture corpus is required when --inputs-file is absent")
+        fixture = select_fixture(args.fixtures, args.fixture_id)
+        caption, lyrics, instrumental = fixture_generation_inputs(fixture)
+        tempo_bpm = int(fixture["tempo_bpm"])
     reference_audio = args.reference_audio.resolve() if args.reference_audio else None
     source_audio = args.source_audio.resolve() if args.source_audio else None
     for label, audio_path in (
@@ -401,8 +423,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
         caption=caption,
         lyrics=lyrics,
         instrumental=instrumental,
-        vocal_language="vi",
-        bpm=int(fixture["tempo_bpm"]),
+        vocal_language=args.vocal_language,
+        bpm=tempo_bpm,
         duration=float(args.duration),
         inference_steps=8,
         shift=3.0,
@@ -412,10 +434,10 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
         repainting_end=float(args.repainting_end),
         audio_cover_strength=float(args.audio_cover_strength),
         enable_normalization=not bool(args.disable_normalization),
-        thinking=bool(args.lm),
-        use_cot_metas=bool(args.lm),
-        use_cot_caption=bool(args.lm),
-        use_cot_language=bool(args.lm),
+        thinking=bool(args.lm or args.thinking_without_lm),
+        use_cot_metas=bool(args.lm or args.thinking_without_lm),
+        use_cot_caption=bool(args.lm or args.thinking_without_lm),
+        use_cot_language=bool(args.lm or args.thinking_without_lm),
     )
     config = inference_module.GenerationConfig(
         batch_size=int(args.batch_size),
@@ -583,6 +605,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "observed_precision": observed_precision,
             "offload_to_cpu": bool(args.offload_to_cpu),
             "lm_requested": bool(args.lm),
+            "thinking_without_lm": bool(args.thinking_without_lm),
+            "vocal_language": args.vocal_language,
             "instrumental": instrumental,
             "caption_sha256": sha256_json(caption),
             "lyrics_sha256": sha256_json(lyrics),
@@ -635,8 +659,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--source-repository", default=SOURCE_REPOSITORY)
     parser.add_argument("--source-revision", default=SOURCE_REVISION)
-    parser.add_argument("--fixtures", type=Path, required=True)
+    parser.add_argument("--fixtures", type=Path)
     parser.add_argument("--fixture-id", default="vi-014")
+    parser.add_argument("--inputs-file", type=Path)
     parser.add_argument("--cache-manifest", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--result", type=Path, required=True)
@@ -667,6 +692,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="upstream_default",
     )
     parser.add_argument("--lm", action="store_true")
+    parser.add_argument("--thinking-without-lm", action="store_true")
+    parser.add_argument("--vocal-language", default="vi")
     parser.add_argument("--offload-to-cpu", action="store_true")
     parser.add_argument("--session-name", default="melqivra-t4")
     parser.add_argument("--provider", default="colab")
@@ -683,6 +710,10 @@ def validate_arguments(args: argparse.Namespace) -> None:
 
     if args.batch_size < 1:
         raise SystemExit("--batch-size must be positive")
+    if (args.fixtures is None) == (args.inputs_file is None):
+        raise SystemExit("exactly one of --fixtures or --inputs-file is required")
+    if args.lm and args.thinking_without_lm:
+        raise SystemExit("--lm and --thinking-without-lm are mutually exclusive")
     if (
         args.expect_oom
         and args.batch_size == 1
