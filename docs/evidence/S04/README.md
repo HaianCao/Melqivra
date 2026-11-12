@@ -2,10 +2,13 @@
 
 Date: 2026-11-12
 
-Status: `IN_PROGRESS` pending protected CI and the closure commit/tag.
+Status: `DONE`
 
-Implementation checkpoint:
-`a2a8857 feat(s04): add creative planning and lyrics workflow`.
+Merged implementation checkpoint:
+`2119982 feat(s04): add creative planning and lyrics workflow (#16)`.
+
+PR #16 passed all required protected CI jobs before merge across Ubuntu and
+Windows on Python 3.11 and 3.13.
 
 ## Delivered contract
 
