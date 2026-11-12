@@ -16,6 +16,8 @@ from agent_music.generation import (
     UnsupportedGenerationError,
     VocalMode,
     execute_generation,
+    request_from_json,
+    request_to_json,
 )
 
 
@@ -174,6 +176,14 @@ class GenerationContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(GenerationContractError, "incomplete"):
             execute_generation(IncompleteBackend(self.descriptor), self.request(), lambda _: None)
+
+    def test_request_serialization_round_trip_is_strict(self) -> None:
+        request = self.request()
+        self.assertEqual(request, request_from_json(request_to_json(request)))
+        payload = request_to_json(request)
+        payload["takes"] = "not-an-array"
+        with self.assertRaisesRegex(GenerationContractError, "object array"):
+            request_from_json(payload)
 
 
 if __name__ == "__main__":
