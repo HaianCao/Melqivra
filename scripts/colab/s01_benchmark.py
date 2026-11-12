@@ -367,18 +367,17 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             raise RuntimeError(f"LM initialization failed: {llm_status}")
     model_load = time.monotonic() - load_started
 
-    pressure_allocation: Any = None
+    pressure_allocations: list[Any] = []
     if args.expect_oom and args.oom_headroom_mib is not None:
-        free_bytes, _ = torch.cuda.mem_get_info()
         headroom_bytes = int(args.oom_headroom_mib) * 1024 * 1024
-        reserve_bytes = int(free_bytes) - headroom_bytes
-        if reserve_bytes <= 0:
-            raise RuntimeError("Requested OOM headroom exceeds available CUDA memory")
-        pressure_allocation = torch.empty(
-            reserve_bytes,
-            dtype=torch.uint8,
-            device="cuda",
-        )
+        chunk_bytes = 256 * 1024 * 1024
+        while True:
+            free_bytes, _ = torch.cuda.mem_get_info()
+            if int(free_bytes) <= headroom_bytes + chunk_bytes:
+                break
+            pressure_allocations.append(torch.empty(chunk_bytes, dtype=torch.uint8, device="cuda"))
+        if not pressure_allocations:
+            raise RuntimeError("Unable to reserve controlled CUDA pressure")
 
     params = inference_module.GenerationParams(
         task_type=args.task_type,
@@ -438,8 +437,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
         if partial_artifacts:
             raise RuntimeError(f"OOM created partial WAV artifacts: {', '.join(partial_artifacts)}")
         peak_vram_bytes = int(torch.cuda.max_memory_allocated())
-        pressure_bytes = int(pressure_allocation.numel()) if pressure_allocation is not None else 0
-        pressure_allocation = None
+        pressure_bytes = sum(int(allocation.numel()) for allocation in pressure_allocations)
+        pressure_allocations.clear()
         del dit_handler
         if llm_handler is not None:
             del llm_handler
@@ -657,16 +656,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
-    args = build_parser().parse_args()
+def validate_arguments(args: argparse.Namespace) -> None:
+    """Reject contradictory benchmark arguments before loading a GPU model."""
+
     if args.batch_size < 1:
         raise SystemExit("--batch-size must be positive")
-    if args.expect_oom and args.batch_size == 1:
-        raise SystemExit("--expect-oom requires --batch-size greater than one")
+    if args.expect_oom and args.batch_size == 1 and args.oom_headroom_mib is None:
+        raise SystemExit("--expect-oom with batch size one requires controlled CUDA headroom")
     if args.oom_headroom_mib is not None and not args.expect_oom:
         raise SystemExit("--oom-headroom-mib requires --expect-oom")
     if args.oom_headroom_mib is not None and args.oom_headroom_mib < 256:
         raise SystemExit("--oom-headroom-mib must be at least 256")
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    validate_arguments(args)
     try:
         evidence = run_benchmark(args)
         atomic_write_json(args.result, evidence)

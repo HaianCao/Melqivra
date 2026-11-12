@@ -376,10 +376,10 @@ def run_closure_probes(run_group: str) -> str:
         ],
         "oom": [
             "--batch-size",
-            "8",
+            "1",
             "--expect-oom",
             "--oom-headroom-mib",
-            "2048",
+            "256",
         ],
         "recovery": [],
     }

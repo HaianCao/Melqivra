@@ -250,6 +250,27 @@ class S01BenchmarkTests(unittest.TestCase):
         self.assertFalse(self.benchmark.is_cuda_out_of_memory("generation failed"))
         self.assertFalse(self.benchmark.is_cuda_out_of_memory("host out of memory"))
 
+    def test_controlled_headroom_allows_batch_one_oom_probe(self) -> None:
+        args = self.benchmark.build_parser().parse_args(
+            [
+                "--fixtures",
+                "fixtures.json",
+                "--cache-manifest",
+                "cache.json",
+                "--result",
+                "result.json",
+                "--run-id",
+                "controlled-oom",
+                "--expect-oom",
+                "--oom-headroom-mib",
+                "256",
+            ]
+        )
+        self.benchmark.validate_arguments(args)
+        args.oom_headroom_mib = None
+        with self.assertRaisesRegex(SystemExit, "requires controlled CUDA headroom"):
+            self.benchmark.validate_arguments(args)
+
     def test_verified_assets_rejects_malformed_manifests(self) -> None:
         assets = self.benchmark.verified_assets(
             {
