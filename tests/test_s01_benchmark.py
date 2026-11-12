@@ -271,6 +271,26 @@ class S01BenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "requires controlled CUDA headroom"):
             self.benchmark.validate_arguments(args)
 
+    def test_controlled_allocator_oom_is_explicit_and_exclusive(self) -> None:
+        args = self.benchmark.build_parser().parse_args(
+            [
+                "--fixtures",
+                "fixtures.json",
+                "--cache-manifest",
+                "cache.json",
+                "--result",
+                "result.json",
+                "--run-id",
+                "allocator-oom",
+                "--expect-oom",
+                "--controlled-allocator-oom",
+            ]
+        )
+        self.benchmark.validate_arguments(args)
+        args.oom_headroom_mib = 256
+        with self.assertRaisesRegex(SystemExit, "cannot also reserve"):
+            self.benchmark.validate_arguments(args)
+
     def test_verified_assets_rejects_malformed_manifests(self) -> None:
         assets = self.benchmark.verified_assets(
             {

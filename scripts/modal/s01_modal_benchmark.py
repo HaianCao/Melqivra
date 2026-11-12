@@ -424,6 +424,59 @@ def run_closure_probes(run_group: str) -> str:
     memory=24_576,
     max_containers=1,
     scaledown_window=2,
+    timeout=1_800,
+)
+def run_oom_recovery(run_group: str) -> str:
+    """Classify a deterministic CUDA allocator OOM, then prove recovery."""
+
+    _validate_run_group(run_group)
+    _restore_volume_cache()
+    run_path = RUN_ROOT / run_group
+    if run_path.exists():
+        raise FileExistsError(f"Run group already exists: {run_group}")
+    variants = {
+        "oom": ["--expect-oom", "--controlled-allocator-oom"],
+        "recovery": [],
+    }
+    try:
+        for variant, extra_args in variants.items():
+            command = _benchmark_command_for_variant(
+                run_group=run_group,
+                variant=variant,
+            )
+            command.extend(extra_args)
+            _run(command, timeout=1_200)
+    finally:
+        volume.commit()
+    records: dict[str, object] = {}
+    artifacts: dict[str, str] = {}
+    for variant in variants:
+        record_path = run_path / variant / "benchmark.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        records[variant] = record
+        if record.get("artifacts"):
+            artifact = _recorded_artifact(record_path)
+            artifacts[variant] = str(artifact.relative_to(CACHE_ROOT)).replace("\\", "/")
+    return json.dumps(
+        {
+            "run_group": run_group,
+            "volume_name": VOLUME_NAME,
+            "records": records,
+            "artifacts": artifacts,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+@app.function(  # type: ignore[untyped-decorator]
+    image=image,
+    volumes={str(CACHE_ROOT): volume},
+    gpu="T4",
+    cpu=4,
+    memory=24_576,
+    max_containers=1,
+    scaledown_window=2,
     timeout=2_700,
 )
 def run_pair(run_group: str, precision: str = "upstream_default") -> str:
