@@ -283,8 +283,22 @@ def execute_generation(
 ) -> GenerationBatchResult:
     """Validate, execute, and verify one all-or-nothing generation batch."""
 
-    request.validate()
     descriptor = backend.descriptor
+    validate_generation_request(descriptor, request)
+    on_progress({"type": "stage", "stage": "contract_validated", "progress": 0.05})
+    result = backend.generate(request, on_progress)
+    validate_generation_result(descriptor, request, result)
+    on_progress({"type": "stage", "stage": "batch_validated", "progress": 1.0})
+    return result
+
+
+def validate_generation_request(
+    descriptor: MusicBackendDescriptor,
+    request: MusicGenerationRequest,
+) -> None:
+    """Validate an approved request against one exact backend capability pin."""
+
+    request.validate()
     descriptor.validate()
     if descriptor.backend_id != request.backend_id:
         raise UnsupportedGenerationError("Request selected a different backend")
@@ -307,8 +321,15 @@ def execute_generation(
     ):
         raise UnsupportedGenerationError("Backend does not support the requested duration")
 
-    on_progress({"type": "stage", "stage": "contract_validated", "progress": 0.05})
-    result = backend.generate(request, on_progress)
+
+def validate_generation_result(
+    descriptor: MusicBackendDescriptor,
+    request: MusicGenerationRequest,
+    result: GenerationBatchResult,
+) -> None:
+    """Reject incomplete or identity-changing backend results before persistence."""
+
+    validate_generation_request(descriptor, request)
     if result.backend_id != request.backend_id:
         raise GenerationContractError("Backend result identity changed")
     if result.backend_revision != request.backend_revision:
@@ -326,8 +347,6 @@ def execute_generation(
         if take.media_type != descriptor.output_media_type:
             raise GenerationContractError("Backend returned an unexpected audio format")
         observed.add(take.take_id)
-    on_progress({"type": "stage", "stage": "batch_validated", "progress": 1.0})
-    return result
 
 
 def result_to_json(result: GenerationBatchResult) -> JsonObject:
@@ -365,6 +384,25 @@ def result_to_json(result: GenerationBatchResult) -> JsonObject:
     }
 
 
+def result_from_json(payload: JsonObject) -> GenerationBatchResult:
+    """Decode untrusted remote output into a typed generation batch."""
+
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        raise GenerationContractError("metrics must be an object")
+    takes = tuple(_generated_take_from_json(item) for item in _object_list(payload, "takes"))
+    result = GenerationBatchResult(
+        backend_id=_string(payload, "backend_id"),
+        backend_revision=_string(payload, "backend_revision"),
+        contract_checksum=_string(payload, "contract_checksum"),
+        takes=takes,
+        metrics=metrics,
+    )
+    for take in result.takes:
+        take.validate()
+    return result
+
+
 def _take_from_json(payload: JsonObject) -> TakeSpec:
     settings = payload.get("settings")
     if not isinstance(settings, dict):
@@ -374,6 +412,24 @@ def _take_from_json(payload: JsonObject) -> TakeSpec:
         _string(payload, "label"),
         _integer(payload, "seed"),
         settings,
+    )
+
+
+def _generated_take_from_json(payload: JsonObject) -> GeneratedTake:
+    validation = payload.get("validation")
+    if not isinstance(validation, dict):
+        raise GenerationContractError("validation must be an object")
+    return GeneratedTake(
+        take_id=_string(payload, "take_id"),
+        seed=_integer(payload, "seed"),
+        relative_path=_string(payload, "relative_path"),
+        media_type=_string(payload, "media_type"),
+        size_bytes=_integer(payload, "size_bytes"),
+        sha256=_string(payload, "sha256"),
+        duration_seconds=_number(payload, "duration_seconds"),
+        sample_rate_hz=_integer(payload, "sample_rate_hz"),
+        channels=_integer(payload, "channels"),
+        validation=validation,
     )
 
 

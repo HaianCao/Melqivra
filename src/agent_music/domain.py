@@ -240,12 +240,18 @@ class GenerationManifest:
     """Reproducibility contract for a generated artifact."""
 
     project_id: ProjectId
+    request_id: str
+    contract_checksum: str
+    take_id: TakeId
+    artifact_id: ArtifactId
+    artifact_sha256: str
     source_revision_ids: tuple[RevisionId, ...]
     backend: str
     backend_revision: str
     model_ids: tuple[str, ...]
     settings: JsonObject
     seed: int | None
+    audio: JsonObject
     environment: JsonObject
     license_provenance: tuple[str, ...]
 

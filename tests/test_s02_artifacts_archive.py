@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import tempfile
 import unittest
@@ -35,6 +36,23 @@ class ArtifactStoreTests(unittest.TestCase):
             )
             with self.assertRaises(KeyError):
                 store.read(project_id=ProjectId("prj_other"), artifact=artifact)
+            forged_path = (
+                Path(temporary)
+                / "projects"
+                / "prj_alpha"
+                / "artifacts"
+                / "batch_forged"
+                / "extra"
+                / str(artifact.id)
+            )
+            forged_path.parent.mkdir(parents=True)
+            forged_path.write_bytes(b"RIFF-safe")
+            forged = dataclasses.replace(
+                artifact,
+                relative_path=forged_path.relative_to(Path(temporary)).as_posix(),
+            )
+            with self.assertRaises(CorruptArtifactError):
+                store.read(project_id=artifact.project_id, artifact=forged)
             (Path(temporary) / artifact.relative_path).write_bytes(b"tampered")
             with self.assertRaises(CorruptArtifactError):
                 store.read(project_id=artifact.project_id, artifact=artifact)
