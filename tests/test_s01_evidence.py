@@ -206,6 +206,37 @@ class S01EvidenceTests(unittest.TestCase):
         self.assertEqual("Apache-2.0", components["qwen3-0.6b-base"]["declared_license"])
         self.assertRegex(components["qwen3-0.6b-base"]["evidence_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_modal_strategy_is_explicit_and_real_transport_cleans_up(self) -> None:
+        evidence = load_json(EVIDENCE_ROOT / "modal-runner-strategy.json")
+        implementation = evidence["implementation"]
+        self.assertEqual("modal", implementation["default_strategy"])
+        self.assertEqual(
+            ["modal", "colab", "fake", "local"],
+            implementation["registered_strategies"],
+        )
+        self.assertFalse(implementation["silent_fallback"])
+        self.assertTrue(implementation["packaged_transport_assets"])
+        self.assertEqual(
+            "agent_music/remote/worker.py",
+            implementation["shared_allowlisted_worker"],
+        )
+        routing = evidence["modal_routing"]
+        self.assertEqual("T4", routing["gpu"])
+        self.assertEqual(1, routing["max_containers"])
+        self.assertIsNone(routing["gpu_fallback"])
+        smoke = evidence["real_transport_smoke"]
+        self.assertEqual("succeeded", smoke["status"])
+        self.assertTrue(smoke["durable_job_boundary"])
+        self.assertFalse(smoke["gpu_allocated"])
+        self.assertEqual("stopped", smoke["app_state_after"])
+        self.assertEqual(0, smoke["active_containers_after"])
+        probe = evidence["bounded_t4_allocation_probe"]
+        self.assertEqual("failed", probe["status"])
+        self.assertEqual("transient_provider_capacity", probe["failure_class"])
+        self.assertFalse(probe["container_started"])
+        self.assertFalse(probe["fallback_used"])
+        self.assertEqual(0.0, evidence["billing"]["billed_usd"])
+
 
 if __name__ == "__main__":
     unittest.main()

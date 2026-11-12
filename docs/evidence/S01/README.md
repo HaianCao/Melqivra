@@ -191,15 +191,48 @@ and
 The Modal app scaled to zero with zero active tasks. The final billing snapshot
 was $0.30 metered and $0 billed after credits and allowances.
 
+## Pre-S05 provider strategy and transport proof
+
+The product harness now selects its execution provider through an explicit
+strategy registry rather than scheduler conditionals. `GPU_RUNNER=modal` is the
+application default; changing the value to `colab`, `fake`, or `local` selects
+that strategy at startup. Unknown or unavailable strategies fail explicitly,
+and no provider, GPU type, or operation silently falls back.
+
+Modal and Colab use the same packaged allowlisted remote-worker file contract.
+Modal job content travels through private temporary files rather than CLI
+arguments. Health, echo, and unsupported-kind validation use a scale-to-zero
+CPU function; `music.generate` is the only current Modal T4 route, with one
+container and a two-second scale-down window. Docker and CI remain explicitly
+configured for FakeRunner so their credential-free quickstart remains
+reproducible.
+
+A real `harness.healthcheck` crossed the SQLite durable queue, strategy registry,
+official Modal CLI, remote function, packaged worker, and fenced job completion
+in 11.13 seconds. Remote worker execution took 0.012 seconds. The app stopped
+with zero tasks and zero active containers. A separate bounded T4 allocation
+probe received no container and was classified `TimeoutError` after 303.24
+seconds; graceful cancellation stopped the app without fallback or a billing
+increase. This is provider-capacity evidence, not a model result. The earlier
+successful `vi-014` reproduction remains the real Modal T4 audio proof.
+
+The built wheel contains both remote transport assets, and an isolated wheel
+installation resolved both default paths without a repository checkout. The
+sanitized record is
+[modal-runner-strategy.json](modal-runner-strategy.json). Metered cost remains
+$0.30 and billed cost remains $0 after credits and allowances.
+
 ## Backend and license decision
 
 [ADR-0004](../../adr/0004-ace-step-is-research-only-on-t4.md) rejects the pinned
 ACE-Step candidate as Melqivra's default production backend. Its verified
 instrumental T4 evidence remains useful for research, but vocal, LM, reference,
 repaint, extend, and continuation capabilities are unsupported until a
-separately pinned backend passes their real-GPU contracts. Colab remains a
-viable on-demand runner transport; Modal remains an optional research provider,
-not an automatic fallback.
+separately pinned backend passes their real-GPU contracts.
+[ADR-0005](../../adr/0005-modal-is-the-default-remote-transport.md) separately
+makes Modal the default execution transport while keeping Colab explicitly
+selectable and forbidding automatic provider fallback. Default transport
+selection does not accept a production music backend.
 
 The license review is complete for non-bundled research use. ACE-Step source and
 model cards declare MIT; the Qwen3 base lineage declares Apache-2.0. Melqivra
@@ -211,7 +244,7 @@ unapproved and would require a new review.
 ## Local quality gate
 
 The current checkpoint passed the complete repository gate on Windows/Python
-3.11: 98 tests, strict mypy across 30 source files, Ruff format/lint, 81% branch
+3.11: 112 tests, strict mypy across 36 source files, Ruff format/lint, 83% branch
 coverage for the scheduler/store critical-path scope, wheel/sdist build, and
 dependency audit with no known vulnerabilities. The unpublished local
 `melqivra` package was skipped by the audit as expected.
