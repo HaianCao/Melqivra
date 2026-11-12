@@ -1,8 +1,14 @@
 # S01 evidence — T4 benchmark and backend decision
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
-Recorded: 2026-11-11 (Asia/Saigon)
+Recorded: 2026-11-11 through 2026-11-12 (Asia/Saigon)
+
+Merged closure-evidence checkpoint:
+`a7e27cf docs(s01): record closure capability and OOM evidence`.
+
+PR #20 passed all required protected CI jobs before merge across Ubuntu and
+Windows on Python 3.11 and 3.13.
 
 ## Candidate provenance established
 
@@ -294,4 +300,4 @@ asset/license provenance, cold/warm/cache metrics, explicit numerical and LM
 failures, real reference/repaint observations, turbo extend rejection, and
 controlled OOM classification with successful recovery. ACE-Step remains
 research-only and rejected as the production backend. No GPU evidence blocker
-remains for S01 closure; S05 still requires a separate accepted backend decision.
+remains. S05 still requires a separate accepted backend decision.
