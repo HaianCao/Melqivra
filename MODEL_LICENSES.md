@@ -52,15 +52,53 @@ approved for redistribution in a Melqivra release.
   attribution and license in release notices; do not infer that the ACE-Step
   model-card MIT declaration removes upstream notice obligations.
 
+## HeartMuLa source and model assets
+
+- Source repository: <https://github.com/HeartMuLa/heartlib>
+- Pinned source revision: `5858ca8f1ffe58d62be7c007ea55f1033c5ca456`
+- Source license: Apache-2.0
+- Base metadata/tokenizer repository:
+  `HeartMuLa/HeartMuLaGen@2e18e01702011f4f7dc8642b6260967df62417ea`
+- Music model repository:
+  `HeartMuLa/HeartMuLa-oss-3B-happy-new-year@00a79ac9477f64593eba2ca96a25807cb2f55be6`
+- Codec repository:
+  `HeartMuLa/HeartCodec-oss-20260123@f889dab0532cfa4bf459f2a3367eb6d346b8eeda`
+- Declared source/model-card license: Apache-2.0
+- Intended use: non-bundled S05 vocal generation for the exact languages and
+  capability pins that have passed the product contract
+- Redistribution decision: not bundled; operators retrieve exact upstream
+  revisions into their own private cache, and generated manifests preserve all
+  three model identifiers plus license provenance
+
+The license declaration does not expand the model's verified language,
+instrumental, voice-identity, or hardware capability. Reference media and user
+lyrics retain their own rights and consent requirements.
+
+## ACE-Step community float32 research fork
+
+- Repository: <https://github.com/peter571/ACE-Step-1.5>
+- Pinned revision: `44c15413f6dc9b55acfbd214209dbb6c0aac74b9`
+- Pinned upstream base: `dce621408bee8c31b4fcf4811682eb9359e1bc94`
+- Declared source license boundary: ACE-Step MIT fork; model assets remain the
+  separately pinned upstream repositories above
+- Intended use: one explicitly approved, non-bundled Vietnamese
+  reference-conditioned float32 research diagnostic
+- Redistribution decision: not bundled; no product capability claim exists
+  until the exact fork passes real-T4 evidence
+
 ## Current decision boundary
 
 ADR-0004 rejects the pinned ACE-Step candidate as the default production backend
-and retains it for non-bundled research only. Operators may retrieve exact
-upstream revisions into their own cache; Melqivra releases do not contain or
-mirror the weights.
+and retains it for non-bundled research only. ADR-0006 permits a catalog of
+separately pinned, capability-scoped backends, with HeartMuLa currently verified
+only for its declared vocal languages. Operators may retrieve exact upstream
+revisions into their own cache; Melqivra releases do not contain or mirror the
+weights.
 
-Release notices must preserve the ACE-Step MIT notice and identify the Qwen3
-Apache-2.0 lineage. Generated artifacts record model and license provenance, but
-no ownership or unrestricted-use guarantee is inferred from a model-card license.
-Alternative models, redistributed weights, or changed output terms require a new
-code, weight, dataset, and license review before entering the product path.
+Release notices must preserve the ACE-Step MIT notice, identify the Qwen3
+Apache-2.0 lineage, and preserve HeartMuLa/HeartCodec Apache-2.0 attribution
+when those adapters are distributed. Generated artifacts record model and
+license provenance, but no ownership or unrestricted-use guarantee is inferred
+from a model-card license. Alternative models, redistributed weights, or changed
+output terms require a new code, weight, dataset, and license review before
+entering the product path.

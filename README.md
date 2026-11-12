@@ -51,13 +51,13 @@ license does not grant redistribution rights for those assets.
 - Identity/copyright safeguards and explicit lyrics-rights declarations.
 - Capability-aware 2–4 take planning and human-readable contract review.
 
-Real music generation is intentionally not claimed yet. A `music.generate` job
-currently fails clearly until `agent_music_worker` has been installed in the
-selected remote runtime; harness health jobs already exercise the real Modal and
-Colab transports. The S01 research harness has separately produced and validated
-pinned 30-second ACE-Step audio on a real T4, including explicit LM-off and
-0.6B-LM-used evidence, but that benchmark path is not yet the product worker. See
-[the S01 evidence](docs/evidence/S01/README.md).
+S05 has now produced two validated 20-second HeartMuLa vocal takes through the
+durable Modal T4 path and persisted them with immutable manifests. HeartMuLa is
+a scoped candidate for its declared `zh`, `en`, `ja`, `ko`, and `es` vocal
+capabilities; it is not a universal default, does not claim Vietnamese or
+instrumental support, and has a narrow measured T4 memory margin. The pinned
+ACE-Step path remains research-only for its verified 30-second instrumental
+contract. See [the S05 evidence](docs/evidence/S05/README.md).
 
 Run the S04 CPU-only creative-contract demonstration:
 
@@ -162,9 +162,11 @@ A real `music.generate` backend that stores output in a Modal Volume must also
 set `MODAL_ARTIFACT_VOLUME` and its safe relative `MODAL_ARTIFACT_PREFIX`.
 Declared output files are downloaded into a job-scoped transfer directory,
 independently revalidated, and atomically imported before the durable job can be
-marked successful. The default general-purpose app still fails explicitly until
-an accepted music plugin and its volume are configured; the S05 HeartMuLa path
-remains a candidate rather than a production default.
+marked successful. Backend routing is capability-based: the agent may recommend
+compatible exact revisions, but the client approves the chosen backend and
+contract, and no provider/model/precision/operation fallback occurs. The default
+general-purpose app still fails explicitly until an accepted plugin and its
+model volume are configured.
 
 Switch to Colab by changing one setting:
 

@@ -1,0 +1,45 @@
+{
+  "assessment": {
+    "exact_reproduction_ready": false,
+    "reason": "The notebook used an unpinned clone, an in-place source patch, and private reference audio; it is evidence of a successful PoC, not a reproducible pin."
+  },
+  "generation": {
+    "audio_format": "mp3",
+    "batch_size": 1,
+    "duration_seconds": 140.0,
+    "inference_steps": 8.0,
+    "lm_initialization_called": true,
+    "lm_model": "acestep-5Hz-lm-0.6B",
+    "lm_observed_initialized": false,
+    "lm_used": false,
+    "model": "acestep-v15-turbo",
+    "operation": "reference_conditioned_text2music",
+    "seed": 12345,
+    "shift": 3.0,
+    "thinking": true,
+    "use_random_seed": false,
+    "vocal_language": "vi"
+  },
+  "notebook": {
+    "sha256": "581764a148977d4e3b9e7a51903c5220f53d6874481880a71bdc34c799fb69b7",
+    "size_bytes": 9378005,
+    "source_checkout": "unpinned_depth_1_clone"
+  },
+  "observed_output": {
+    "final_export_reported": true,
+    "float32_latents": true
+  },
+  "private_inputs": {
+    "lyrics_characters": 941,
+    "lyrics_sha256": "c066e0e1c33bed2056c1b0129dbacd8f61880ec45e9e727beda23e8c3bdf2713",
+    "reference_audio": "one uploaded audio extracted from a 60-second video",
+    "reference_consent_required_before_reuse": true,
+    "style_characters": 326,
+    "style_sha256": "f50f03acede30c2777f8f113a56fe785e3b8c1aed4c0186a1336bd1620f6d5d0"
+  },
+  "runtime_mutation": {
+    "clean_upstream_revision": false,
+    "pre_ampere_float32_source_patch": true
+  },
+  "schema_version": 1
+}
