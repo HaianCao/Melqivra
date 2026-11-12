@@ -8,10 +8,10 @@ from an idea or partial lyrics into structured revisions, approved generation
 plans, multiple audio takes, focused edits, and provenance-rich exports.
 
 The project is being built in evidence-gated stages. The current implementation
-is the durable single-GPU execution foundation: it starts a Google Colab T4 only
-when work arrives, serializes jobs from multiple users, keeps the session warm
-for five minutes, and shuts it down when the queue remains empty. It is not yet
-the complete agentic studio described by the product vision.
+includes immutable song-project revisions, a safe provider-neutral agent tool
+boundary, and a CPU-only creative workflow that turns an idea or authorized
+lyrics into a reviewable brief, blueprint, lyrics revision, and capability-aware
+generation plan. Real product audio generation is not yet implemented.
 
 Repository: <https://github.com/HaianCao/Melqivra>
 
@@ -40,6 +40,14 @@ license does not grant redistribution rights for those assets.
 - Fake runner for development and CI without a GPU.
 - FastAPI endpoints for submit, inspect, cancel, and runner status.
 - Self-contained Colab-side health/transport worker.
+- Immutable, checksummed project revisions and portable project archives.
+- OpenAI-compatible planner client with allowlisted authenticated domain tools.
+- Structured briefs and duration-balanced blueprints.
+- Lock-safe lyrics generation, continuation, restructuring, critique, and
+  constrained rewriting.
+- Vietnamese syllable, tone, rhyme, Unicode, and mixed-language warnings.
+- Identity/copyright safeguards and explicit lyrics-rights declarations.
+- Capability-aware 2–4 take planning and human-readable contract review.
 
 Real music generation is intentionally not claimed yet. A
 music.generate job currently fails clearly until agent_music_worker has
@@ -48,6 +56,15 @@ real Colab transport. The S01 research harness has separately produced and
 validated pinned 30-second ACE-Step audio on a real T4, including explicit
 LM-off and 0.6B-LM-used evidence, but that benchmark path is not yet the product
 worker. See [the S01 evidence](docs/evidence/S01/README.md).
+
+Run the S04 CPU-only creative-contract demonstration:
+
+~~~shell
+uv run --frozen python scripts/s04_creative_demo.py
+~~~
+
+It uses synthetic Vietnamese fixtures, makes no provider request, and starts no
+GPU runner. See [the S04 evidence](docs/evidence/S04/README.md).
 
 ## Product direction
 
@@ -187,8 +204,9 @@ Install the repository-managed hooks with `uv run pre-commit install
 core gates on Python 3.11 and 3.13 on both Linux and Windows. GitHub Actions are
 pinned to immutable commit SHAs.
 
-Tests cover on-demand start, strict serialization across users, warm-session
-reuse, idle shutdown, FIFO ordering, idempotency, and fencing.
+Tests cover the durable GPU harness plus immutable project history, safe agent
+tools, approvals, creative planning, lock invariance, contract pinning, and
+Vietnamese lyrics validation.
 
 ## License
 
