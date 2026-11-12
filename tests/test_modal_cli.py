@@ -36,6 +36,24 @@ class ModalCliClientTests(unittest.TestCase):
             self.client.stop_argv(),
         )
 
+    def test_volume_download_command_keeps_paths_as_separate_arguments(self) -> None:
+        argv = self.client.volume_get_argv(
+            "melqivra-model-cache",
+            "runs/request/take.wav",
+            Path("/tmp/private transfer"),
+        )
+        self.assertEqual(
+            [
+                "modal",
+                "volume",
+                "get",
+                "melqivra-model-cache",
+                "runs/request/take.wav",
+                str(Path("/tmp/private transfer")),
+            ],
+            argv,
+        )
+
 
 class ModalCliCancellationTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_current_interrupts_the_active_process(self) -> None:

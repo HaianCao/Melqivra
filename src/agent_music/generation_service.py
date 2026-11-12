@@ -95,6 +95,9 @@ class GenerationSubmissionService:
         return self._jobs.enqueue(
             user_id=str(user_id),
             kind="music.generate",
-            payload={"generation_request": request_to_json(request)},
+            payload={
+                "generation_request": request_to_json(request),
+                "plan_revision_id": str(contract.plan_revision_id),
+            },
             idempotency_key=idempotency_key,
         )

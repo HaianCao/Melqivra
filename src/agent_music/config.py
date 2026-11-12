@@ -28,6 +28,7 @@ class HarnessSettings:
 
     database_path: Path = Path("data/harness.db")
     artifact_root: Path = Path("data/artifacts")
+    transfer_root: Path = Path("data/transfers")
     runner: str = "modal"
     gpu_max_concurrency: int = 1
     idle_timeout_seconds: float = 300.0
@@ -38,6 +39,8 @@ class HarnessSettings:
     modal_app_name: str = "melqivra-gpu-runner"
     modal_runner_file: Path = DEFAULT_MODAL_RUNNER_FILE
     modal_remote_output_root: str = "/tmp/agent_music_output"
+    modal_artifact_volume: str = ""
+    modal_artifact_prefix: str = "runs"
     modal_command_timeout_seconds: float = 1_800.0
 
     colab_executable: str = "colab"
@@ -62,6 +65,7 @@ class HarnessSettings:
         settings = cls(
             database_path=Path(os.getenv("HARNESS_DATABASE_PATH", "data/harness.db")),
             artifact_root=Path(os.getenv("ARTIFACT_ROOT", "data/artifacts")),
+            transfer_root=Path(os.getenv("TRANSFER_ROOT", "data/transfers")),
             runner=os.getenv("GPU_RUNNER", "modal").strip().lower(),
             gpu_max_concurrency=int(os.getenv("GPU_MAX_CONCURRENCY", "1")),
             idle_timeout_seconds=float(os.getenv("GPU_IDLE_TIMEOUT_SECONDS", "300")),
@@ -73,6 +77,8 @@ class HarnessSettings:
             modal_remote_output_root=os.getenv(
                 "MODAL_REMOTE_OUTPUT_ROOT", "/tmp/agent_music_output"
             ),
+            modal_artifact_volume=os.getenv("MODAL_ARTIFACT_VOLUME", "").strip(),
+            modal_artifact_prefix=os.getenv("MODAL_ARTIFACT_PREFIX", "runs").strip("/"),
             modal_command_timeout_seconds=float(os.getenv("MODAL_COMMAND_TIMEOUT_SECONDS", "1800")),
             colab_executable=os.getenv("COLAB_EXECUTABLE", "colab"),
             colab_session_name=os.getenv("COLAB_SESSION_NAME", "melqivra-t4"),
@@ -117,6 +123,9 @@ class HarnessSettings:
             raise ValueError("GPU_JOB_TIMEOUT_SECONDS must be positive")
         if self.modal_command_timeout_seconds <= 0:
             raise ValueError("MODAL_COMMAND_TIMEOUT_SECONDS must be positive")
+        modal_prefix_parts = self.modal_artifact_prefix.replace("\\", "/").split("/")
+        if any(part in {"", ".", ".."} for part in modal_prefix_parts):
+            raise ValueError("MODAL_ARTIFACT_PREFIX must be a safe relative path")
         if not self.modal_app_name or any(
             character not in "abcdefghijklmnopqrstuvwxyz0123456789-"
             for character in self.modal_app_name
@@ -132,4 +141,5 @@ class HarnessSettings:
 
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
+        self.transfer_root.mkdir(parents=True, exist_ok=True)
         self.colab_cli_config.parent.mkdir(parents=True, exist_ok=True)

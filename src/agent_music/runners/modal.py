@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import os
+import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from agent_music.config import HarnessSettings
@@ -28,6 +31,13 @@ class ModalClient(Protocol):
     ) -> list[str]: ...
 
     def stop_argv(self) -> list[str]: ...
+
+    def volume_get_argv(
+        self,
+        volume_name: str,
+        remote_path: str,
+        local_directory: Path,
+    ) -> list[str]: ...
 
     async def run(
         self,
@@ -136,6 +146,13 @@ class ModalRunner(GpuRunner):
                     raise ValueError("Remote result must be a JSON object")
                 if result.get("status") != "succeeded":
                     raise RuntimeError(str(result.get("error", "Remote job failed")))
+                if job.kind == "music.generate":
+                    result["_transfer_id"] = await self._download_artifacts(job, result)
+                    result["_environment"] = {
+                        "provider": "modal",
+                        "runner": "modal",
+                        "app_name": self._settings.modal_app_name,
+                    }
                 return result
         finally:
             if self._state != RunnerState.FAILED:
@@ -155,3 +172,65 @@ class ModalRunner(GpuRunner):
             await self._client.run(self._client.stop_argv(), check=False)
         finally:
             self._state = RunnerState.STOPPED
+
+    async def _download_artifacts(self, job: GpuJob, result: dict[str, Any]) -> str:
+        if not self._settings.modal_artifact_volume:
+            raise RuntimeError("MODAL_ARTIFACT_VOLUME is required for music.generate")
+        payload = result.get("result")
+        if not isinstance(payload, dict):
+            raise ValueError("Remote generation result must be an object")
+        raw_artifacts = payload.get("artifacts")
+        if not isinstance(raw_artifacts, list) or not raw_artifacts:
+            raise ValueError("Remote generation result has no artifacts")
+
+        relative_paths: list[PurePosixPath] = []
+        observed: set[str] = set()
+        for raw in raw_artifacts:
+            if not isinstance(raw, dict) or not isinstance(raw.get("relative_path"), str):
+                raise ValueError("Remote artifact path is invalid")
+            path_text = str(raw["relative_path"])
+            path = PurePosixPath(path_text)
+            if (
+                path.is_absolute()
+                or "\\" in path_text
+                or any(part in {"", ".", ".."} for part in path.parts)
+            ):
+                raise ValueError("Remote artifact path escaped the transfer root")
+            if path_text in observed:
+                raise ValueError("Remote artifact paths must be unique")
+            observed.add(path_text)
+            relative_paths.append(path)
+
+        transfer_id = "transfer_" + hashlib.sha256(job.id.encode("utf-8")).hexdigest()[:24]
+        root = self._settings.transfer_root.resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        destination = (root / transfer_id).resolve()
+        if destination.parent != root:
+            raise ValueError("Local transfer path escaped its root")
+        if destination.exists():
+            return transfer_id
+
+        staging = Path(tempfile.mkdtemp(prefix=".pending-", dir=root))
+        try:
+            for relative in relative_paths:
+                local_parent = staging.joinpath(*relative.parts[:-1])
+                local_parent.mkdir(parents=True, exist_ok=True)
+                remote_path = str(PurePosixPath(self._settings.modal_artifact_prefix) / relative)
+                await self._client.run(
+                    self._client.volume_get_argv(
+                        self._settings.modal_artifact_volume,
+                        remote_path,
+                        local_parent,
+                    )
+                )
+                if not (staging.joinpath(*relative.parts)).is_file():
+                    raise FileNotFoundError(str(relative))
+            os.replace(staging, destination)
+        finally:
+            await asyncio.to_thread(_remove_tree, staging)
+        return transfer_id
+
+
+def _remove_tree(path: Path) -> None:
+    if path.exists():
+        shutil.rmtree(path)

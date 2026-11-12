@@ -17,8 +17,14 @@ from agent_music.runners.modal_cli import CommandResult, LineCallback
 
 
 class FakeModalClient:
-    def __init__(self, *, remote_status: str = "succeeded") -> None:
+    def __init__(
+        self,
+        *,
+        remote_status: str = "succeeded",
+        remote_artifacts: dict[str, bytes] | None = None,
+    ) -> None:
         self.remote_status = remote_status
+        self.remote_artifacts = remote_artifacts or {}
         self.commands: list[tuple[str, ...]] = []
         self.cancelled = False
 
@@ -44,6 +50,14 @@ class FakeModalClient:
     def stop_argv(self) -> list[str]:
         return ["modal", "app", "stop", "--yes", "melqivra-gpu-runner"]
 
+    def volume_get_argv(
+        self,
+        volume_name: str,
+        remote_path: str,
+        local_directory: Path,
+    ) -> list[str]:
+        return ["modal", "volume", "get", volume_name, remote_path, str(local_directory)]
+
     async def run(
         self,
         argv: Sequence[str],
@@ -62,15 +76,31 @@ class FakeModalClient:
             if on_stdout is not None:
                 await on_stdout('{"type":"stage","stage":"remote_started"}')
                 await on_stdout("ignored provider log")
+            result_payload: dict[str, object] = {"echo": request["payload"]}
+            if request["kind"] == "music.generate":
+                result_payload = {
+                    "artifacts": [
+                        {"relative_path": path.removeprefix("runs/")}
+                        for path in self.remote_artifacts
+                    ]
+                }
             result_text = json.dumps(
                 {
                     "status": self.remote_status,
                     "job_id": request["job_id"],
-                    "result": {"echo": request["payload"]},
+                    "result": result_payload,
                     "error": "deterministic failure" if self.remote_status != "succeeded" else None,
                 }
             )
             await asyncio.to_thread(result_path.write_text, result_text, encoding="utf-8")
+        elif len(argv) > 2 and argv[1:3] == ["volume", "get"]:
+            remote_path = argv[4]
+            destination = Path(argv[5])
+            await asyncio.to_thread(destination.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                (destination / remote_path.rsplit("/", 1)[-1]).write_bytes,
+                self.remote_artifacts[remote_path],
+            )
         return CommandResult(returncode=0, stdout="", stderr="")
 
     async def cancel_current(self) -> None:
@@ -133,6 +163,37 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(RunnerState.STOPPED, runner.state)
             self.assertTrue(client.cancelled)
             self.assertIn(("modal", "app", "stop", "--yes", "melqivra-gpu-runner"), client.commands)
+
+    async def test_music_job_downloads_declared_volume_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner_file = root / "remote_worker.py"
+            runner_file.write_text("# fixture\n", encoding="utf-8")
+            client = FakeModalClient(remote_artifacts={"runs/request/take.wav": b"RIFF-private"})
+            runner = ModalRunner(
+                HarnessSettings(
+                    modal_runner_file=runner_file,
+                    modal_artifact_volume="melqivra-cache",
+                    transfer_root=root / "transfers",
+                ),
+                client=client,
+            )
+            job = GpuJob(
+                id="job-music",
+                user_id="user-1",
+                kind="music.generate",
+                payload={"generation_request": {}},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+            await runner.ensure_ready()
+            result = await runner.run(job, lambda _event: _completed())
+
+            transfer = root / "transfers" / str(result["_transfer_id"])
+            self.assertEqual(b"RIFF-private", (transfer / "request" / "take.wav").read_bytes())
+            self.assertEqual("modal", result["_environment"]["provider"])
 
 
 async def _completed() -> None:

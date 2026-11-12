@@ -9,6 +9,10 @@ from typing import Any
 
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, JobState, RunnerSnapshot, RunnerState
+from agent_music.result_processing import (
+    JobResultProcessor,
+    build_default_result_processor,
+)
 from agent_music.runners.base import GpuRunner
 from agent_music.runners.strategy import build_runner
 from agent_music.store import SqliteJobStore
@@ -26,6 +30,7 @@ class GpuHarness:
         store: SqliteJobStore | None = None,
         runner: GpuRunner | None = None,
         event_sink: EventSink | None = None,
+        result_processor: JobResultProcessor | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
     ) -> None:
@@ -35,6 +40,7 @@ class GpuHarness:
         self.store = store or SqliteJobStore(settings.database_path)
         self.runner = runner or build_runner(settings)
         self._event_sink = event_sink or (lambda _job_id, _event: None)
+        self._result_processor = result_processor or build_default_result_processor(settings)
         self._monotonic_clock = monotonic_clock
         self._wall_clock = wall_clock
         self._wake = asyncio.Event()
@@ -151,7 +157,11 @@ class GpuHarness:
             latest = self.store.get(job.id)
             if latest.cancel_requested:
                 raise asyncio.CancelledError
-            self.store.complete(job.id, job.lease_token, result)
+            processed = await asyncio.to_thread(self._result_processor.process, job, result)
+            latest = self.store.get(job.id)
+            if latest.cancel_requested:
+                raise asyncio.CancelledError
+            self.store.complete(job.id, job.lease_token, processed)
         except asyncio.CancelledError:
             latest = self.store.get(job.id)
             if latest.state == JobState.RUNNING:
