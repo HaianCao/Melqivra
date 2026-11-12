@@ -26,6 +26,7 @@ REMOTE_SOURCE = Path("/opt/ACE-Step-1.5")
 FLOAT32_FIX_SOURCE = Path("/opt/ACE-Step-1.5-float32-fix")
 CACHE_ROOT = Path("/cache")
 RUN_ROOT = CACHE_ROOT / "runs"
+BASELINE_RUN = RUN_ROOT / "colab-vi014-repro-20261112-a" / "dit-only"
 RUNTIME_PYTHON = REMOTE_SOURCE / ".venv" / "bin" / "python"
 FLOAT32_FIX_PYTHON = FLOAT32_FIX_SOURCE / ".venv" / "bin" / "python"
 
@@ -190,8 +191,26 @@ def _benchmark_command(
     fixture_id: str = "vi-020",
 ) -> list[str]:
     variant = "lm-0.6b" if lm else "dit-only"
+    command = _benchmark_command_for_variant(
+        run_group=run_group,
+        variant=variant,
+        fixture_id=fixture_id,
+        precision=precision,
+    )
+    if lm:
+        command.append("--lm")
+    return command
+
+
+def _benchmark_command_for_variant(
+    *,
+    run_group: str,
+    variant: str,
+    fixture_id: str = "vi-014",
+    precision: str = "upstream_default",
+) -> list[str]:
     run_dir = RUN_ROOT / run_group / variant
-    command = [
+    return [
         str(RUNTIME_PYTHON),
         str(REMOTE_ROOT / "s01_benchmark.py"),
         "--source",
@@ -223,9 +242,20 @@ def _benchmark_command(
         "--session-name",
         "melqivra-s01-modal-t4",
     ]
-    if lm:
-        command.append("--lm")
-    return command
+
+
+def _recorded_artifact(record_path: Path) -> Path:
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    artifacts = record.get("artifacts")
+    if not isinstance(artifacts, list) or len(artifacts) != 1:
+        raise RuntimeError(f"Expected one artifact in {record_path}")
+    artifact = artifacts[0]
+    if not isinstance(artifact, dict) or not artifact.get("path"):
+        raise RuntimeError(f"Invalid artifact record in {record_path}")
+    path = record_path.parent / str(artifact["path"])
+    if not path.is_file():
+        raise FileNotFoundError(f"Recorded artifact is missing: {path}")
+    return path
 
 
 def _validate_run_group(run_group: str) -> None:
@@ -300,6 +330,86 @@ def run_colab_reproduction(run_group: str) -> str:
             "record_path": f"runs/{run_group}/dit-only/benchmark.json",
             "artifact_path": f"runs/{run_group}/dit-only/{artifact_name}",
             "record": record,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+@app.function(  # type: ignore[untyped-decorator]
+    image=image,
+    volumes={str(CACHE_ROOT): volume},
+    gpu="T4",
+    cpu=4,
+    memory=24_576,
+    max_containers=1,
+    scaledown_window=2,
+    timeout=2_700,
+)
+def run_closure_probes(run_group: str) -> str:
+    """Run bounded reference, repaint, controlled OOM, and recovery probes."""
+
+    _validate_run_group(run_group)
+    _restore_volume_cache()
+    run_path = RUN_ROOT / run_group
+    if run_path.exists():
+        raise FileExistsError(f"Run group already exists: {run_group}")
+    baseline_record = BASELINE_RUN / "benchmark.json"
+    source_audio = _recorded_artifact(baseline_record)
+    variants = {
+        "reference": [
+            "--reference-audio",
+            str(source_audio),
+            "--audio-cover-strength",
+            "0.5",
+        ],
+        "repaint": [
+            "--task-type",
+            "repaint",
+            "--source-audio",
+            str(source_audio),
+            "--repainting-start",
+            "10",
+            "--repainting-end",
+            "20",
+            "--disable-normalization",
+        ],
+        "oom": [
+            "--batch-size",
+            "8",
+            "--expect-oom",
+            "--oom-headroom-mib",
+            "2048",
+        ],
+        "recovery": [],
+    }
+    try:
+        for variant, extra_args in variants.items():
+            command = _benchmark_command_for_variant(
+                run_group=run_group,
+                variant=variant,
+            )
+            command.extend(extra_args)
+            _run(command, timeout=1_200)
+    finally:
+        volume.commit()
+
+    records: dict[str, object] = {}
+    artifacts: dict[str, str] = {}
+    for variant in variants:
+        record_path = run_path / variant / "benchmark.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        records[variant] = record
+        if record.get("artifacts"):
+            artifact = _recorded_artifact(record_path)
+            artifacts[variant] = str(artifact.relative_to(CACHE_ROOT)).replace("\\", "/")
+    return json.dumps(
+        {
+            "run_group": run_group,
+            "volume_name": VOLUME_NAME,
+            "source_artifact": str(source_audio.relative_to(CACHE_ROOT)).replace("\\", "/"),
+            "records": records,
+            "artifacts": artifacts,
         },
         ensure_ascii=False,
         sort_keys=True,

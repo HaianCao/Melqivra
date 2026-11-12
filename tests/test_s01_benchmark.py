@@ -206,6 +206,67 @@ class S01BenchmarkTests(unittest.TestCase):
         )
         self.assertTrue(args.offload_to_cpu)
 
+    def test_parser_accepts_reference_repaint_and_controlled_oom_inputs(self) -> None:
+        parser = self.benchmark.build_parser()
+        args = parser.parse_args(
+            [
+                "--fixtures",
+                "fixtures.json",
+                "--cache-manifest",
+                "cache.json",
+                "--result",
+                "result.json",
+                "--run-id",
+                "capability-probe",
+                "--task-type",
+                "repaint",
+                "--reference-audio",
+                "reference.wav",
+                "--source-audio",
+                "source.wav",
+                "--repainting-start",
+                "10",
+                "--repainting-end",
+                "20",
+                "--batch-size",
+                "8",
+                "--expect-oom",
+                "--oom-headroom-mib",
+                "2048",
+            ]
+        )
+        self.assertEqual("repaint", args.task_type)
+        self.assertEqual(Path("reference.wav"), args.reference_audio)
+        self.assertEqual(Path("source.wav"), args.source_audio)
+        self.assertTrue(args.expect_oom)
+        self.assertEqual(2048, args.oom_headroom_mib)
+
+    def test_cuda_oom_classification_requires_explicit_cuda_context(self) -> None:
+        self.assertTrue(
+            self.benchmark.is_cuda_out_of_memory(
+                "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 1 GiB"
+            )
+        )
+        self.assertFalse(self.benchmark.is_cuda_out_of_memory("generation failed"))
+        self.assertFalse(self.benchmark.is_cuda_out_of_memory("host out of memory"))
+
+    def test_verified_assets_rejects_malformed_manifests(self) -> None:
+        assets = self.benchmark.verified_assets(
+            {
+                "verified_assets": [
+                    {
+                        "id": "model",
+                        "repository": "repo",
+                        "revision": "rev",
+                        "sha256": "digest",
+                    }
+                ]
+            }
+        )
+        self.assertEqual("model", assets[0]["id"])
+        with self.assertRaisesRegex(TypeError, "verified_assets"):
+            self.benchmark.verified_assets({})
+
 
 if __name__ == "__main__":
     unittest.main()

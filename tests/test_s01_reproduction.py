@@ -5,10 +5,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 import wave
+from array import array
 from pathlib import Path
 
 from agent_music.s01_reproduction import (
+    CapabilityArtifactError,
     ReproductionMismatchError,
+    compare_reference_artifact,
+    compare_repaint_artifact,
     compare_reproduction,
     sha256_file,
 )
@@ -99,6 +103,39 @@ class ReproductionTests(unittest.TestCase):
                     local_artifact=artifact,
                     transfer_seconds=0.5,
                 )
+
+    def test_reference_output_must_differ_from_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source.wav"
+            generated = Path(temporary) / "generated.wav"
+            self._wav(source)
+            self._wav(generated)
+            with self.assertRaisesRegex(CapabilityArtifactError, "byte-identical"):
+                compare_reference_artifact(source=source, generated=generated)
+
+    def test_repaint_verifier_detects_localized_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source.wav"
+            generated = Path(temporary) / "generated.wav"
+            source_samples = array("h", ((index % 200) - 100 for index in range(2000)))
+            generated_samples = array("h", source_samples)
+            for index in range(800, 1200):
+                generated_samples[index] = -generated_samples[index]
+            for path, samples in ((source, source_samples), (generated, generated_samples)):
+                with wave.open(str(path), "wb") as stream:
+                    stream.setnchannels(2)
+                    stream.setsampwidth(2)
+                    stream.setframerate(100)
+                    stream.writeframes(samples.tobytes())
+            result = compare_repaint_artifact(
+                source=source,
+                generated=generated,
+                repaint_start_seconds=3.0,
+                repaint_end_seconds=7.0,
+                boundary_margin_seconds=0.5,
+            )
+            self.assertTrue(result["localized_change_observed"])
+            self.assertTrue(result["surrounding_audio_preserved"])
 
 
 if __name__ == "__main__":

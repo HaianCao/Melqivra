@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import importlib
 import json
@@ -254,6 +255,50 @@ def end_to_end_total(runtime_seconds: float, args: argparse.Namespace) -> float:
     )
 
 
+def is_cuda_out_of_memory(message: object) -> bool:
+    """Return whether an upstream failure explicitly identifies CUDA OOM."""
+
+    normalized = str(message).casefold()
+    return (
+        "cuda out of memory" in normalized
+        or "torch.outofmemoryerror" in normalized
+        or ("out of memory" in normalized and "cuda" in normalized)
+    )
+
+
+def verified_assets(cache_manifest: dict[str, Any]) -> list[dict[str, object]]:
+    """Return the immutable asset contract from a verified cache manifest."""
+
+    assets = cache_manifest.get("verified_assets")
+    if not isinstance(assets, list):
+        raise TypeError("Verified cache manifest has no verified_assets array")
+    result: list[dict[str, object]] = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            raise TypeError("Verified cache manifest contains an invalid asset")
+        result.append(
+            {
+                "id": asset["id"],
+                "repository": asset["repository"],
+                "revision": asset["revision"],
+                "sha256": asset["sha256"],
+            }
+        )
+    return result
+
+
+def _cleanup_cuda(torch: Any) -> dict[str, int]:
+    """Release cached allocator memory and report the post-failure state."""
+
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    return {
+        "allocated_after_cleanup_bytes": int(torch.cuda.memory_allocated()),
+        "reserved_after_cleanup_bytes": int(torch.cuda.memory_reserved()),
+    }
+
+
 def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
     """Load pinned models, generate one sample, and return schema-ready evidence."""
 
@@ -274,6 +319,14 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
         raise RuntimeError(f"Unexpected source revision: {actual_revision}")
     fixture = select_fixture(args.fixtures, args.fixture_id)
     caption, lyrics, instrumental = fixture_generation_inputs(fixture)
+    reference_audio = args.reference_audio.resolve() if args.reference_audio else None
+    source_audio = args.source_audio.resolve() if args.source_audio else None
+    for label, audio_path in (
+        ("reference audio", reference_audio),
+        ("source audio", source_audio),
+    ):
+        if audio_path is not None and not audio_path.is_file():
+            raise FileNotFoundError(f"{label} is missing: {audio_path}")
     cache_manifest = load_json(args.cache_manifest)
     if cache_manifest.get("status") != "succeeded":
         raise RuntimeError("Model cache manifest is not successful")
@@ -314,8 +367,24 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             raise RuntimeError(f"LM initialization failed: {llm_status}")
     model_load = time.monotonic() - load_started
 
+    pressure_allocation: Any = None
+    if args.expect_oom and args.oom_headroom_mib is not None:
+        free_bytes, _ = torch.cuda.mem_get_info()
+        headroom_bytes = int(args.oom_headroom_mib) * 1024 * 1024
+        reserve_bytes = int(free_bytes) - headroom_bytes
+        if reserve_bytes <= 0:
+            raise RuntimeError("Requested OOM headroom exceeds available CUDA memory")
+        pressure_allocation = torch.empty(
+            reserve_bytes,
+            dtype=torch.uint8,
+            device="cuda",
+        )
+
     params = inference_module.GenerationParams(
-        task_type="text2music",
+        task_type=args.task_type,
+        instruction=args.instruction,
+        reference_audio=str(reference_audio) if reference_audio else None,
+        src_audio=str(source_audio) if source_audio else None,
         caption=caption,
         lyrics=lyrics,
         instrumental=instrumental,
@@ -326,27 +395,112 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
         shift=3.0,
         guidance_scale=1.0,
         seed=int(args.seed),
+        repainting_start=float(args.repainting_start),
+        repainting_end=float(args.repainting_end),
+        audio_cover_strength=float(args.audio_cover_strength),
+        enable_normalization=not bool(args.disable_normalization),
         thinking=bool(args.lm),
         use_cot_metas=bool(args.lm),
         use_cot_caption=bool(args.lm),
         use_cot_language=bool(args.lm),
     )
     config = inference_module.GenerationConfig(
-        batch_size=1,
+        batch_size=int(args.batch_size),
         use_random_seed=False,
-        seeds=[int(args.seed)],
+        seeds=[int(args.seed) + index for index in range(int(args.batch_size))],
         audio_format="wav",
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     inference_started = time.monotonic()
-    result = inference_module.generate_music(
-        dit_handler,
-        llm_handler,
-        params=params,
-        config=config,
-        save_dir=str(args.output_dir),
-    )
+    raised_oom: BaseException | None = None
+    result: Any = None
+    try:
+        result = inference_module.generate_music(
+            dit_handler,
+            llm_handler,
+            params=params,
+            config=config,
+            save_dir=str(args.output_dir),
+        )
+    except torch.OutOfMemoryError as error:
+        raised_oom = error
     inference_seconds = time.monotonic() - inference_started
+    if args.expect_oom:
+        returned_error = None if raised_oom is not None else result.error
+        failure_message = str(raised_oom or returned_error or result.status_message)
+        if raised_oom is None and result.success:
+            raise RuntimeError("Expected CUDA OOM, but generation completed")
+        if not is_cuda_out_of_memory(failure_message):
+            raise RuntimeError(
+                f"Expected explicit CUDA OOM, but upstream returned: {failure_message[-1000:]}"
+            )
+        partial_artifacts = sorted(path.name for path in args.output_dir.glob("*.wav"))
+        if partial_artifacts:
+            raise RuntimeError(f"OOM created partial WAV artifacts: {', '.join(partial_artifacts)}")
+        peak_vram_bytes = int(torch.cuda.max_memory_allocated())
+        pressure_bytes = int(pressure_allocation.numel()) if pressure_allocation is not None else 0
+        pressure_allocation = None
+        del dit_handler
+        if llm_handler is not None:
+            del llm_handler
+        cleanup = _cleanup_cuda(torch)
+        gpu = _nvidia_environment()
+        total = time.monotonic() - started
+        return {
+            "schema_version": 1,
+            "run_id": args.run_id,
+            "started_at": started_wall.isoformat(),
+            "environment": {
+                **gpu,
+                "cuda": str(torch.version.cuda),
+                "python": platform.python_version(),
+                "pytorch": str(torch.__version__),
+                "provider": args.provider,
+                "provider_cli": args.provider_cli,
+                "colab_cli": args.colab_cli,
+                "session_name": args.session_name,
+            },
+            "source": {
+                "repository": args.source_repository,
+                "revision": actual_revision,
+            },
+            "assets": verified_assets(cache_manifest),
+            "request": {
+                "fixture_id": args.fixture_id,
+                "task_type": args.task_type,
+                "duration_seconds": float(args.duration),
+                "seed": int(args.seed),
+                "diffusion_steps": 8,
+                "shift": 3.0,
+                "batch_size": int(args.batch_size),
+                "precision": args.precision,
+                "observed_precision": observed_precision,
+                "offload_to_cpu": bool(args.offload_to_cpu),
+                "lm_requested": bool(args.lm),
+                "oom_headroom_mib": args.oom_headroom_mib,
+            },
+            "failure": {
+                "class": "cuda_out_of_memory",
+                "exception_type": (
+                    type(raised_oom).__name__ if raised_oom is not None else "GenerationResult"
+                ),
+                "message": failure_message[-2000:],
+                "partial_artifacts": [],
+                "false_success": False,
+            },
+            "timings_seconds": {
+                "model_load": model_load,
+                "inference_until_failure": inference_seconds,
+                "total": end_to_end_total(total, args),
+            },
+            "memory": {
+                "controlled_pressure_bytes": pressure_bytes,
+                "peak_allocated_bytes": peak_vram_bytes,
+                **cleanup,
+            },
+            "artifacts": [],
+            "result": "expected_failure",
+        }
     if not result.success:
         raise RuntimeError(f"Generation failed: {result.status_message}")
     audio_path = _audio_path(result)
@@ -396,23 +550,15 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "repository": args.source_repository,
             "revision": actual_revision,
         },
-        "assets": [
-            {
-                "id": asset["id"],
-                "repository": asset["repository"],
-                "revision": asset["revision"],
-                "sha256": asset["sha256"],
-            }
-            for asset in cache_manifest["verified_assets"]
-        ],
+        "assets": verified_assets(cache_manifest),
         "request": {
             "fixture_id": args.fixture_id,
-            "task_type": "text2music",
+            "task_type": args.task_type,
             "duration_seconds": float(args.duration),
             "seed": int(args.seed),
             "diffusion_steps": 8,
             "shift": 3.0,
-            "batch_size": 1,
+            "batch_size": int(args.batch_size),
             "precision": args.precision,
             "observed_precision": observed_precision,
             "offload_to_cpu": bool(args.offload_to_cpu),
@@ -420,6 +566,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, object]:
             "instrumental": instrumental,
             "caption_sha256": sha256_json(caption),
             "lyrics_sha256": sha256_json(lyrics),
+            "reference_audio_sha256": (
+                sha256_file(reference_audio) if reference_audio is not None else None
+            ),
+            "source_audio_sha256": (
+                sha256_file(source_audio) if source_audio is not None else None
+            ),
+            "repainting_start_seconds": float(args.repainting_start),
+            "repainting_end_seconds": float(args.repainting_end),
+            "audio_cover_strength": float(args.audio_cover_strength),
+            "normalization_enabled": not bool(args.disable_normalization),
         },
         "capabilities": {
             "lm_initialized": lm_initialized,
@@ -468,6 +624,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--duration", type=float, default=30.0)
     parser.add_argument("--seed", type=int, default=20261111)
     parser.add_argument(
+        "--task-type",
+        choices=("text2music", "cover", "repaint", "lego", "extract", "complete"),
+        default="text2music",
+    )
+    parser.add_argument(
+        "--instruction", default="Fill the audio semantic mask based on the given conditions:"
+    )
+    parser.add_argument("--reference-audio", type=Path)
+    parser.add_argument("--source-audio", type=Path)
+    parser.add_argument("--repainting-start", type=float, default=0.0)
+    parser.add_argument("--repainting-end", type=float, default=-1.0)
+    parser.add_argument("--audio-cover-strength", type=float, default=1.0)
+    parser.add_argument("--disable-normalization", action="store_true")
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--expect-oom", action="store_true")
+    parser.add_argument("--oom-headroom-mib", type=int)
+    parser.add_argument(
         "--precision",
         choices=("upstream_default", "float16", "float32"),
         default="upstream_default",
@@ -486,6 +659,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.batch_size < 1:
+        raise SystemExit("--batch-size must be positive")
+    if args.expect_oom and args.batch_size == 1:
+        raise SystemExit("--expect-oom requires --batch-size greater than one")
+    if args.oom_headroom_mib is not None and not args.expect_oom:
+        raise SystemExit("--oom-headroom-mib requires --expect-oom")
+    if args.oom_headroom_mib is not None and args.oom_headroom_mib < 256:
+        raise SystemExit("--oom-headroom-mib must be at least 256")
     try:
         evidence = run_benchmark(args)
         atomic_write_json(args.result, evidence)

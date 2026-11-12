@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import wave
+from array import array
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,10 @@ from typing import Any
 
 class ReproductionMismatchError(RuntimeError):
     """The Modal result does not reproduce the pinned Colab technical contract."""
+
+
+class CapabilityArtifactError(RuntimeError):
+    """A capability probe artifact does not prove the requested behavior."""
 
 
 def sha256_file(path: Path, *, chunk_size: int = 1024 * 1024) -> str:
@@ -37,6 +43,184 @@ def wav_metadata(path: Path) -> dict[str, int | float]:
         "channels": channels,
         "sample_width_bytes": sample_width,
         "duration_seconds": frames / sample_rate,
+    }
+
+
+def compare_reference_artifact(*, source: Path, generated: Path) -> dict[str, object]:
+    """Verify reference-conditioned output is valid and not a copied input."""
+
+    source_metadata = wav_metadata(source)
+    generated_metadata = wav_metadata(generated)
+    for key in ("sample_rate_hz", "channels", "sample_width_bytes"):
+        if source_metadata[key] != generated_metadata[key]:
+            raise CapabilityArtifactError(f"Reference output metadata mismatch: {key}")
+    if (
+        abs(
+            float(source_metadata["duration_seconds"])
+            - float(generated_metadata["duration_seconds"])
+        )
+        > 0.01
+    ):
+        raise CapabilityArtifactError("Reference output duration mismatch")
+    source_sha256 = sha256_file(source)
+    generated_sha256 = sha256_file(generated)
+    if source_sha256 == generated_sha256:
+        raise CapabilityArtifactError("Reference output is byte-identical to its input")
+    return {
+        "status": "passed",
+        "input_sha256": source_sha256,
+        "output_sha256": generated_sha256,
+        "output_differs_from_input": True,
+        "wav_metadata": generated_metadata,
+    }
+
+
+def compare_repaint_artifact(
+    *,
+    source: Path,
+    generated: Path,
+    repaint_start_seconds: float,
+    repaint_end_seconds: float,
+    boundary_margin_seconds: float = 1.0,
+) -> dict[str, object]:
+    """Measure whether a repaint changes its target while preserving surrounding audio."""
+
+    if not 0 <= repaint_start_seconds < repaint_end_seconds:
+        raise ValueError("Invalid repaint range")
+    if boundary_margin_seconds < 0:
+        raise ValueError("Boundary margin must be non-negative")
+    source_samples, metadata = _pcm16_samples(source)
+    generated_samples, generated_metadata = _pcm16_samples(generated)
+    if metadata != generated_metadata:
+        raise CapabilityArtifactError("Repaint output WAV metadata differs from source")
+    if len(source_samples) != len(generated_samples):
+        raise CapabilityArtifactError("Repaint output sample count differs from source")
+    duration = float(metadata["duration_seconds"])
+    if repaint_end_seconds > duration:
+        raise CapabilityArtifactError("Repaint range exceeds source duration")
+
+    channels = int(metadata["channels"])
+    sample_rate = int(metadata["sample_rate_hz"])
+    inner_start = min(repaint_end_seconds, repaint_start_seconds + boundary_margin_seconds)
+    inner_end = max(repaint_start_seconds, repaint_end_seconds - boundary_margin_seconds)
+    outside_left_end = max(0.0, repaint_start_seconds - boundary_margin_seconds)
+    outside_right_start = min(duration, repaint_end_seconds + boundary_margin_seconds)
+    inside = _sample_metrics(
+        source_samples,
+        generated_samples,
+        int(inner_start * sample_rate) * channels,
+        int(inner_end * sample_rate) * channels,
+    )
+    outside_ranges = (
+        (0, int(outside_left_end * sample_rate) * channels),
+        (int(outside_right_start * sample_rate) * channels, len(source_samples)),
+    )
+    outside = _combined_sample_metrics(source_samples, generated_samples, outside_ranges)
+    if sha256_file(source) == sha256_file(generated):
+        raise CapabilityArtifactError("Repaint output is byte-identical to its source")
+    if inside["changed_fraction"] < 0.01:
+        raise CapabilityArtifactError("Repaint target range did not materially change")
+    if outside["correlation"] < 0.90:
+        raise CapabilityArtifactError("Repaint did not preserve surrounding audio")
+    if inside["mean_absolute_delta"] <= outside["mean_absolute_delta"]:
+        raise CapabilityArtifactError("Repaint changes were not localized to the target range")
+    return {
+        "status": "passed",
+        "range_seconds": {
+            "start": repaint_start_seconds,
+            "end": repaint_end_seconds,
+            "boundary_margin": boundary_margin_seconds,
+        },
+        "inside_range": inside,
+        "outside_range": outside,
+        "localized_change_observed": True,
+        "surrounding_audio_preserved": True,
+        "source_sha256": sha256_file(source),
+        "output_sha256": sha256_file(generated),
+        "wav_metadata": generated_metadata,
+    }
+
+
+def _pcm16_samples(path: Path) -> tuple[array[int], dict[str, int | float]]:
+    with wave.open(str(path), "rb") as stream:
+        if stream.getsampwidth() != 2 or stream.getcomptype() != "NONE":
+            raise CapabilityArtifactError("Capability verifier requires PCM16 WAV")
+        frames = stream.getnframes()
+        sample_rate = stream.getframerate()
+        channels = stream.getnchannels()
+        samples = array("h")
+        samples.frombytes(stream.readframes(frames))
+    metadata = {
+        "frames": frames,
+        "sample_rate_hz": sample_rate,
+        "channels": channels,
+        "sample_width_bytes": 2,
+        "duration_seconds": frames / sample_rate,
+    }
+    return samples, metadata
+
+
+def _sample_metrics(
+    source: array[int], generated: array[int], start: int, end: int
+) -> dict[str, float]:
+    if end <= start:
+        raise CapabilityArtifactError("Capability comparison range is empty")
+    count = end - start
+    absolute_delta = 0
+    changed = 0
+    source_sum = 0.0
+    generated_sum = 0.0
+    source_square = 0.0
+    generated_square = 0.0
+    cross = 0.0
+    for index in range(start, end):
+        source_value = int(source[index])
+        generated_value = int(generated[index])
+        delta = abs(source_value - generated_value)
+        absolute_delta += delta
+        changed += delta != 0
+        source_sum += source_value
+        generated_sum += generated_value
+        source_square += source_value * source_value
+        generated_square += generated_value * generated_value
+        cross += source_value * generated_value
+    source_variance = source_square - source_sum * source_sum / count
+    generated_variance = generated_square - generated_sum * generated_sum / count
+    denominator = math.sqrt(max(0.0, source_variance * generated_variance))
+    correlation = (
+        (cross - source_sum * generated_sum / count) / denominator if denominator > 0 else 1.0
+    )
+    return {
+        "sample_count": float(count),
+        "changed_fraction": changed / count,
+        "mean_absolute_delta": absolute_delta / count,
+        "correlation": correlation,
+    }
+
+
+def _combined_sample_metrics(
+    source: array[int],
+    generated: array[int],
+    ranges: tuple[tuple[int, int], ...],
+) -> dict[str, float]:
+    segments = [
+        _sample_metrics(source, generated, start, end) for start, end in ranges if end > start
+    ]
+    if not segments:
+        raise CapabilityArtifactError("No surrounding audio remains for verification")
+    total = sum(segment["sample_count"] for segment in segments)
+    return {
+        "sample_count": total,
+        "changed_fraction": sum(
+            segment["changed_fraction"] * segment["sample_count"] for segment in segments
+        )
+        / total,
+        "mean_absolute_delta": sum(
+            segment["mean_absolute_delta"] * segment["sample_count"] for segment in segments
+        )
+        / total,
+        "correlation": sum(segment["correlation"] * segment["sample_count"] for segment in segments)
+        / total,
     }
 
 
