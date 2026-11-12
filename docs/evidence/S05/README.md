@@ -91,8 +91,16 @@ revisions, approved contract checksum, backend/model/license revisions, seed,
 generation settings, environment, audio metadata, and artifact checksum without
 duplicating private prompt or lyric text.
 
-The complete local gate passes with 152 tests, strict mypy across 49 source
-files, Ruff format/lint, 83% scheduler/store critical-path branch coverage,
+Successful durable completion is now wired through that importer. Modal downloads
+only the artifact paths declared by the remote result from an explicitly
+configured Volume into a job-scoped transfer directory. The scheduler processes
+the transfer before its fenced SQLite success commit; import failure records a
+failed job with no false result. The sanitized take/artifact/manifest references
+survive database restart, while private creative text and machine-local transfer
+paths are excluded from the stored result.
+
+The complete local gate passes with 156 tests, strict mypy across 50 source
+files, Ruff format/lint, 84% scheduler/store critical-path branch coverage,
 successful wheel/sdist builds, and no known audited vulnerabilities.
 
 ## Remaining before closure
@@ -102,6 +110,6 @@ successful wheel/sdist builds, and no known audited vulnerabilities.
    backend/runtime before production acceptance.
 3. Design the separate instrumental-capability experiment, but do not allocate
    another GPU without explicit cost approval.
-4. Wire successful durable runner completion and artifact transfer into the new
-   importer, then prove an accepted project can retrieve both playable takes
-   and their manifests after restart.
+4. Exercise the already-generated real T4 takes through the new CPU-only
+   completion/import path, without allocating another GPU, to record the final
+   accepted-project-to-restart retrieval evidence.

@@ -146,6 +146,7 @@ Copy `.env.example` to `.env`. The default selection is:
 ~~~dotenv
 GPU_RUNNER=modal
 MODAL_APP_NAME=melqivra-gpu-runner
+TRANSFER_ROOT=data/transfers
 ~~~
 
 Run `uv run melqivra doctor` from the same environment that owns the Modal
@@ -156,6 +157,14 @@ T4 with one container. Every function scales to zero after each job. Use
 is not placed in CLI arguments or provider log events. The Modal app and shared
 worker are installed package assets, so the default also works from a built
 wheel rather than requiring a repository checkout.
+
+A real `music.generate` backend that stores output in a Modal Volume must also
+set `MODAL_ARTIFACT_VOLUME` and its safe relative `MODAL_ARTIFACT_PREFIX`.
+Declared output files are downloaded into a job-scoped transfer directory,
+independently revalidated, and atomically imported before the durable job can be
+marked successful. The default general-purpose app still fails explicitly until
+an accepted music plugin and its volume are configured; the S05 HeartMuLa path
+remains a candidate rather than a production default.
 
 Switch to Colab by changing one setting:
 

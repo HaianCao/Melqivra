@@ -80,6 +80,23 @@ class ModalCliClient:
     def stop_argv(self) -> list[str]:
         return [self._executable, "app", "stop", "--yes", self._app_name]
 
+    def volume_get_argv(
+        self,
+        volume_name: str,
+        remote_path: str,
+        local_directory: Path,
+    ) -> list[str]:
+        """Build one scoped artifact download command."""
+
+        return [
+            self._executable,
+            "volume",
+            "get",
+            volume_name,
+            remote_path,
+            str(local_directory),
+        ]
+
     async def run(
         self,
         argv: Sequence[str],

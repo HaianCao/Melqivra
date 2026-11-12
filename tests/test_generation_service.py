@@ -110,6 +110,9 @@ class GenerationSubmissionTests(unittest.TestCase):
         self.assertEqual(JobState.QUEUED, job.state)
         self.assertEqual("music.generate", self.jobs.calls[0]["kind"])
         self.assertEqual("contract-a", self.jobs.calls[0]["idempotency_key"])
+        payload = self.jobs.calls[0]["payload"]
+        assert isinstance(payload, dict)
+        self.assertEqual("rev_plan", payload["plan_revision_id"])
 
     def test_contract_change_or_cross_user_approval_is_rejected(self) -> None:
         approval = self.service.propose_approval(
