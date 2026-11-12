@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-12",
+  "implementation": {
+    "default_strategy": "modal",
+    "registered_strategies": [
+      "modal",
+      "colab",
+      "fake",
+      "local"
+    ],
+    "selection_environment_variable": "GPU_RUNNER",
+    "silent_fallback": false,
+    "shared_allowlisted_worker": "agent_music/remote/worker.py",
+    "modal_app": "agent_music/remote/modal_app.py",
+    "packaged_transport_assets": true,
+    "private_payload_in_cli_arguments": false
+  },
+  "modal_routing": {
+    "control_job_kinds": [
+      "harness.healthcheck",
+      "harness.echo",
+      "unsupported-kind validation"
+    ],
+    "gpu_job_kinds": [
+      "music.generate"
+    ],
+    "gpu": "T4",
+    "max_containers": 1,
+    "scaledown_window_seconds": 2,
+    "gpu_fallback": null
+  },
+  "real_transport_smoke": {
+    "provider": "modal",
+    "app_id": "ap-K7grZAD2gvVbryOQwvIsAw",
+    "app_name": "melqivra-strategy-smoke",
+    "job_kind": "harness.healthcheck",
+    "durable_job_boundary": true,
+    "status": "succeeded",
+    "end_to_end_seconds": 11.134409849999997,
+    "remote_worker_seconds": 0.011654376983642578,
+    "remote_python": "3.12.10",
+    "remote_platform": "Linux-4.19.0-gvisor-x86_64-with-glibc2.36",
+    "gpu_allocated": false,
+    "app_state_after": "stopped",
+    "tasks_after": 0,
+    "active_containers_after": 0
+  },
+  "bounded_t4_allocation_probe": {
+    "provider": "modal",
+    "app_id": "ap-TpstaCjXRQaxHjDDWisQ5G",
+    "requested_gpu": "T4",
+    "container_started": false,
+    "status": "failed",
+    "failure_class": "transient_provider_capacity",
+    "error": "TimeoutError",
+    "duration_seconds": 303.235507488,
+    "app_state_after": "stopped",
+    "tasks_after": 0,
+    "active_containers_after": 0,
+    "fallback_used": false
+  },
+  "local_quality_gate": {
+    "tests_passed": 112,
+    "mypy_source_files": 36,
+    "critical_branch_coverage_percent": 83,
+    "ruff_format": "passed",
+    "ruff_lint": "passed",
+    "build": "passed",
+    "dependency_audit": "no known vulnerabilities"
+  },
+  "billing": {
+    "metered_usd": 0.3,
+    "billed_usd": 0.0
+  },
+  "limitations": [
+    "agent_music_worker is not installed, so product music.generate remains intentionally unavailable",
+    "the successful smoke proves the durable Modal transport strategy, not product audio generation",
+    "the Colab strategy remains selectable but was not reprovisioned for this checkpoint",
+    "default Modal transport selection does not accept a production music-generation backend"
+  ]
+}
