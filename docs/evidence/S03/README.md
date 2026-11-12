@@ -2,7 +2,7 @@
 
 Date: 2026-11-12
 
-Status: `IN_PROGRESS` pending protected CI and the stage closure commit/tag.
+Status: `DONE`
 
 ## Current checkpoint
 
@@ -29,8 +29,12 @@ Status: `IN_PROGRESS` pending protected CI and the stage closure commit/tag.
 - Audit linkage from user turn to tool call and resulting revision without
   storing creative content.
 
-Implementation checkpoint:
-`4fbfc4a feat(s03): complete typed project agent tools`.
+Merged implementation checkpoint:
+`4f396f3 feat(s03): complete safe agent harness (#14)`.
+
+PR #14 passed all required protected CI jobs before merge across Ubuntu and
+Windows on Python 3.11 and 3.13. The earlier provider-client checkpoint also
+passed protected CI in PR #13.
 
 The complete local repository gate passed with 86 tests, strict mypy on 25
 source files, Ruff format/lint, 81% scheduler/store critical-path coverage,
@@ -62,8 +66,11 @@ redacted operational metadata:
 No credential, response text, private project content, or user lyrics were
 printed or persisted.
 
-## Remaining before S03 closure
+## Deliberate boundaries
 
-- Protected pull-request CI must pass.
-- Create the evidence-only closure commit and annotated stage tag required by
-  `ROADMAP.md`.
+- Approval state is an in-process policy object for this stage; production
+  durable approvals belong to the S07 service boundary.
+- Take and job tools consume injected typed readers. Their production storage
+  adapters remain owned by S05/S07 and are not exposed to the planner.
+- Creative planning behavior is intentionally deferred to S04; S03 supplies the
+  secure capability boundary only.
