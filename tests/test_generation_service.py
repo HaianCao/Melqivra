@@ -125,7 +125,7 @@ class GenerationSubmissionTests(unittest.TestCase):
         changed = MusicGenerationRequest(
             *(
                 self.request.schema_version,
-                self.request.job_id,
+                self.request.request_id,
                 self.request.project_id,
                 "b" * 64,
                 self.request.source_revision_ids,

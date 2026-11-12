@@ -43,7 +43,15 @@ contract SHA-256. Pending, rejected, cross-user, cross-project, stale-checksum,
 or changed-revision requests cannot enqueue work. Only the exact approved
 contract serializes into a durable `music.generate` job.
 
-The complete local gate passes with 132 tests, strict mypy across 40 source
+The isolated HeartMuLa candidate adapter uses the pinned upstream revision and
+model IDs, passes approved tags and lyrics unchanged, requires every sampling
+parameter explicitly, fixes music/codec precision to FP16/FP32, enables upstream
+lazy loading, pins seeds per take, normalizes output to PCM16 WAV, and rejects
+silent, clipped, truncated, incomplete, or path-escaping results. The installed
+`agent_music_worker` now has a real typed execution boundary, but it remains
+default-off until `MUSIC_BACKEND` and the verified model root are configured.
+
+The complete local gate passes with 138 tests, strict mypy across 44 source
 files, Ruff format/lint, 83% scheduler/store critical-path branch coverage,
 successful wheel/sdist builds, and no known audited vulnerabilities.
 

@@ -86,7 +86,7 @@ class MusicGenerationRequest:
     """Exact approved contract sent across the durable GPU job boundary."""
 
     schema_version: int
-    job_id: str
+    request_id: str
     project_id: ProjectId
     contract_checksum: str
     source_revision_ids: tuple[RevisionId, ...]
@@ -103,7 +103,7 @@ class MusicGenerationRequest:
     def validate(self) -> None:
         if self.schema_version != 1:
             raise GenerationContractError("Unsupported generation request schema")
-        validate_identifier(self.job_id)
+        validate_identifier(self.request_id)
         validate_identifier(str(self.project_id))
         validate_identifier(self.backend_id)
         if not _SHA256.fullmatch(self.contract_checksum):
@@ -205,7 +205,7 @@ def request_to_json(request: MusicGenerationRequest) -> JsonObject:
     request.validate()
     return {
         "schema_version": request.schema_version,
-        "job_id": request.job_id,
+        "request_id": request.request_id,
         "project_id": str(request.project_id),
         "contract_checksum": request.contract_checksum,
         "source_revision_ids": [str(item) for item in request.source_revision_ids],
@@ -234,7 +234,7 @@ def request_from_json(payload: JsonObject) -> MusicGenerationRequest:
 
     request = MusicGenerationRequest(
         schema_version=_integer(payload, "schema_version"),
-        job_id=_string(payload, "job_id"),
+        request_id=_string(payload, "request_id"),
         project_id=ProjectId(_string(payload, "project_id")),
         contract_checksum=_string(payload, "contract_checksum"),
         source_revision_ids=tuple(
@@ -328,6 +328,41 @@ def execute_generation(
         observed.add(take.take_id)
     on_progress({"type": "stage", "stage": "batch_validated", "progress": 1.0})
     return result
+
+
+def result_to_json(result: GenerationBatchResult) -> JsonObject:
+    """Serialize a fully validated backend result for the remote worker."""
+
+    return {
+        "backend_id": result.backend_id,
+        "backend_revision": result.backend_revision,
+        "contract_checksum": result.contract_checksum,
+        "takes": [
+            {
+                "take_id": take.take_id,
+                "seed": take.seed,
+                "relative_path": take.relative_path,
+                "media_type": take.media_type,
+                "size_bytes": take.size_bytes,
+                "sha256": take.sha256,
+                "duration_seconds": take.duration_seconds,
+                "sample_rate_hz": take.sample_rate_hz,
+                "channels": take.channels,
+                "validation": take.validation,
+            }
+            for take in result.takes
+        ],
+        "artifacts": [
+            {
+                "relative_path": take.relative_path,
+                "media_type": take.media_type,
+                "size_bytes": take.size_bytes,
+                "sha256": take.sha256,
+            }
+            for take in result.takes
+        ],
+        "metrics": result.metrics,
+    }
 
 
 def _take_from_json(payload: JsonObject) -> TakeSpec:

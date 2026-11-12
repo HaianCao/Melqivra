@@ -37,7 +37,7 @@ Repository = "https://github.com/HaianCao/Melqivra.git"
 Issues = "https://github.com/HaianCao/Melqivra/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agent_music"]
+packages = ["src/agent_music", "src/agent_music_worker"]
 
 [tool.ruff]
 line-length = 100
