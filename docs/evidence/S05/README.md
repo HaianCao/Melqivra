@@ -81,7 +81,17 @@ Both WAVs downloaded in 6.51 seconds and passed independent local size,
 SHA-256, PCM16, duration, finite-sample, silence, and clipping verification in
 [heartmula-t4-verification.json](heartmula-t4-verification.json).
 
-The complete local gate passes with 147 tests, strict mypy across 48 source
+The CPU-side persistence boundary now decodes untrusted remote batch results,
+revalidates the exact backend/request/take identities, independently checks each
+transferred WAV, and atomically publishes all audio plus per-take reproducibility
+manifests as one immutable project-scoped batch. Exact retries are idempotent;
+tampered retries, path escape, integrity changes, invalid audio, and interrupted
+publication fail without exposing a partial take set. Manifests pin source
+revisions, approved contract checksum, backend/model/license revisions, seed,
+generation settings, environment, audio metadata, and artifact checksum without
+duplicating private prompt or lyric text.
+
+The complete local gate passes with 152 tests, strict mypy across 49 source
 files, Ruff format/lint, 83% scheduler/store critical-path branch coverage,
 successful wheel/sdist builds, and no known audited vulnerabilities.
 
@@ -92,5 +102,6 @@ successful wheel/sdist builds, and no known audited vulnerabilities.
    backend/runtime before production acceptance.
 3. Design the separate instrumental-capability experiment, but do not allocate
    another GPU without explicit cost approval.
-4. Persist validated takes as immutable project artifacts/manifests rather than
-   evidence-only Modal Volume files.
+4. Wire successful durable runner completion and artifact transfer into the new
+   importer, then prove an accepted project can retrieve both playable takes
+   and their manifests after restart.

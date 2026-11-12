@@ -18,6 +18,8 @@ from agent_music.generation import (
     execute_generation,
     request_from_json,
     request_to_json,
+    result_from_json,
+    result_to_json,
 )
 
 
@@ -184,6 +186,14 @@ class GenerationContractTests(unittest.TestCase):
         payload["takes"] = "not-an-array"
         with self.assertRaisesRegex(GenerationContractError, "object array"):
             request_from_json(payload)
+
+    def test_result_serialization_round_trip_is_strict(self) -> None:
+        result = StubBackend(self.descriptor).generate(self.request(), lambda _event: None)
+        self.assertEqual(result, result_from_json(result_to_json(result)))
+        payload = result_to_json(result)
+        payload["metrics"] = "not-an-object"
+        with self.assertRaisesRegex(GenerationContractError, "metrics"):
+            result_from_json(payload)
 
 
 if __name__ == "__main__":
