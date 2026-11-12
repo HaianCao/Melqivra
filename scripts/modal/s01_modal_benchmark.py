@@ -182,7 +182,13 @@ def _replace_checkpoints_with_volume_cache(source: Path = REMOTE_SOURCE) -> None
     checkpoint_root.symlink_to(CACHE_ROOT / CACHE_KEY, target_is_directory=True)
 
 
-def _benchmark_command(*, run_group: str, lm: bool, precision: str) -> list[str]:
+def _benchmark_command(
+    *,
+    run_group: str,
+    lm: bool,
+    precision: str,
+    fixture_id: str = "vi-020",
+) -> list[str]:
     variant = "lm-0.6b" if lm else "dit-only"
     run_dir = RUN_ROOT / run_group / variant
     command = [
@@ -193,7 +199,7 @@ def _benchmark_command(*, run_group: str, lm: bool, precision: str) -> list[str]
         "--fixtures",
         str(REMOTE_ROOT / "vietnamese-briefs.json"),
         "--fixture-id",
-        "vi-020",
+        fixture_id,
         "--cache-manifest",
         "/tmp/cache-manifest.json",
         "--output-dir",
@@ -222,6 +228,84 @@ def _benchmark_command(*, run_group: str, lm: bool, precision: str) -> list[str]
     return command
 
 
+def _validate_run_group(run_group: str) -> None:
+    if not run_group or any(
+        character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in run_group
+    ):
+        raise ValueError("run_group must contain lowercase ASCII letters, digits, or hyphens")
+
+
+def _restore_volume_cache() -> None:
+    volume.reload()
+    _replace_checkpoints_with_volume_cache()
+    _run(
+        [
+            str(RUNTIME_PYTHON),
+            str(REMOTE_ROOT / "s01_runtime.py"),
+            "--result",
+            "/tmp/restore-result.json",
+            "restore-models",
+            "--registry",
+            str(REMOTE_ROOT / "model-registry.json"),
+            "--checkpoint-root",
+            str(REMOTE_SOURCE / "checkpoints"),
+            "--manifest",
+            "/tmp/cache-manifest.json",
+            "--persistent-cache-root",
+            str(CACHE_ROOT),
+        ],
+        timeout=900,
+    )
+
+
+@app.function(  # type: ignore[untyped-decorator]
+    image=image,
+    volumes={str(CACHE_ROOT): volume},
+    gpu="T4",
+    cpu=4,
+    memory=24_576,
+    max_containers=1,
+    scaledown_window=2,
+    timeout=1_800,
+)
+def run_colab_reproduction(run_group: str) -> str:
+    """Reproduce the exact successful Colab vi-014 DiT-only contract on Modal."""
+
+    _validate_run_group(run_group)
+    _restore_volume_cache()
+    run_path = RUN_ROOT / run_group / "dit-only"
+    if run_path.exists():
+        raise FileExistsError(f"Run group already exists: {run_group}")
+    result_path = run_path / "benchmark.json"
+    try:
+        _run(
+            _benchmark_command(
+                run_group=run_group,
+                lm=False,
+                precision="upstream_default",
+                fixture_id="vi-014",
+            ),
+            timeout=1_200,
+        )
+    finally:
+        volume.commit()
+    record = json.loads(result_path.read_text(encoding="utf-8"))
+    artifact_name = str(record["artifacts"][0]["path"])
+    return json.dumps(
+        {
+            "run_group": run_group,
+            "fixture_id": "vi-014",
+            "variant": "dit-only",
+            "volume_name": VOLUME_NAME,
+            "record_path": f"runs/{run_group}/dit-only/benchmark.json",
+            "artifact_path": f"runs/{run_group}/dit-only/{artifact_name}",
+            "record": record,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 @app.function(  # type: ignore[untyped-decorator]
     image=image,
     volumes={str(CACHE_ROOT): volume},
@@ -235,34 +319,10 @@ def _benchmark_command(*, run_group: str, lm: bool, precision: str) -> list[str]
 def run_pair(run_group: str, precision: str = "upstream_default") -> str:
     """Run fixed-seed DiT-only and LM-on comparisons in one bounded T4 container."""
 
-    if not run_group or any(
-        character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in run_group
-    ):
-        raise ValueError("run_group must contain lowercase ASCII letters, digits, or hyphens")
+    _validate_run_group(run_group)
     if precision not in {"upstream_default", "float16", "float32"}:
         raise ValueError("Unsupported precision")
-    volume.reload()
-    _replace_checkpoints_with_volume_cache()
-
-    cache_manifest = Path("/tmp/cache-manifest.json")
-    _run(
-        [
-            str(RUNTIME_PYTHON),
-            str(REMOTE_ROOT / "s01_runtime.py"),
-            "--result",
-            "/tmp/restore-result.json",
-            "restore-models",
-            "--registry",
-            str(REMOTE_ROOT / "model-registry.json"),
-            "--checkpoint-root",
-            str(REMOTE_SOURCE / "checkpoints"),
-            "--manifest",
-            str(cache_manifest),
-            "--persistent-cache-root",
-            str(CACHE_ROOT),
-        ],
-        timeout=900,
-    )
+    _restore_volume_cache()
 
     run_path = RUN_ROOT / run_group
     if run_path.exists():
@@ -304,10 +364,7 @@ def run_pair(run_group: str, precision: str = "upstream_default") -> str:
 def run_float32_fix(run_group: str) -> str:
     """Test the exact community float32 fix on the vocal fixture."""
 
-    if not run_group or any(
-        character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in run_group
-    ):
-        raise ValueError("run_group must contain lowercase ASCII letters, digits, or hyphens")
+    _validate_run_group(run_group)
     volume.reload()
     _replace_checkpoints_with_volume_cache(FLOAT32_FIX_SOURCE)
 
@@ -397,10 +454,7 @@ def run_float32_fix(run_group: str) -> str:
 def run_lm_contract(run_group: str) -> str:
     """Run only the LM conditioning phase for the vocal fixture."""
 
-    if not run_group or any(
-        character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in run_group
-    ):
-        raise ValueError("run_group must contain lowercase ASCII letters, digits, or hyphens")
+    _validate_run_group(run_group)
     volume.reload()
     _replace_checkpoints_with_volume_cache()
     run_path = RUN_ROOT / run_group / "lm-contract"
