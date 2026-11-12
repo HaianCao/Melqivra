@@ -222,13 +222,51 @@ sanitized record is
 [modal-runner-strategy.json](modal-runner-strategy.json). Metered cost remains
 $0.30 and billed cost remains $0 after credits and allowances.
 
+## Final capability and OOM closure probes
+
+The immutable upstream model matrix at source revision `dce6214` explicitly
+advertises reference-audio and repaint support for `acestep-v15-turbo`, while
+`complete`, and therefore extend/continuation, is unsupported. The audited
+`README.md` SHA-256 is
+`650c6ef98b70289886669895c4fd68aab3cc45bba74b3525d728a45a85cbcd66`.
+Extend was rejected by preflight without scheduling a GPU job.
+
+The legal source for both real capability probes was the project-generated
+30-second `vi-014` Modal WAV, not private or third-party audio. Reference
+conditioning produced a distinct valid 48 kHz stereo WAV in 5.51 seconds of
+inference, used 8.55 GB peak VRAM, and passed finite, silence, clipping,
+loudness, duration, and checksum validation.
+
+Repaint executed the requested 10–20 second range in 5.03 seconds. With a
+one-second boundary margin, all 1,728,000 PCM samples outside the selected
+region remained bit-identical, while 99.986% of 768,000 samples inside changed.
+The raw edited region nevertheless reached +0.1 dBFS and failed the clipping
+contract. This proves selective editing behavior but is not accepted as a
+production audio result; it reinforces ADR-0004 rather than reversing it.
+
+Two model-pressure attempts also demonstrated upstream memory defenses: batch
+eight was reduced to three and completed, and batch one completed with only
+about 1.29 GB effective free VRAM through tiled VAE decoding. Because neither
+was an OOM, the harness rejected both as false OOM claims. The final controlled
+probe loaded the pinned model, requested and touched twice the T4's total
+memory, classified the resulting `torch.OutOfMemoryError` as
+`cuda_out_of_memory`, created no artifact, and released allocated and reserved
+CUDA memory to zero. A normal batch-one generation immediately afterward in the
+same bounded T4 container produced the original valid deterministic WAV.
+
+The sanitized machine record is [closure-probes.json](closure-probes.json).
+All Modal apps stopped after their bounded calls; no L4 or provider fallback was
+used.
+
 ## Backend and license decision
 
 [ADR-0004](../../adr/0004-ace-step-is-research-only-on-t4.md) rejects the pinned
 ACE-Step candidate as Melqivra's default production backend. Its verified
 instrumental T4 evidence remains useful for research, but vocal, LM, reference,
-repaint, extend, and continuation capabilities are unsupported until a
-separately pinned backend passes their real-GPU contracts.
+repaint, extend, and continuation capabilities remain disabled in the product.
+The final probes show a passing research reference contract, a
+selective-but-clipped repaint result, and explicit turbo extend rejection; none
+of those results accepts ACE-Step as a production backend.
 [ADR-0005](../../adr/0005-modal-is-the-default-remote-transport.md) separately
 makes Modal the default execution transport while keeping Colab explicitly
 selectable and forbidding automatic provider fallback. Default transport
@@ -244,17 +282,16 @@ unapproved and would require a new review.
 ## Local quality gate
 
 The current checkpoint passed the complete repository gate on Windows/Python
-3.11: 112 tests, strict mypy across 36 source files, Ruff format/lint, 83% branch
+3.11: 122 tests, strict mypy across 38 source files, Ruff format/lint, 83% branch
 coverage for the scheduler/store critical-path scope, wheel/sdist build, and
 dependency audit with no known vulnerabilities. The unpublished local
 `melqivra` package was skipped by the audit as expected.
 
-## Next evidence
+## Closure assessment
 
-1. Retry the exact float32-fix commit only when Modal can allocate a GPU, then
-   decide whether it changes the T4 vocal failure; do not treat pending capacity
-   as a model result.
-2. Exercise reference, repaint, and extend only when upstream reports those
-   capabilities explicitly; unsupported operations must fail clearly.
-3. Add the remaining controlled OOM classification without treating the vocal
-   numerical failure as an OOM.
+S01 now satisfies its evidence boundary: clean pinned T4 generation, immutable
+asset/license provenance, cold/warm/cache metrics, explicit numerical and LM
+failures, real reference/repaint observations, turbo extend rejection, and
+controlled OOM classification with successful recovery. ACE-Step remains
+research-only and rejected as the production backend. No GPU evidence blocker
+remains for S01 closure; S05 still requires a separate accepted backend decision.

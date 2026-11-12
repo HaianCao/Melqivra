@@ -237,6 +237,47 @@ class S01EvidenceTests(unittest.TestCase):
         self.assertFalse(probe["fallback_used"])
         self.assertEqual(0.0, evidence["billing"]["billed_usd"])
 
+    def test_closure_probes_complete_capability_and_oom_evidence(self) -> None:
+        evidence = load_json(EVIDENCE_ROOT / "closure-probes.json")
+        self.assertEqual("evidence_complete", evidence["status"])
+        capabilities = evidence["declared_capabilities"]
+        self.assertTrue(capabilities["reference_audio"])
+        self.assertTrue(capabilities["repaint"])
+        self.assertFalse(capabilities["complete"])
+        self.assertFalse(capabilities["extend"])
+        self.assertFalse(evidence["unsupported_preflight"]["gpu_scheduled"])
+
+        reference = evidence["reference_probe"]
+        self.assertEqual("passed", reference["result"])
+        self.assertEqual(
+            evidence["source_artifact"]["sha256"],
+            reference["reference_audio_sha256"],
+        )
+        self.assertTrue(reference["output_differs_from_input"])
+        self.assertFalse(reference["audio_validation"]["clipped"])
+
+        repaint = evidence["repaint_probe"]
+        self.assertTrue(repaint["operation_executed"])
+        self.assertEqual("failed_clipping_validation", repaint["backend_result"])
+        self.assertEqual(0.0, repaint["locality"]["outside_changed_fraction"])
+        self.assertEqual(1.0, repaint["locality"]["outside_correlation"])
+        self.assertGreater(repaint["locality"]["inside_changed_fraction"], 0.99)
+        self.assertTrue(repaint["audio_validation"]["clipped"])
+
+        oom = evidence["oom_probe"]
+        self.assertEqual("cuda_out_of_memory", oom["failure_class"])
+        self.assertEqual([], oom["partial_artifacts"])
+        self.assertFalse(oom["false_success"])
+        self.assertEqual(0, oom["allocated_after_cleanup_bytes"])
+        self.assertEqual(0, oom["reserved_after_cleanup_bytes"])
+
+        recovery = evidence["recovery_probe"]
+        self.assertEqual("passed", recovery["result"])
+        self.assertFalse(recovery["audio_validation"]["clipped"])
+        decision = evidence["decision"]
+        self.assertTrue(decision["s01_evidence_complete"])
+        self.assertEqual("rejected", decision["ace_step_production_backend"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-12",
+  "status": "evidence_complete",
+  "source": {
+    "repository": "https://github.com/ace-step/ACE-Step-1.5.git",
+    "revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+    "readme_sha256": "650c6ef98b70289886669895c4fd68aab3cc45bba74b3525d728a45a85cbcd66",
+    "inference_sha256": "2395a1e6340af075d3f9d2fad293a389beb61f0a11e1db79a5ad120f6d0ce9a2"
+  },
+  "model_id": "acestep-v15-turbo",
+  "declared_capabilities": {
+    "reference_audio": true,
+    "text2music": true,
+    "cover": true,
+    "repaint": true,
+    "extract": false,
+    "lego": false,
+    "complete": false,
+    "extend": false
+  },
+  "unsupported_preflight": {
+    "operation": "extend",
+    "gpu_scheduled": false,
+    "message": "acestep-v15-turbo does not support extend; no GPU job was scheduled"
+  },
+  "environment": {
+    "provider": "modal",
+    "provider_cli": "1.6.3",
+    "gpu_name": "Tesla T4",
+    "gpu_memory_bytes": 16106127360,
+    "driver": "620.70.06",
+    "cuda": "12.8",
+    "pytorch": "2.10.0+cu128",
+    "python": "3.12.10",
+    "max_containers": 1,
+    "gpu_fallback": null,
+    "app_stopped_after": true
+  },
+  "source_artifact": {
+    "origin": "project-generated vi-014 Modal reproduction",
+    "private_or_third_party_audio": false,
+    "duration_seconds": 30.0,
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "sha256": "adcde481123030501c46d7eeb2a7cb120ee07b088e7d55807ce4d47c84a06429"
+  },
+  "reference_probe": {
+    "run_id": "s01-closure-20261112-b-reference",
+    "result": "passed",
+    "reference_audio_sha256": "adcde481123030501c46d7eeb2a7cb120ee07b088e7d55807ce4d47c84a06429",
+    "output_sha256": "f3adc186b10116022854a3811ca64ea6c6393d07b560f88e75ffcd46f923bc6a",
+    "output_differs_from_input": true,
+    "model_load_seconds": 7.792645025000006,
+    "inference_seconds": 5.51338967400001,
+    "total_seconds": 25.677332931000002,
+    "peak_vram_bytes": 8552879104,
+    "audio_validation": {
+      "duration_seconds": 30.0,
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "finite_samples": true,
+      "silent": false,
+      "clipped": false,
+      "integrated_lufs": -16.1,
+      "true_peak_dbfs": -0.9
+    }
+  },
+  "repaint_probe": {
+    "run_id": "s01-closure-20261112-b-repaint",
+    "operation_executed": true,
+    "backend_result": "failed_clipping_validation",
+    "source_audio_sha256": "adcde481123030501c46d7eeb2a7cb120ee07b088e7d55807ce4d47c84a06429",
+    "output_sha256": "57b205d5bb2d4c9cd6982c15a73ff86b26c4a3eb75ac1d5b4ea33c15d3c431cf",
+    "range_seconds": {
+      "start": 10.0,
+      "end": 20.0,
+      "verification_boundary_margin": 1.0
+    },
+    "locality": {
+      "outside_sample_count": 1728000,
+      "outside_changed_fraction": 0.0,
+      "outside_correlation": 1.0,
+      "inside_sample_count": 768000,
+      "inside_changed_fraction": 0.999859375,
+      "inside_correlation": 0.22013619117450217,
+      "inside_mean_absolute_delta": 4424.8384453125
+    },
+    "model_load_seconds": 7.19188093599999,
+    "inference_seconds": 5.031468149999995,
+    "total_seconds": 21.650957798000007,
+    "peak_vram_bytes": 8575714304,
+    "audio_validation": {
+      "duration_seconds": 30.0,
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "finite_samples": true,
+      "silent": false,
+      "clipped": true,
+      "integrated_lufs": -15.5,
+      "true_peak_dbfs": 0.1
+    }
+  },
+  "oom_probe": {
+    "run_id": "s01-closure-20261112-d-oom",
+    "result": "expected_failure",
+    "failure_class": "cuda_out_of_memory",
+    "exception_type": "OutOfMemoryError",
+    "trigger": "controlled_allocator_overallocation",
+    "requested_allocation_gib": 29.15,
+    "partial_artifacts": [],
+    "false_success": false,
+    "model_load_seconds": 8.841236114999994,
+    "peak_allocated_bytes": 7825463808,
+    "allocated_after_cleanup_bytes": 0,
+    "reserved_after_cleanup_bytes": 0
+  },
+  "recovery_probe": {
+    "run_id": "s01-closure-20261112-d-recovery",
+    "result": "passed",
+    "artifact_sha256": "adcde481123030501c46d7eeb2a7cb120ee07b088e7d55807ce4d47c84a06429",
+    "model_load_seconds": 8.503295112000004,
+    "inference_seconds": 5.130485324999995,
+    "total_seconds": 23.14801488399999,
+    "peak_vram_bytes": 7825463808,
+    "audio_validation": {
+      "duration_seconds": 30.0,
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "finite_samples": true,
+      "silent": false,
+      "clipped": false,
+      "integrated_lufs": -14.3,
+      "true_peak_dbfs": -1.0
+    }
+  },
+  "failed_oom_pressure_observations": [
+    {
+      "requested_batch_size": 8,
+      "observed_batch_size": 3,
+      "outcome": "generation_succeeded_after_upstream_batch_reduction"
+    },
+    {
+      "requested_batch_size": 1,
+      "effective_free_vram_gib": 1.29,
+      "outcome": "generation_succeeded_with_tiled_vae_decode"
+    }
+  ],
+  "decision": {
+    "s01_evidence_complete": true,
+    "ace_step_production_backend": "rejected",
+    "reference_research_contract": "passed",
+    "repaint_research_contract": "failed_clipping_validation",
+    "extend_contract": "unsupported_by_selected_model",
+    "oom_classification_and_recovery": "passed",
+    "s05_backend_still_required": true
+  }
+}

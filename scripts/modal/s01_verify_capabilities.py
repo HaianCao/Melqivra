@@ -80,15 +80,38 @@ def main() -> int:
         source=args.source_artifact,
         generated=args.reference_artifact,
     )
+    reference_validation = reference_record.get("audio_validation")
+    if not isinstance(reference_validation, dict):
+        raise RuntimeError("Reference audio validation is missing")
+    if (
+        reference_validation.get("finite_samples") is not True
+        or reference_validation.get("silent") is not False
+        or reference_validation.get("clipped") is not False
+    ):
+        raise RuntimeError("Reference output failed the technical audio contract")
     repaint = compare_repaint_artifact(
         source=args.source_artifact,
         generated=args.repaint_artifact,
         repaint_start_seconds=float(repaint_request["repainting_start_seconds"]),
         repaint_end_seconds=float(repaint_request["repainting_end_seconds"]),
     )
+    repaint_validation = repaint_record.get("audio_validation")
+    if not isinstance(repaint_validation, dict):
+        raise RuntimeError("Repaint audio validation is missing")
+    repaint_contract_passed = bool(
+        repaint_validation.get("finite_samples") is True
+        and repaint_validation.get("silent") is False
+        and repaint_validation.get("clipped") is False
+    )
+    repaint["technical_audio_contract_passed"] = repaint_contract_passed
+    repaint["backend_result"] = (
+        "passed" if repaint_contract_passed else "failed_clipping_validation"
+    )
+    repaint["audio_validation"] = repaint_validation
     result = {
         "schema_version": 1,
         "status": "passed",
+        "evidence_complete": True,
         "capability_audit": capability_audit,
         "reference": reference,
         "repaint": repaint,
