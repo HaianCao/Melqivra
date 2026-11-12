@@ -8,28 +8,22 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "scripts" / "colab" / "remote_worker.py"
 
 
 class RemoteWorkerTests(unittest.TestCase):
-    def test_custom_paths_execute_the_shared_allowlist(self) -> None:
+    def _run(self, *, kind: str, payload: dict[str, object]) -> dict[str, Any]:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             request = root / "request.json"
             result = root / "result.json"
             request.write_text(
-                json.dumps(
-                    {
-                        "job_id": "job-1",
-                        "kind": "harness.echo",
-                        "payload": {"message": "hello"},
-                    }
-                ),
+                json.dumps({"job_id": "job-1", "kind": kind, "payload": payload}),
                 encoding="utf-8",
             )
-
             completed = subprocess.run(
                 [
                     sys.executable,
@@ -44,11 +38,20 @@ class RemoteWorkerTests(unittest.TestCase):
                 text=True,
                 timeout=30,
             )
-
             self.assertEqual(0, completed.returncode, completed.stderr)
-            record = json.loads(result.read_text(encoding="utf-8"))
-            self.assertEqual("succeeded", record["status"])
-            self.assertEqual({"message": "hello"}, record["result"]["echo"])
+            value = json.loads(result.read_text(encoding="utf-8"))
+            self.assertIsInstance(value, dict)
+            return value
+
+    def test_custom_paths_execute_the_shared_allowlist(self) -> None:
+        record = self._run(kind="harness.echo", payload={"message": "hello"})
+        self.assertEqual("succeeded", record["status"])
+        self.assertEqual({"message": "hello"}, record["result"]["echo"])
+
+    def test_healthcheck_succeeds_without_nvidia_smi(self) -> None:
+        record = self._run(kind="harness.healthcheck", payload={})
+        self.assertEqual("succeeded", record["status"])
+        self.assertIsInstance(record["result"]["gpu"]["available"], bool)
 
 
 if __name__ == "__main__":

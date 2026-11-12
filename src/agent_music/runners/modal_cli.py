@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import signal
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -156,14 +157,23 @@ class ModalCliClient:
         if process.returncode is not None:
             return
         try:
-            process.terminate()
+            process.send_signal(signal.SIGINT)
         except ProcessLookupError:
             return
+        except ValueError:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                return
         try:
             await asyncio.wait_for(process.wait(), timeout=10.0)
         except TimeoutError:
-            process.kill()
-            await process.wait()
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
 
     @staticmethod
     async def _cancel_readers(readers: Sequence[asyncio.Task[None]]) -> None:

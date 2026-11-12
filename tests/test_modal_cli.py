@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import sys
 import unittest
 from pathlib import Path
 
@@ -33,6 +35,27 @@ class ModalCliClientTests(unittest.TestCase):
             ["modal", "app", "stop", "--yes", "melqivra-gpu-runner"],
             self.client.stop_argv(),
         )
+
+
+class ModalCliCancellationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancel_current_interrupts_the_active_process(self) -> None:
+        client = ModalCliClient(
+            executable="modal",
+            app_name="melqivra-gpu-runner",
+            timeout_seconds=30,
+        )
+        task = asyncio.create_task(
+            client.run(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                check=False,
+            )
+        )
+        await asyncio.sleep(0.1)
+
+        await client.cancel_current()
+        result = await asyncio.wait_for(task, timeout=5.0)
+
+        self.assertNotEqual(0, result.returncode)
 
 
 if __name__ == "__main__":
