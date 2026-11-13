@@ -185,3 +185,12 @@ Checkpoint `79db7ed` contains the durable attempt history and bounded retry
 policy. Protected push run `43443842155` and pull-request run `43443849360`
 each passed the four Windows/Linux Python 3.11/3.13 quality jobs plus the real
 PostgreSQL service contract on that exact commit.
+
+The subsequent evidence-only push run `43444235862` exposed a scheduler-test
+timing race on Ubuntu Python 3.11: the fixture reported one injected renewal
+loss but left a 500-millisecond wall-clock lease, so a heavily delayed event
+loop could legitimately expire the retry and produce a third fenced attempt.
+Checkpoint `680a179` makes the injected first lease expire atomically, gives the
+non-injected retry a ten-second margin, and asserts the exact durable outcomes
+`lease_expired` then `succeeded`. Protected push run `43445175514` and
+pull-request run `43445185089` each passed all five jobs on that exact fix.
