@@ -1,6 +1,6 @@
 # S06 evidence — Colab lifecycle and cache hardening
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 Recorded from: 2026-11-13 (Asia/Saigon)
 
@@ -323,7 +323,7 @@ S06 meets its roadmap exit criteria:
 - the $0.08 approval exceeded the enforced $0.069271 upper bound; the observed
   provider report remained far below it, and current-cycle billed cost was $0;
 - the complete local gate passed with 208 tests and 88% critical branch coverage,
-  and protected CI runs `43408216616` and `43408222298` passed on Windows/Linux
+  and protected CI runs `43425716119` and `43425725200` passed on Windows/Linux
   Python 3.11/3.13.
 
 Known limitations remain explicit: Modal warm mode is control-plane/image-cache
@@ -340,8 +340,8 @@ Python 3.11 cancellation test in protected run `43408907490`. The test slept for
 100 milliseconds and assumed the child CLI process had already been registered;
 on the slower runner, `cancel_current()` correctly found no active process, the
 child continued sleeping, and the test's outer timeout cancelled the asyncio
-task. A duplicate Windows 3.11 job and the other six matrix jobs passed, but S06
-formal closure remains paused until the corrected checkpoint is green everywhere.
+task. A duplicate Windows 3.11 job and the other six matrix jobs passed, so S06
+formal closure was paused until the corrected checkpoint was green everywhere.
 
 Both Modal and Colab regressions now wait for a flushed `started` line observed
 through the client's real stdout callback before requesting cancellation. This
@@ -351,3 +351,8 @@ repeated cancellation cases passed on isolated Windows Python 3.11, and the full
 local gate passes with 208 tests, strict mypy on 61 source files, Ruff
 format/lint, 88% critical scheduler/store branch coverage, successful wheel and
 source distribution builds, and no known audited vulnerabilities.
+
+Checkpoint `d57808f` passed both protected workflows in runs `43425716119` and
+`43425725200`, including both Windows Python 3.11 jobs. S06 is therefore closed
+on the subsequent documentation-only closure commit; the earlier `fe1cdf1`
+closure attempt is retained in history but is not the canonical tag target.
