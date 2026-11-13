@@ -161,8 +161,34 @@ invisible until every object has been downloaded back and checksum-verified;
 exact retries are idempotent and changed retries conflict. `melqivra doctor`
 checks both authorities without printing the DSN, endpoint credentials, or
 object keys. Credentials use the standard AWS provider chain and must not be
-placed in committed files. Backup/restore, retention, and orphan reconciliation
-remain in-progress S07 work.
+placed in committed files.
+
+Artifact cleanup is an explicit operational pass, not an import-time side
+effect. It recovers complete interrupted publications, removes incomplete stale
+batches, resumes crash-interrupted deletions, applies optional published-byte
+retention, and deletes only untracked objects older than the configured orphan
+grace period:
+
+~~~dotenv
+ARTIFACT_PENDING_TIMEOUT_SECONDS=3600
+ARTIFACT_CORRUPT_RETENTION_SECONDS=86400
+ARTIFACT_ORPHAN_GRACE_SECONDS=86400
+# Empty disables automatic retention of healthy published artifacts.
+ARTIFACT_PUBLISHED_RETENTION_SECONDS=
+ARTIFACT_RECONCILE_BATCH_LIMIT=100
+ARTIFACT_RECONCILE_OBJECT_PAGE_SIZE=100
+~~~
+
+~~~shell
+uv run melqivra reconcile-artifacts
+~~~
+
+The command prints content-free counters. If `next_orphan_cursor` is non-null,
+run another bounded page with `--orphan-cursor '<cursor>'`. Deletion first commits
+a PostgreSQL `deleting` tombstone, removes every immutable object idempotently,
+and only then commits `deleted`; a crash at any point is safe to retry.
+Backup/restore and the full multi-process restart demo remain in-progress S07
+work.
 
 Submit a job:
 

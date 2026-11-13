@@ -80,6 +80,11 @@ POSTGRES_MIGRATIONS = (
         name="artifact_publication_authority",
         resource="migrations/postgresql/0007_create_artifact_publication_authority.sql",
     ),
+    PostgresMigration(
+        version=8,
+        name="artifact_reconciliation_state",
+        resource="migrations/postgresql/0008_add_artifact_reconciliation_state.sql",
+    ),
 )
 
 

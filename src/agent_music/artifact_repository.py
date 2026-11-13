@@ -62,7 +62,9 @@ class ArtifactRecord:
     source_revision_ids: tuple[RevisionId, ...]
     state: ArtifactPublicationState
     created_at: float
+    state_changed_at: float
     published_at: float | None
+    deleted_at: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +77,9 @@ class ArtifactBatchRecord:
     contract_sha256: str
     state: ArtifactPublicationState
     created_at: float
+    state_changed_at: float
     published_at: float | None
+    deleted_at: float | None
     artifacts: tuple[ArtifactRecord, ...]
 
 
@@ -118,6 +122,43 @@ class ArtifactRepository(Protocol):
         artifact_id: ArtifactId,
     ) -> ArtifactRecord: ...
 
+    def mark_batch_corrupt(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        changed_at: float | None = None,
+    ) -> ArtifactBatchRecord: ...
+
+    def start_batch_deletion(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        changed_at: float | None = None,
+    ) -> ArtifactBatchRecord: ...
+
+    def finish_batch_deletion(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        deleted_at: float | None = None,
+    ) -> ArtifactBatchRecord: ...
+
+    def list_batches_for_reconciliation(
+        self,
+        *,
+        states: tuple[ArtifactPublicationState, ...],
+        changed_before: float,
+        limit: int,
+    ) -> tuple[ArtifactBatchRecord, ...]: ...
+
+    def known_live_object_keys(self, keys: tuple[str, ...]) -> frozenset[str]: ...
+
 
 def validate_artifact_specs(artifacts: tuple[ArtifactSpec, ...]) -> None:
     """Reject ambiguous or malformed immutable artifact metadata."""
@@ -132,11 +173,7 @@ def validate_artifact_specs(artifacts: tuple[ArtifactSpec, ...]) -> None:
             raise ValueError("Artifact IDs and object keys must be unique within a batch")
         if not _MEDIA_TYPE.fullmatch(artifact.media_type):
             raise ValueError("Artifact media type is invalid")
-        if (
-            len(artifact.object_key.encode("utf-8")) > 1_024
-            or _OBJECT_KEY.fullmatch(artifact.object_key) is None
-        ):
-            raise ValueError("Artifact object key is invalid")
+        validate_artifact_object_key(artifact.object_key)
         if artifact.size_bytes < 0:
             raise ValueError("Artifact size must not be negative")
         if _SHA256.fullmatch(artifact.sha256) is None:
@@ -147,6 +184,13 @@ def validate_artifact_specs(artifacts: tuple[ArtifactSpec, ...]) -> None:
             validate_identifier(str(revision_id))
         observed_ids.add(artifact.artifact_id)
         observed_keys.add(artifact.object_key)
+
+
+def validate_artifact_object_key(key: str) -> None:
+    """Reject object keys outside the service-owned portable key grammar."""
+
+    if len(key.encode("utf-8")) > 1_024 or _OBJECT_KEY.fullmatch(key) is None:
+        raise ValueError("Artifact object key is invalid")
 
 
 def artifact_batch_contract_sha256(artifacts: tuple[ArtifactSpec, ...]) -> str:

@@ -200,6 +200,136 @@ class PostgresArtifactRepositoryTests(unittest.TestCase):
                     "DELETE FROM artifact_batches WHERE owner_id = %s AND batch_id = %s",
                     (str(self.alice), "batch_artifacts"),
                 )
+            with self.assertRaises(psycopg.Error):
+                connection.execute(
+                    """
+                    UPDATE artifact_batches
+                    SET state_changed_at = state_changed_at + 1
+                    WHERE owner_id = %s AND batch_id = %s
+                    """,
+                    (str(self.alice), "batch_artifacts"),
+                )
+
+    def test_reconciliation_transitions_and_live_object_lookup_are_durable(self) -> None:
+        pending = self.repository.reserve_batch(
+            owner_id=self.alice,
+            project_id=self.project_id,
+            batch_id="batch_reconcile",
+            artifacts=self.specs,
+            created_at=3.0,
+        )
+        self.assertEqual(3.0, pending.state_changed_at)
+        published = self.repository.publish_batch(
+            owner_id=self.alice,
+            project_id=self.project_id,
+            batch_id="batch_reconcile",
+            published_at=4.0,
+        )
+        self.assertEqual(4.0, published.state_changed_at)
+        self.assertEqual(
+            (published,),
+            self.repository.list_batches_for_reconciliation(
+                states=(ArtifactPublicationState.PUBLISHED,),
+                changed_before=4.0,
+                limit=10,
+            ),
+        )
+        keys = tuple(spec.object_key for spec in self.specs)
+        self.assertEqual(
+            frozenset(keys),
+            self.repository.known_live_object_keys((*keys, "artifacts/unknown")),
+        )
+
+        corrupt = self.repository.mark_batch_corrupt(
+            owner_id=self.alice,
+            project_id=self.project_id,
+            batch_id="batch_reconcile",
+            changed_at=5.0,
+        )
+        self.assertIs(ArtifactPublicationState.CORRUPT, corrupt.state)
+        with self.assertRaises(KeyError):
+            self.repository.mark_batch_corrupt(
+                owner_id=self.bob,
+                project_id=self.project_id,
+                batch_id="batch_reconcile",
+                changed_at=5.0,
+            )
+        deleting = self.repository.start_batch_deletion(
+            owner_id=self.alice,
+            project_id=self.project_id,
+            batch_id="batch_reconcile",
+            changed_at=6.0,
+        )
+        self.assertIs(ArtifactPublicationState.DELETING, deleting.state)
+        deleted = self.repository.finish_batch_deletion(
+            owner_id=self.alice,
+            project_id=self.project_id,
+            batch_id="batch_reconcile",
+            deleted_at=7.0,
+        )
+        self.assertIs(ArtifactPublicationState.DELETED, deleted.state)
+        self.assertEqual(7.0, deleted.deleted_at)
+        self.assertEqual(frozenset(), self.repository.known_live_object_keys(keys))
+        self.assertEqual(
+            deleted,
+            self.repository.start_batch_deletion(
+                owner_id=self.alice,
+                project_id=self.project_id,
+                batch_id="batch_reconcile",
+                changed_at=8.0,
+            ),
+        )
+
+    def test_version_seven_metadata_backfills_reconciliation_time(self) -> None:
+        self.repository.close()
+        with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
+            connection.execute(
+                "ALTER TABLE artifact_batches DROP CONSTRAINT artifact_batches_state_time_order"
+            )
+            connection.execute("ALTER TABLE artifacts DROP CONSTRAINT artifacts_state_time_order")
+            connection.execute("ALTER TABLE artifact_batches DROP COLUMN state_changed_at")
+            connection.execute("ALTER TABLE artifacts DROP COLUMN state_changed_at")
+            connection.execute("DROP INDEX IF EXISTS ix_artifact_batches_reconciliation")
+            connection.execute(
+                """
+                CREATE INDEX ix_artifact_batches_reconciliation
+                    ON artifact_batches(state, created_at, owner_id, project_id, batch_id)
+                """
+            )
+            connection.execute("DELETE FROM schema_migrations WHERE version = 8")
+            connection.execute(
+                """
+                INSERT INTO artifact_batches(
+                    owner_id, project_id, batch_id, contract_sha256,
+                    artifact_count, state, created_at
+                ) VALUES (%s, %s, 'batch_v7', %s, 1, 'pending', 10)
+                """,
+                (str(self.alice), str(self.project_id), "0" * 64),
+            )
+            connection.execute(
+                """
+                INSERT INTO artifacts(
+                    owner_id, project_id, batch_id, ordinal, id, object_key,
+                    media_type, size_bytes, sha256, source_revision_ids,
+                    state, created_at
+                ) VALUES (
+                    %s, %s, 'batch_v7', 0, 'art_v7', 'artifacts/v7/art_v7',
+                    'audio/wav', 1, %s, '["rev_artifact_plan"]'::jsonb,
+                    'pending', 10
+                )
+                """,
+                (str(self.alice), str(self.project_id), hashlib.sha256(b"x").hexdigest()),
+            )
+
+        self.repository = PostgresArtifactRepository(POSTGRES_DSN)
+        self.addCleanup(self.repository.close)
+        recovered = self.repository.get_batch_for_owner(
+            owner_id=self.alice,
+            project_id=self.project_id,
+            batch_id="batch_v7",
+        )
+        self.assertEqual(10.0, recovered.state_changed_at)
+        self.assertEqual(10.0, recovered.artifacts[0].state_changed_at)
 
 
 if __name__ == "__main__":
