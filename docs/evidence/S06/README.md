@@ -260,4 +260,41 @@ The subsequent zero-cost WSL2 preflight confirmed Modal CLI 1.6.3, a successful
 non-printing authentication check, zero active apps, and successful loading of
 the probe command contract. `modal-lifecycle-preflight.json` records the
 sanitized result. The preflight did not create an app, container, or GPU and did
-not change the probe's `prepared_not_run` status.
+not change the probe's then-current `prepared_not_run` status.
+
+## Real Modal T4 lifecycle evidence
+
+The operator approved a maximum metered cost of $0.08 for run
+`s06-modal-lifecycle-20261113-a`; the committed authorization pins the three-call,
+120-second-per-call contract and its $0.069271 list-price upper bound. The probe
+then completed three sequential durable jobs without retry or fallback:
+
+- cold: 8.223467 seconds total and 8.222475 seconds provider execution;
+- warm: 7.864885 seconds total and 7.863980 seconds provider execution;
+- recovered after an explicit scoped app stop: 8.148153 seconds total and
+  8.147357 seconds provider execution.
+
+Every call independently reported a Tesla T4 with 15,360 MiB. The measured warm
+total gain was 0.358582 seconds, about 4.36%. This is a lifecycle/control-plane
+measurement, not a same-container or resident-model claim: the provider reported
+different driver versions between the cold call and the later calls. Modal's
+documented equivalent remains scale-to-zero execution with cached images and the
+persistent model-cache boundary already evidenced in S01/S05.
+
+The third job succeeded after explicit reclaim with readiness mode `recovered`.
+Final runner state was `RECLAIMED`; all three apps were stopped with zero tasks,
+and `modal container list --json` returned no active containers. Live provider
+rates matched the conservative price contract. The billing report had published
+two of the three app records when evidence was captured, totaling $0.00090357;
+one app record remained delayed, so this is not presented as final metered cost.
+The current-cycle billed cost was $0 after credits/allowances, while the enforced
+$0.069271 upper bound remains authoritative.
+
+See `modal-lifecycle-evidence.json` and
+`modal-lifecycle-verification.json`. The raw evidence SHA-256 is
+`d77f54794eb8c1ba1f2213a740a2d04332e2c5fbd3a0b23cb04cdc7bee7d1578`.
+
+The complete post-probe gate passes with 208 tests, strict mypy on 61 source
+files, Ruff format/lint, 88% critical scheduler/store branch coverage,
+successful wheel and source distribution builds, and no known audited
+vulnerabilities.

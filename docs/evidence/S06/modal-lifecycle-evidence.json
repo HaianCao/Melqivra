@@ -1,0 +1,48 @@
+{
+  "calls": [
+    {
+      "execution_seconds": 8.222474707000002,
+      "gpu": "Tesla T4, 15360, 610.57.04",
+      "idle_before_job_seconds": 0.0,
+      "job_id": "e1526ffb-e8ea-45b0-b8de-fa29e7d25384",
+      "readiness_mode": "cold",
+      "remote_duration_seconds": 0.05507493019104004,
+      "total_seconds": 8.223467
+    },
+    {
+      "execution_seconds": 7.863980185000003,
+      "gpu": "Tesla T4, 15360, 620.70.06",
+      "idle_before_job_seconds": 0.06985418899999729,
+      "job_id": "adeb523b-f3b5-4bfb-b0bd-66277d211822",
+      "readiness_mode": "warm",
+      "remote_duration_seconds": 0.03864145278930664,
+      "total_seconds": 7.864885472000001
+    },
+    {
+      "execution_seconds": 8.147356542999994,
+      "gpu": "Tesla T4, 15360, 620.70.06",
+      "idle_before_job_seconds": 1.816734536000002,
+      "job_id": "bcdd9dfc-ed41-4169-b925-b2157999eef1",
+      "readiness_mode": "recovered",
+      "remote_duration_seconds": 0.10543036460876465,
+      "total_seconds": 8.148153203999996
+    }
+  ],
+  "cleanup": {
+    "app_stop_completed": true,
+    "runner_state": "reclaimed"
+  },
+  "price_contract": {
+    "approved_max_metered_usd": 0.08,
+    "checked_at": "2026-11-13",
+    "estimated_max_metered_usd": 0.069271,
+    "gpu_calls": 3,
+    "max_function_seconds": 120,
+    "source": "https://modal.com/pricing"
+  },
+  "provider": "modal",
+  "run_id": "s06-modal-lifecycle-20261113-a",
+  "schema_version": 1,
+  "status": "passed",
+  "warm_total_gain_seconds": 0.35858152799999843
+}

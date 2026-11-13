@@ -1,0 +1,35 @@
+{
+  "active_apps_after": 0,
+  "active_containers_after": 0,
+  "billing": {
+    "billed_cost_current_cycle_usd": 0.0,
+    "observed_app_count": 2,
+    "observed_metered_usd": 0.00090357,
+    "provider_report_complete": false,
+    "provider_report_pending_app_count": 1
+  },
+  "cleanup_passed": true,
+  "evidence_sha256": "d77f54794eb8c1ba1f2213a740a2d04332e2c5fbd3a0b23cb04cdc7bee7d1578",
+  "gpu_call_count": 3,
+  "gpu_contract": "Tesla T4",
+  "modal_cli_version": "1.6.3",
+  "price_contract": {
+    "approved_max_metered_usd": 0.08,
+    "estimated_max_metered_usd": 0.069271,
+    "live_cpu_hour_usd": 0.0473,
+    "live_memory_gib_hour_usd": 0.008,
+    "live_t4_hour_usd": 0.59
+  },
+  "readiness_modes": [
+    "cold",
+    "warm",
+    "recovered"
+  ],
+  "run_id": "s06-modal-lifecycle-20261113-a",
+  "schema_version": 1,
+  "source_commit": "996eb3b8fc845e21296effcb8b21ec38b2ed00fa",
+  "status": "passed",
+  "stopped_apps_after": 3,
+  "tasks_after": 0,
+  "warm_total_gain_seconds": 0.35858152799999843
+}
