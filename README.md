@@ -136,7 +136,7 @@ curl http://127.0.0.1:8000/v1/gpu/runner
 Install and authenticate the official CLI in Linux/WSL:
 
 ~~~shell
-uv tool install modal
+uv tool install modal==1.6.3
 modal setup
 modal token info
 ~~~
@@ -145,6 +145,7 @@ Copy `.env.example` to `.env`. The default selection is:
 
 ~~~dotenv
 GPU_RUNNER=modal
+MODAL_CLI_VERSION=1.6.3
 MODAL_APP_NAME=melqivra-gpu-runner
 TRANSFER_ROOT=data/transfers
 ~~~

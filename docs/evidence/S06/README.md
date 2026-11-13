@@ -106,3 +106,18 @@ CPU-only failure injection covers the accepted version, rejected version,
 unrecognized version output, expired OAuth, missing session, and incompatible
 command cases. Real expired-account behavior still needs a disposable or safely
 revoked credential test; no provider session is created by this checkpoint.
+
+## Sixth checkpoint: primary Modal readiness parity
+
+The user explicitly expanded S06 hardening to the primary Modal provider. Modal
+now pins the S01-verified CLI 1.6.3 contract in runtime configuration and doctor,
+classifies authentication, compatibility, missing-app, and unknown command
+failures, and performs a token heartbeat before every job reuse. Concurrent
+readiness callers share one shielded task, so version and authentication checks
+cannot fan out into duplicate control-plane operations.
+
+Modal retains its scale-to-zero execution model: a readiness heartbeat validates
+the local CLI and account rather than preserving a warm named GPU session. CPU
+failure injection proves exact-version acceptance, mismatch rejection, expired
+token rejection before submission, single-flight startup, and repeated heartbeat
+behavior. No Modal app, container, or GPU is created by this checkpoint.

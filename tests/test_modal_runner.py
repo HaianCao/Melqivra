@@ -13,7 +13,13 @@ from typing import Any
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, JobState, RunnerState
 from agent_music.runners.modal import ModalRunner
-from agent_music.runners.modal_cli import CommandResult, LineCallback
+from agent_music.runners.modal_cli import (
+    CommandResult,
+    LineCallback,
+    ModalCliCompatibilityError,
+    ModalCliError,
+    ModalCliFailureKind,
+)
 
 
 class FakeModalClient:
@@ -22,11 +28,26 @@ class FakeModalClient:
         *,
         remote_status: str = "succeeded",
         remote_artifacts: dict[str, bytes] | None = None,
+        version_output: str = "modal client version: 1.6.3",
+        token_returncode: int = 0,
+        token_stderr: str = "",
+        block_token: bool = False,
     ) -> None:
         self.remote_status = remote_status
         self.remote_artifacts = remote_artifacts or {}
+        self.version_output = version_output
+        self.token_returncode = token_returncode
+        self.token_stderr = token_stderr
+        self.block_token = block_token
+        self.token_started = asyncio.Event()
+        self.release_token = asyncio.Event()
+        if not block_token:
+            self.release_token.set()
         self.commands: list[tuple[str, ...]] = []
         self.cancelled = False
+
+    def version_argv(self) -> list[str]:
+        return ["modal", "--version"]
 
     def token_info_argv(self) -> list[str]:
         return ["modal", "token", "info"]
@@ -68,6 +89,19 @@ class FakeModalClient:
     ) -> CommandResult:
         _ = check, environment
         self.commands.append(tuple(argv))
+        if len(argv) > 1 and argv[1] == "--version":
+            return CommandResult(returncode=0, stdout=self.version_output, stderr="")
+        if len(argv) > 2 and argv[1:3] == ["token", "info"]:
+            self.token_started.set()
+            await self.release_token.wait()
+            result = CommandResult(
+                returncode=self.token_returncode,
+                stdout="authenticated" if self.token_returncode == 0 else "",
+                stderr=self.token_stderr,
+            )
+            if check and result.returncode != 0:
+                raise ModalCliError(argv, result)
+            return result
         if len(argv) > 1 and argv[1] == "run":
             result_path = Path(argv[argv.index("--write-result") + 1])
             request_path = Path(argv[argv.index("--request-file") + 1])
@@ -160,7 +194,7 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
                 await runner.run(self._job(), lambda _event: _completed())
             await runner.stop()
 
-            self.assertEqual(RunnerState.STOPPED, runner.state)
+            self.assertEqual(RunnerState.RECLAIMED, runner.state)
             self.assertTrue(client.cancelled)
             self.assertIn(("modal", "app", "stop", "--yes", "melqivra-gpu-runner"), client.commands)
 
@@ -194,6 +228,63 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
             transfer = root / "transfers" / str(result["_transfer_id"])
             self.assertEqual(b"RIFF-private", (transfer / "request" / "take.wav").read_bytes())
             self.assertEqual("modal", result["_environment"]["provider"])
+
+    async def test_readiness_is_single_flight_and_heartbeats_before_reuse(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runner_file = Path(temporary) / "remote_worker.py"
+            runner_file.write_text("# fixture\n", encoding="utf-8")
+            client = FakeModalClient(block_token=True)
+            runner = ModalRunner(
+                HarnessSettings(modal_runner_file=runner_file),
+                client=client,
+            )
+
+            first = asyncio.create_task(runner.ensure_ready())
+            await asyncio.wait_for(client.token_started.wait(), timeout=1.0)
+            second = asyncio.create_task(runner.ensure_ready())
+            await asyncio.sleep(0)
+            self.assertEqual(RunnerState.PROVISIONING, runner.state)
+
+            client.release_token.set()
+            await asyncio.gather(first, second)
+            self.assertEqual(RunnerState.READY, runner.state)
+            self.assertEqual(1, client.commands.count(("modal", "--version")))
+            self.assertEqual(1, client.commands.count(("modal", "token", "info")))
+
+            await runner.ensure_ready()
+            self.assertEqual(1, client.commands.count(("modal", "--version")))
+            self.assertEqual(2, client.commands.count(("modal", "token", "info")))
+
+    async def test_expired_auth_and_incompatible_cli_fail_before_job_submission(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runner_file = Path(temporary) / "remote_worker.py"
+            runner_file.write_text("# fixture\n", encoding="utf-8")
+            auth_client = FakeModalClient(
+                token_returncode=1,
+                token_stderr="Token expired; not authenticated",
+            )
+            auth_runner = ModalRunner(
+                HarnessSettings(modal_runner_file=runner_file),
+                client=auth_client,
+            )
+
+            with self.assertRaises(ModalCliError) as captured:
+                await auth_runner.ensure_ready()
+            self.assertEqual(ModalCliFailureKind.AUTHENTICATION, captured.exception.kind)
+            self.assertEqual(RunnerState.FAILED, auth_runner.state)
+            self.assertFalse(
+                any(len(command) > 1 and command[1] == "run" for command in auth_client.commands)
+            )
+
+            version_client = FakeModalClient(version_output="modal client version: 1.7.0")
+            version_runner = ModalRunner(
+                HarnessSettings(modal_runner_file=runner_file),
+                client=version_client,
+            )
+            with self.assertRaises(ModalCliCompatibilityError):
+                await version_runner.ensure_ready()
+            self.assertEqual([("modal", "--version")], version_client.commands)
+            self.assertEqual(RunnerState.FAILED, version_runner.state)
 
 
 async def _completed() -> None:

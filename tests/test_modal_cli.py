@@ -7,7 +7,14 @@ import sys
 import unittest
 from pathlib import Path
 
-from agent_music.runners.modal_cli import ModalCliClient
+from agent_music.runners.modal_cli import (
+    CommandResult,
+    ModalCliClient,
+    ModalCliCompatibilityError,
+    ModalCliFailureKind,
+    classify_modal_failure,
+    validate_modal_cli_version,
+)
 
 
 class ModalCliClientTests(unittest.TestCase):
@@ -53,6 +60,30 @@ class ModalCliClientTests(unittest.TestCase):
             ],
             argv,
         )
+
+    def test_failure_classification_is_explicit(self) -> None:
+        self.assertEqual(
+            ModalCliFailureKind.AUTHENTICATION,
+            classify_modal_failure(CommandResult(1, "", "Token expired; not authenticated")),
+        )
+        self.assertEqual(
+            ModalCliFailureKind.APP_MISSING,
+            classify_modal_failure(CommandResult(1, "", "app not found")),
+        )
+        self.assertEqual(
+            ModalCliFailureKind.INCOMPATIBLE,
+            classify_modal_failure(CommandResult(2, "", "no such option: --quiet")),
+        )
+
+    def test_version_contract_requires_exact_verified_release(self) -> None:
+        self.assertEqual(
+            "1.6.3",
+            validate_modal_cli_version("modal client version: 1.6.3", "1.6.3"),
+        )
+        with self.assertRaises(ModalCliCompatibilityError):
+            validate_modal_cli_version("modal client version: 1.7.0", "1.6.3")
+        with self.assertRaises(ModalCliCompatibilityError):
+            validate_modal_cli_version("development build", "1.6.3")
 
 
 class ModalCliCancellationTests(unittest.IsolatedAsyncioTestCase):
