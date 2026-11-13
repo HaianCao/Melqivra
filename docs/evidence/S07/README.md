@@ -365,3 +365,13 @@ vulnerabilities. A fresh PostgreSQL 17.12 database passes all twenty-two real
 contracts at 81% combined adapter coverage; the disposable container and volume
 were removed. Durable SSE reconnect, production artifact storage,
 backup/restore, retention, and broader rate/token quotas remain later S07 work.
+
+The first protected run of this checkpoint exposed a Python 3.11 compatibility
+defect in Starlette's task-group-based `BaseHTTPMiddleware` path. Functional API
+assertions passed on Python 3.13, but on Python 3.11 the middleware could cancel
+the request-body reader and surface `RuntimeError: No response returned`. The
+request contract now uses a pure ASGI wrapper that assigns request identity in
+the scope and appends response headers directly, without a secondary task group.
+The API suite passes repeatedly in an isolated Python 3.11 environment, and the
+complete local gate again passes all 255 discovered tests with the same typing,
+coverage, build, and audit results.
