@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
+import os
+import shutil
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar
 
 from agent_music.config import HarnessSettings
@@ -156,7 +159,18 @@ class ColabRunner(GpuRunner):
                     raise ValueError("Remote result must be a JSON object")
                 if result.get("status") != "succeeded":
                     raise RuntimeError(str(result.get("error", "Remote job failed")))
+                if job.kind == "music.generate":
+                    result["_transfer_id"] = await self._download_artifacts(job, result)
+                    result["_environment"] = {
+                        "provider": "colab",
+                        "runner": "colab",
+                        "session_name": self._settings.colab_session_name,
+                    }
                 return result
+        except Exception:
+            if job.id in self._cancel_requested:
+                raise asyncio.CancelledError from None
+            raise
         finally:
             self._cancel_requested.discard(job.id)
             self._active_job_id = None
@@ -244,3 +258,102 @@ class ColabRunner(GpuRunner):
             async with self._provision_guard:
                 if self._provision_task is current_task:
                     self._provision_task = None
+
+    async def _download_artifacts(self, job: GpuJob, result: dict[str, Any]) -> str:
+        payload = result.get("result")
+        if not isinstance(payload, dict):
+            raise ValueError("Remote generation result must be an object")
+        raw_artifacts = payload.get("artifacts")
+        if not isinstance(raw_artifacts, list) or not raw_artifacts:
+            raise ValueError("Remote generation result has no artifacts")
+
+        artifacts: list[tuple[PurePosixPath, int, str]] = []
+        observed: set[str] = set()
+        for raw in raw_artifacts:
+            if not isinstance(raw, dict):
+                raise ValueError("Remote artifact declaration is invalid")
+            path_text = raw.get("relative_path")
+            size_bytes = raw.get("size_bytes")
+            checksum = raw.get("sha256")
+            if (
+                not isinstance(path_text, str)
+                or not isinstance(size_bytes, int)
+                or isinstance(size_bytes, bool)
+                or size_bytes < 0
+                or not isinstance(checksum, str)
+                or len(checksum) != 64
+            ):
+                raise ValueError("Remote artifact metadata is invalid")
+            try:
+                int(checksum, 16)
+            except ValueError:
+                raise ValueError("Remote artifact checksum is invalid") from None
+            path = PurePosixPath(path_text)
+            if (
+                path.is_absolute()
+                or "\\" in path_text
+                or any(part in {"", ".", ".."} for part in path.parts)
+            ):
+                raise ValueError("Remote artifact path escaped the transfer root")
+            if path_text in observed:
+                raise ValueError("Remote artifact paths must be unique")
+            observed.add(path_text)
+            artifacts.append((path, size_bytes, checksum.lower()))
+
+        transfer_id = "transfer_" + hashlib.sha256(job.id.encode("utf-8")).hexdigest()[:24]
+        root = self._settings.transfer_root.resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        destination = (root / transfer_id).resolve()
+        if destination.parent != root:
+            raise ValueError("Local transfer path escaped its root")
+        if destination.exists():
+            self._verify_transfer(destination, artifacts)
+            return transfer_id
+
+        temporary = root / f".{transfer_id}.tmp"
+        if temporary.exists():
+            shutil.rmtree(temporary)
+        try:
+            temporary.mkdir(parents=True)
+            for relative_path, size_bytes, checksum in artifacts:
+                local_path = temporary.joinpath(*relative_path.parts)
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                remote_path = str(
+                    PurePosixPath(self._settings.colab_remote_output_root) / relative_path
+                )
+                await self._client.run(
+                    self._client.download_argv(
+                        self._settings.colab_session_name,
+                        remote_path,
+                        local_path,
+                    )
+                )
+                self._verify_artifact(local_path, size_bytes, checksum)
+            os.replace(temporary, destination)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+        return transfer_id
+
+    @classmethod
+    def _verify_transfer(
+        cls,
+        root: Path,
+        artifacts: list[tuple[PurePosixPath, int, str]],
+    ) -> None:
+        for relative_path, size_bytes, checksum in artifacts:
+            cls._verify_artifact(root.joinpath(*relative_path.parts), size_bytes, checksum)
+
+    @staticmethod
+    def _verify_artifact(path: Path, size_bytes: int, checksum: str) -> None:
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        if path.stat().st_size != size_bytes:
+            raise ValueError(f"Transferred artifact size mismatch: {path.name}")
+        hasher = hashlib.sha256()
+        with path.open("rb") as artifact_file:
+            while chunk := artifact_file.read(1024 * 1024):
+                hasher.update(chunk)
+        digest = hasher.hexdigest()
+        if digest != checksum:
+            raise ValueError(f"Transferred artifact checksum mismatch: {path.name}")
