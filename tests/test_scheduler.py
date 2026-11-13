@@ -12,10 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from agent_music.config import HarnessSettings
+from agent_music.job_store import SqliteJobStore
 from agent_music.models import JobAttemptOutcome, JobState, RunnerState
 from agent_music.runners.fake import FakeRunner
 from agent_music.scheduler import GpuHarness
-from agent_music.store import SqliteJobStore
 
 
 async def wait_until(predicate, deadline_seconds: float = 10.0) -> None:

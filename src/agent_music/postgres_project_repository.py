@@ -24,8 +24,8 @@ from agent_music.domain import (
     new_identifier,
     validate_identifier,
 )
-from agent_music.postgres_store import PostgresConnection, PostgresMigrator, PostgresPool
-from agent_music.project_store import (
+from agent_music.postgres_migrations import PostgresConnection, PostgresMigrator, PostgresPool
+from agent_music.project_repository import (
     CorruptRevisionError,
     RevisionConflictError,
     canonical_json,

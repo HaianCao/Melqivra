@@ -27,11 +27,11 @@ from agent_music.generation import (
     request_to_json,
     result_to_json,
 )
+from agent_music.job_store import SqliteJobStore
 from agent_music.models import GpuJob, JobState, RunnerState
 from agent_music.result_processing import GenerationResultProcessor
 from agent_music.runners.base import EventCallback
 from agent_music.scheduler import GpuHarness
-from agent_music.store import SqliteJobStore
 
 
 async def wait_until(predicate: Callable[[], bool], deadline_seconds: float = 5.0) -> None:

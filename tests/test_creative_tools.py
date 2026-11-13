@@ -10,7 +10,7 @@ from agent_music.agent_harness import ToolCall, ToolContext, ToolPolicyError, To
 from agent_music.creative import BriefRequest, LyricsRights, build_brief, plan_blueprint
 from agent_music.creative_tools import CreativeToolService
 from agent_music.domain import DocumentId, JsonObject, ProjectId, UserId, to_json_object
-from agent_music.project_store import SqliteProjectRepository
+from agent_music.project_repository import SqliteProjectRepository
 
 
 class CreativeToolServiceTests(unittest.TestCase):

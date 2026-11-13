@@ -8,6 +8,7 @@ import shutil
 import sys
 
 from agent_music.config import HarnessSettings
+from agent_music.job_store import build_job_store
 from agent_music.runners.colab_cli import (
     ColabCliClient,
     ColabCliCompatibilityError,
@@ -18,7 +19,6 @@ from agent_music.runners.modal_cli import (
     ModalCliCompatibilityError,
     validate_modal_cli_version,
 )
-from agent_music.store import build_job_store
 
 
 def _build_parser() -> argparse.ArgumentParser:

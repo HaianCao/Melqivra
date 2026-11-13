@@ -789,7 +789,7 @@ def build_job_store(settings: HarnessSettings) -> JobStore:
             max_attempts=settings.job_max_attempts,
         )
     try:
-        from agent_music.postgres_store import PostgresJobStore
+        from agent_music.postgres_job_store import PostgresJobStore
     except ModuleNotFoundError as error:
         raise RuntimeError(
             "PostgreSQL support is unavailable; install the 'postgres' extra"

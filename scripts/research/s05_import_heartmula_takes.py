@@ -26,12 +26,12 @@ from agent_music.generation import (  # noqa: E402
     request_to_json,
     result_to_json,
 )
+from agent_music.job_store import SqliteJobStore  # noqa: E402
 from agent_music.models import GpuJob, JobState, RunnerState  # noqa: E402
 from agent_music.result_processing import GenerationResultProcessor  # noqa: E402
 from agent_music.runners.base import EventCallback, GpuRunner  # noqa: E402
 from agent_music.s05_preflight import build_probe_request  # noqa: E402
 from agent_music.scheduler import GpuHarness  # noqa: E402
-from agent_music.store import SqliteJobStore  # noqa: E402
 
 
 class ExistingBatchRunner(GpuRunner):

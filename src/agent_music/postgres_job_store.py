@@ -1,124 +1,22 @@
-"""PostgreSQL migrations and durable job-store adapter for S07."""
+"""PostgreSQL durable GPU job-store adapter."""
 
 from __future__ import annotations
 
-import hashlib
 import time
 import uuid
-from dataclasses import dataclass
-from importlib import resources
 from typing import Any, cast
 
-from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from agent_music.job_store import LostJobLeaseError
 from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobState
-from agent_music.store import LostJobLeaseError
-
-_MIGRATION_LOCK_ID = 1_296_382_033
-
-
-class PostgresMigrationError(RuntimeError):
-    """A tracked PostgreSQL migration is missing or no longer immutable."""
-
-
-@dataclass(frozen=True, slots=True)
-class PostgresMigration:
-    """One ordered, checksummed package migration."""
-
-    version: int
-    name: str
-    resource: str
-
-    def read(self) -> tuple[str, str]:
-        """Return migration SQL and its stable SHA-256 checksum."""
-
-        content = resources.files("agent_music").joinpath(self.resource).read_text(encoding="utf-8")
-        canonical = content.replace("\r\n", "\n").replace("\r", "\n")
-        encoded = canonical.encode("utf-8")
-        return canonical, hashlib.sha256(encoded).hexdigest()
-
-
-POSTGRES_MIGRATIONS = (
-    PostgresMigration(
-        version=1,
-        name="job_queue",
-        resource="migrations/postgresql/0001_job_queue.sql",
-    ),
-    PostgresMigration(
-        version=2,
-        name="job_leases",
-        resource="migrations/postgresql/0002_job_leases.sql",
-    ),
-    PostgresMigration(
-        version=3,
-        name="job_attempt_history",
-        resource="migrations/postgresql/0003_job_attempt_history.sql",
-    ),
-    PostgresMigration(
-        version=4,
-        name="project_revisions",
-        resource="migrations/postgresql/0004_project_revisions.sql",
-    ),
+from agent_music.postgres_migrations import (
+    PostgresConnection,
+    PostgresMigrator,
+    PostgresPool,
 )
-
-PostgresConnection = Connection[dict[str, Any]]
-PostgresPool = ConnectionPool[PostgresConnection]
-
-
-class PostgresMigrator:
-    """Apply immutable package migrations under one PostgreSQL advisory lock."""
-
-    def __init__(self, pool: PostgresPool) -> None:
-        self._pool = pool
-
-    def apply(self) -> tuple[int, ...]:
-        """Apply pending migrations and return their versions."""
-
-        applied: list[int] = []
-        with self._pool.connection() as connection, connection.transaction():
-            connection.execute("SELECT pg_advisory_xact_lock(%s)", (_MIGRATION_LOCK_ID,))
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    checksum TEXT NOT NULL,
-                    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            rows = connection.execute(
-                "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
-            ).fetchall()
-            existing = {int(row["version"]): row for row in rows}
-            known_versions = {migration.version for migration in POSTGRES_MIGRATIONS}
-            unknown = set(existing) - known_versions
-            if unknown:
-                raise PostgresMigrationError(
-                    f"Database has unknown migration versions: {sorted(unknown)}"
-                )
-            for migration in POSTGRES_MIGRATIONS:
-                sql, checksum = migration.read()
-                prior = existing.get(migration.version)
-                if prior is not None:
-                    if prior["name"] != migration.name or prior["checksum"] != checksum:
-                        raise PostgresMigrationError(
-                            f"PostgreSQL migration {migration.version} checksum mismatch"
-                        )
-                    continue
-                connection.execute(sql, prepare=False)
-                connection.execute(
-                    """
-                    INSERT INTO schema_migrations(version, name, checksum)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (migration.version, migration.name, checksum),
-                )
-                applied.append(migration.version)
-        return tuple(applied)
 
 
 class PostgresJobStore:

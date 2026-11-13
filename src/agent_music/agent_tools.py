@@ -7,7 +7,7 @@ from typing import cast
 
 from agent_music.agent_harness import ToolContext, ToolDefinition, ToolHandler, ToolRegistry
 from agent_music.domain import DocumentType, JsonObject, JsonValue, RevisionId
-from agent_music.project_store import ProjectRepository
+from agent_music.project_repository import ProjectRepository
 
 ReadCollection = Callable[[ToolContext], tuple[JsonObject, ...]]
 
