@@ -64,6 +64,16 @@ def handle_healthcheck(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def handle_gpu_healthcheck(job: dict[str, Any]) -> dict[str, Any]:
+    """Require and report one assigned NVIDIA GPU without loading a model."""
+
+    result = handle_healthcheck(job)
+    gpu = result["gpu"]
+    if not isinstance(gpu, dict) or gpu.get("available") is not True:
+        raise RuntimeError("GPU healthcheck requires an assigned NVIDIA GPU")
+    return result
+
+
 def handle_echo(job: dict[str, Any]) -> dict[str, Any]:
     return {"echo": job.get("payload", {})}
 
@@ -230,6 +240,7 @@ def verify_cache(job: dict[str, Any]) -> dict[str, Any] | None:
 
 HANDLERS = {
     "harness.healthcheck": handle_healthcheck,
+    "harness.gpu_healthcheck": handle_gpu_healthcheck,
     "harness.echo": handle_echo,
     "music.generate": handle_music_generate,
 }

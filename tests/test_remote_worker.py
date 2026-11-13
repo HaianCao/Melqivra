@@ -57,6 +57,27 @@ class RemoteWorkerTests(unittest.TestCase):
         self.assertEqual("succeeded", record["status"])
         self.assertIsInstance(record["result"]["gpu"]["available"], bool)
 
+    def test_gpu_healthcheck_requires_an_assigned_gpu(self) -> None:
+        with patch.object(
+            remote_worker,
+            "gpu_info",
+            return_value={
+                "available": True,
+                "nvidia_smi": "Tesla T4, 15360, 535.0",
+                "error": None,
+            },
+        ):
+            result = remote_worker.handle_gpu_healthcheck({})
+        self.assertTrue(result["gpu"]["available"])
+
+        with patch.object(
+            remote_worker,
+            "gpu_info",
+            return_value={"available": False, "nvidia_smi": "", "error": "missing"},
+        ):
+            with self.assertRaisesRegex(RuntimeError, "assigned NVIDIA GPU"):
+                remote_worker.handle_gpu_healthcheck({})
+
     def test_matching_cancellation_marker_is_consumed_and_reported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

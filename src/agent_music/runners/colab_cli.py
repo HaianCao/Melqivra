@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
 import signal
 from collections.abc import Awaitable, Callable, Sequence
@@ -276,7 +277,10 @@ class ColabCliClient:
             return
         process_waiter = waiter or asyncio.create_task(process.wait())
         try:
-            process.send_signal(signal.SIGINT)
+            if os.name == "nt":
+                process.terminate()
+            else:
+                process.send_signal(signal.SIGINT)
         except ProcessLookupError:
             return
         except ValueError:
