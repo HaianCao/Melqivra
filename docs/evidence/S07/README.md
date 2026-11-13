@@ -1,6 +1,6 @@
 # S07 evidence — durable multi-user service boundary
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 Recorded from: 2026-11-13 (Asia/Saigon)
 
@@ -654,3 +654,39 @@ explicit environment/service tests skip without configured infrastructure.
 Strict mypy covers 84 source files, Ruff format/lint pass, critical
 scheduler/job-store branch coverage is 87%, wheel and source distributions build
 successfully, and the dependency audit reports no known vulnerabilities.
+
+## Closure verdict
+
+S07 is complete at feature checkpoint `090f1e7`. Protected push run
+`43503834407` and pull-request run `43503825477` each pass Ubuntu and Windows on
+Python 3.11 and 3.13 plus the real PostgreSQL/S3 service contract.
+
+The stage deliverables are satisfied:
+
+- nine ordered, checksummed PostgreSQL migrations own jobs, leases, attempts,
+  events, projects, revisions, approvals, tool replay/audit, artifacts, and
+  global rate counters;
+- PostgreSQL is the durable queue, policy, metadata, quota, and global
+  concurrency-one authority. Redis was not introduced because no implemented
+  path requires a second coordination authority; optional in-process wakeups are
+  recoverable hints only;
+- S3-compatible storage holds immutable bytes behind PostgreSQL authorization,
+  atomic publication, retention, deletion recovery, and orphan reconciliation;
+- authentication, object-level non-disclosure, pagination, request/error IDs,
+  OpenAPI, body/request/job/token bounds, SSE replay, safe logs, metrics, and
+  traces have typed and tested contracts;
+- checksummed backup and fresh-target restore preserve every durable authority
+  and immutable artifact reference;
+- the final multi-process demo proves API and worker restart, exact lease
+  recovery without duplicate success, contiguous SSE reconnect, FIFO/global
+  serialization, and tenant job/artifact isolation.
+
+Known limitations remain explicit. The included development identity header is
+local-only; production must inject its own authenticator. Metrics are
+process-local and require an external collector for fleet aggregation. The
+reference topology is single-region and intentionally fixes global GPU capacity
+at one; it is not a claim of internet-scale load testing. Redis remains deferred
+until a later feature demonstrates a need that PostgreSQL cannot safely serve.
+The fake runner proves service semantics, while real audio quality/provider
+claims remain the S05/S06 evidence. The web studio, local CUDA deployment, and
+release hardening belong to later roadmap stages.
