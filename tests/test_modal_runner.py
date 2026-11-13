@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import time
 import unittest
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,15 @@ from agent_music.runners.modal_cli import (
     ModalCliError,
     ModalCliFailureKind,
 )
+from agent_music.scheduler import GpuHarness
+
+
+async def wait_until(predicate: Callable[[], bool], *, timeout_seconds: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Condition was not reached")
+        await asyncio.sleep(0.005)
 
 
 class FakeModalClient:
@@ -200,6 +210,37 @@ class BlockingTransferModalClient(FakeModalClient):
         if len(argv) > 2 and argv[1:3] == ["volume", "get"]:
             self.commands.append(tuple(argv))
             self.transfer_started.set()
+            await self.command_cancelled.wait()
+            raise ModalCliError(argv, CommandResult(130, "", "cancelled"))
+        return await super().run(
+            argv,
+            check=check,
+            on_stdout=on_stdout,
+            environment=environment,
+        )
+
+    async def cancel_current(self) -> None:
+        self.cancelled = True
+        self.command_cancelled.set()
+
+
+class BlockingCancellationModalClient(FakeModalClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.run_started = asyncio.Event()
+        self.command_cancelled = asyncio.Event()
+
+    async def run(
+        self,
+        argv: Sequence[str],
+        *,
+        check: bool = True,
+        on_stdout: LineCallback | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        if len(argv) > 1 and argv[1] == "run":
+            self.commands.append(tuple(argv))
+            self.run_started.set()
             await self.command_cancelled.wait()
             raise ModalCliError(argv, CommandResult(130, "", "cancelled"))
         return await super().run(
@@ -421,6 +462,38 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(RunnerState.READY, runner.state)
             self.assertTrue(client.cancelled)
+
+    async def test_scheduler_persists_running_modal_cancel_as_cancelled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner_file = root / "remote_worker.py"
+            runner_file.write_text("# fixture\n", encoding="utf-8")
+            settings = HarnessSettings(
+                runner="modal",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                modal_runner_file=runner_file,
+                scheduler_poll_seconds=0.01,
+            )
+            client = BlockingCancellationModalClient()
+            runner = ModalRunner(settings, client=client)
+            harness = GpuHarness(settings, runner=runner)
+            await harness.start()
+            try:
+                job = harness.enqueue(
+                    user_id="user",
+                    kind="harness.healthcheck",
+                    payload={},
+                )
+                await asyncio.wait_for(client.run_started.wait(), timeout=1.0)
+                await harness.cancel(job.id)
+                await wait_until(lambda: harness.store.get(job.id).state == JobState.CANCELLED)
+
+                self.assertEqual(JobState.CANCELLED, harness.store.get(job.id).state)
+                self.assertEqual("Job cancelled", harness.store.get(job.id).error)
+            finally:
+                await harness.close()
 
 
 async def _completed() -> None:
