@@ -1,6 +1,6 @@
 # S06 evidence — Colab lifecycle and cache hardening
 
-Status: `DONE`
+Status: `IN_PROGRESS`
 
 Recorded from: 2026-11-13 (Asia/Saigon)
 
@@ -332,3 +332,22 @@ billing report had one delayed app record at capture time; fresh Colab lifecycle
 behavior is CPU-contract-tested while its real T4/Drive foundation remains the
 S01 evidence; `LocalCudaRunner` is still an S11 placeholder; and this stage makes
 no new music-quality, backend-acceptance, or production-service-topology claim.
+
+## Closure-matrix stabilization
+
+The first documentation-only closure commit exposed one nondeterministic Windows
+Python 3.11 cancellation test in protected run `43408907490`. The test slept for
+100 milliseconds and assumed the child CLI process had already been registered;
+on the slower runner, `cancel_current()` correctly found no active process, the
+child continued sleeping, and the test's outer timeout cancelled the asyncio
+task. A duplicate Windows 3.11 job and the other six matrix jobs passed, but S06
+formal closure remains paused until the corrected checkpoint is green everywhere.
+
+Both Modal and Colab regressions now wait for a flushed `started` line observed
+through the client's real stdout callback before requesting cancellation. This
+removes the scheduling assumption while preserving the production assertion that
+an active allowlisted subprocess is terminated and returns a nonzero status. Ten
+repeated cancellation cases passed on isolated Windows Python 3.11, and the full
+local gate passes with 208 tests, strict mypy on 61 source files, Ruff
+format/lint, 88% critical scheduler/store branch coverage, successful wheel and
+source distribution builds, and no known audited vulnerabilities.
