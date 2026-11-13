@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, RunnerState
@@ -16,6 +17,14 @@ from agent_music.runners.colab_cli import ColabCliClient, ColabCliError
 
 class ColabRunner(GpuRunner):
     """On-demand named Colab session with a five-minute external idle policy."""
+
+    _PROVISIONABLE_STATES: ClassVar[frozenset[RunnerState]] = frozenset(
+        {
+            RunnerState.ABSENT,
+            RunnerState.RECLAIMED,
+            RunnerState.FAILED,
+        }
+    )
 
     def __init__(
         self,
@@ -29,7 +38,10 @@ class ColabRunner(GpuRunner):
             config_path=settings.colab_cli_config,
             timeout_seconds=settings.colab_command_timeout_seconds,
         )
-        self._state = RunnerState.STOPPED
+        self._state = RunnerState.ABSENT
+        self._session_present = False
+        self._provision_guard = asyncio.Lock()
+        self._provision_task: asyncio.Task[None] | None = None
         self._cancel_requested: set[str] = set()
 
     @property
@@ -38,37 +50,27 @@ class ColabRunner(GpuRunner):
 
     @property
     def session_name(self) -> str | None:
-        if self._state == RunnerState.STOPPED:
-            return None
-        return self._settings.colab_session_name
+        return self._settings.colab_session_name if self._session_present else None
 
     async def ensure_ready(self) -> None:
         if self._state in {RunnerState.READY, RunnerState.BUSY}:
             return
-        self._state = RunnerState.STARTING
-        try:
-            status = await self._client.run(
-                self._client.status_argv(self._settings.colab_session_name),
-                check=False,
-            )
-            if status.returncode != 0:
-                await self._client.run(
-                    self._client.new_argv(
-                        self._settings.colab_session_name,
-                        self._settings.colab_gpu,
-                    )
+
+        async with self._provision_guard:
+            if self._state in {RunnerState.READY, RunnerState.BUSY}:
+                return
+            task = self._provision_task
+            if task is None:
+                if self._state not in self._PROVISIONABLE_STATES:
+                    raise RuntimeError(f"Cannot provision Colab runner from {self._state}")
+                self._state = RunnerState.PROVISIONING
+                task = asyncio.create_task(
+                    self._provision(),
+                    name="melqivra-colab-provision",
                 )
-                if self._settings.colab_mount_drive:
-                    await self._client.run(
-                        self._client.drivemount_argv(
-                            self._settings.colab_session_name,
-                            self._settings.colab_drive_mount_path,
-                        )
-                    )
-            self._state = RunnerState.READY
-        except BaseException:
-            self._state = RunnerState.FAILED
-            raise
+                self._provision_task = task
+
+        await asyncio.shield(task)
 
     async def run(self, job: GpuJob, on_event: EventCallback) -> dict[str, Any]:
         if self._state != RunnerState.READY:
@@ -154,13 +156,54 @@ class ColabRunner(GpuRunner):
         await self._client.cancel_current()
 
     async def stop(self) -> None:
-        if self._state == RunnerState.STOPPED:
+        async with self._provision_guard:
+            provision_task = self._provision_task
+        if provision_task is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(provision_task)
+
+        if self._state in {RunnerState.ABSENT, RunnerState.RECLAIMED}:
             return
         self._state = RunnerState.STOPPING
         try:
-            await self._client.run(
-                self._client.stop_argv(self._settings.colab_session_name),
+            if self._session_present:
+                await self._client.run(
+                    self._client.stop_argv(self._settings.colab_session_name),
+                    check=False,
+                )
+        finally:
+            self._session_present = False
+            self._state = RunnerState.RECLAIMED
+
+    async def _provision(self) -> None:
+        try:
+            status = await self._client.run(
+                self._client.status_argv(self._settings.colab_session_name),
                 check=False,
             )
+            if status.returncode == 0:
+                self._session_present = True
+            else:
+                await self._client.run(
+                    self._client.new_argv(
+                        self._settings.colab_session_name,
+                        self._settings.colab_gpu,
+                    )
+                )
+                self._session_present = True
+                if self._settings.colab_mount_drive:
+                    await self._client.run(
+                        self._client.drivemount_argv(
+                            self._settings.colab_session_name,
+                            self._settings.colab_drive_mount_path,
+                        )
+                    )
+            self._state = RunnerState.READY
+        except BaseException:
+            self._state = RunnerState.FAILED
+            raise
         finally:
-            self._state = RunnerState.STOPPED
+            current_task = asyncio.current_task()
+            async with self._provision_guard:
+                if self._provision_task is current_task:
+                    self._provision_task = None

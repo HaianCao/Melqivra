@@ -20,11 +20,15 @@ class JobState(StrEnum):
 class RunnerState(StrEnum):
     """Lifecycle of the single GPU runner."""
 
+    ABSENT = "absent"
+    PROVISIONING = "provisioning"
     STOPPED = "stopped"
     STARTING = "starting"
     READY = "ready"
     BUSY = "busy"
+    DRAINING = "draining"
     STOPPING = "stopping"
+    RECLAIMED = "reclaimed"
     FAILED = "failed"
 
 
