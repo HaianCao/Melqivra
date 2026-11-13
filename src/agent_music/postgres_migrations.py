@@ -85,6 +85,11 @@ POSTGRES_MIGRATIONS = (
         name="artifact_reconciliation_state",
         resource="migrations/postgresql/0008_add_artifact_reconciliation_state.sql",
     ),
+    PostgresMigration(
+        version=9,
+        name="api_rate_limit_counters",
+        resource="migrations/postgresql/0009_create_api_rate_limit_counters.sql",
+    ),
 )
 
 

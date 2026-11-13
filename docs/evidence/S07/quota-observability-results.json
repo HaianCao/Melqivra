@@ -1,0 +1,38 @@
+{
+  "api_contract": {
+    "authenticated_metrics": true,
+    "content_free_structured_logs": true,
+    "fixed_route_label_cardinality": true,
+    "openapi_secures_all_versioned_routes": true,
+    "raw_body_limit_before_json": true,
+    "strict_w3c_trace_correlation": true
+  },
+  "migration": {
+    "canonical_sha256": "20ed5f7d2e0ab352a21bcebc1935c2a15b91a5af4406e3c8266ef935a8d43502",
+    "name": "api_rate_limit_counters",
+    "resource": "0009_create_api_rate_limit_counters.sql",
+    "version": 9
+  },
+  "quota_contract": {
+    "development_authority": "bounded_in_memory_fixed_window",
+    "failure_mode": "fail_closed_without_fallback",
+    "principal_storage": "sha256_only",
+    "production_authority": "postgresql_database_clock_fixed_window",
+    "standard_headers": [
+      "RateLimit-Limit",
+      "RateLimit-Remaining",
+      "RateLimit-Reset",
+      "Retry-After"
+    ]
+  },
+  "real_service_contract": {
+    "combined_adapter_branch_coverage_percent": 81,
+    "postgres_rate_limiter_branch_coverage_percent": 90,
+    "tests_failed": 0,
+    "tests_passed": 48,
+    "tests_skipped": 0
+  },
+  "recorded_at": "2026-11-14",
+  "schema_version": 1,
+  "status": "passed"
+}

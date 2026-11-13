@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 import unittest
 from dataclasses import replace
@@ -17,6 +18,8 @@ from agent_music.config import HarnessSettings
 from agent_music.domain import ArtifactId, ProjectId, UserId
 from agent_music.job_store import SqliteJobStore
 from agent_music.object_store import ObjectIntegrityError
+from agent_music.observability import InMemoryServiceTelemetry
+from agent_music.rate_limit import InMemoryRateLimiter
 from agent_music.scheduler import GpuHarness
 
 
@@ -162,6 +165,156 @@ class ApiServiceBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(422, invalid.status_code)
         self.assertEqual("invalid_request", invalid.json()["error"]["code"])
         self.assertRegex(invalid.headers["X-Request-ID"], r"^req_[0-9a-f]{32}$")
+
+    async def test_raw_request_body_limit_runs_before_json_parsing(self) -> None:
+        bounded_settings = replace(
+            self.settings,
+            api_max_request_body_bytes=self.settings.api_max_job_payload_bytes,
+        )
+        app = create_app(bounded_settings, self.harness)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            response = await client.post(
+                "/v1/gpu/jobs",
+                headers={
+                    **self._headers("alice", request_id="oversized-body"),
+                    "Content-Type": "application/json",
+                },
+                content=b'{"kind":"unterminated-' + b"x" * 128,
+            )
+
+        self.assertEqual(413, response.status_code, response.text)
+        self.assertEqual("request_body_too_large", response.json()["error"]["code"])
+        self.assertEqual("oversized-body", response.json()["error"]["request_id"])
+        self.assertNotIn("invalid_request", response.text)
+
+    async def test_request_rate_quota_is_tenant_scoped_and_emits_standard_headers(
+        self,
+    ) -> None:
+        limiter = InMemoryRateLimiter(
+            request_limit=2,
+            window_seconds=60,
+            clock=lambda: 100.0,
+        )
+        app = create_app(self.settings, self.harness, rate_limiter=limiter)
+        app.state.harness = self.harness
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            first = await client.get("/v1/gpu/jobs", headers=self._headers("alice"))
+            second = await client.get("/v1/gpu/jobs", headers=self._headers("alice"))
+            exceeded = await client.get("/v1/gpu/jobs", headers=self._headers("alice"))
+            independent = await client.get("/v1/gpu/jobs", headers=self._headers("bob"))
+
+        self.assertEqual(200, first.status_code, first.text)
+        self.assertEqual("2", first.headers["RateLimit-Limit"])
+        self.assertEqual("1", first.headers["RateLimit-Remaining"])
+        self.assertEqual("20", first.headers["RateLimit-Reset"])
+        self.assertEqual("0", second.headers["RateLimit-Remaining"])
+        self.assertEqual(429, exceeded.status_code, exceeded.text)
+        self.assertEqual("0", exceeded.headers["RateLimit-Remaining"])
+        self.assertEqual("20", exceeded.headers["Retry-After"])
+        self.assertEqual(
+            "request_rate_quota_exceeded",
+            exceeded.json()["error"]["code"],
+        )
+        self.assertEqual(200, independent.status_code, independent.text)
+        self.assertEqual("1", independent.headers["RateLimit-Remaining"])
+
+    async def test_metrics_trace_and_logs_are_bounded_and_content_free(self) -> None:
+        telemetry = InMemoryServiceTelemetry(wall_clock=lambda: 100.0)
+        app = create_app(self.settings, self.harness, telemetry=telemetry)
+        app.state.harness = self.harness
+        private_job_id = "job_private_content"
+        supplied_trace_id = "1" * 32
+        supplied_parent_id = "2" * 16
+        with self.assertLogs("melqivra.api", level=logging.INFO) as captured:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as client:
+                missing = await client.get(
+                    f"/v1/gpu/jobs/{private_job_id}",
+                    headers={
+                        **self._headers("private_user"),
+                        "traceparent": (f"00-{supplied_trace_id}-{supplied_parent_id}-00"),
+                    },
+                )
+                metrics = await client.get(
+                    "/v1/operations/metrics",
+                    headers=self._headers("metrics_reader"),
+                )
+
+        self.assertEqual(404, missing.status_code, missing.text)
+        returned_traceparent = missing.headers["traceparent"]
+        self.assertRegex(
+            returned_traceparent,
+            rf"^00-{supplied_trace_id}-[0-9a-f]{{16}}-00$",
+        )
+        self.assertNotIn(supplied_parent_id, returned_traceparent)
+        self.assertEqual(200, metrics.status_code, metrics.text)
+        metrics_body = metrics.json()
+        self.assertEqual(1, metrics_body["schema_version"])
+        self.assertGreaterEqual(metrics_body["active_requests"], 1)
+        self.assertEqual(1, metrics_body["requests_total"])
+        self.assertEqual({"4xx": 1}, metrics_body["responses_by_status_class"])
+        self.assertEqual(["gpu_job_item"], list(metrics_body["routes"]))
+        serialized_metrics = json.dumps(metrics_body, sort_keys=True)
+        self.assertNotIn(private_job_id, serialized_metrics)
+        self.assertNotIn("private_user", serialized_metrics)
+
+        self.assertEqual(2, len(captured.records))
+        first_record = captured.records[0]
+        self.assertEqual("service_request", first_record.getMessage())
+        self.assertEqual("gpu_job_item", first_record.route_class)
+        self.assertEqual(supplied_trace_id, first_record.trace_id)
+        safe_record = {
+            key: value
+            for key, value in vars(first_record).items()
+            if key
+            in {
+                "duration_milliseconds",
+                "http_method",
+                "http_status_code",
+                "request_id",
+                "route_class",
+                "trace_id",
+            }
+        }
+        serialized_record = json.dumps(safe_record, sort_keys=True)
+        self.assertNotIn(private_job_id, serialized_record)
+        self.assertNotIn("private_user", serialized_record)
+
+        invalid_parent = await self.client.get(
+            "/healthz",
+            headers={
+                "traceparent": f"00-{supplied_trace_id}-{'0' * 16}-01",
+            },
+        )
+        self.assertNotIn(supplied_trace_id, invalid_parent.headers["traceparent"])
+
+    async def test_openapi_secures_all_versioned_routes_and_documents_rate_limits(
+        self,
+    ) -> None:
+        schema = (await self.client.get("/openapi.json")).json()
+        for path in (
+            "/v1/gpu/jobs",
+            "/v1/artifacts/{artifact_id}",
+            "/v1/operations/metrics",
+        ):
+            with self.subTest(path=path):
+                for operation in schema["paths"][path].values():
+                    if not isinstance(operation, dict):
+                        continue
+                    self.assertEqual(
+                        [{"DevelopmentUserHeader": []}],
+                        operation["security"],
+                    )
+                    self.assertIn("429", operation["responses"])
+        self.assertNotIn("security", schema["paths"]["/healthz"]["get"])
 
     async def test_payload_active_job_and_idempotency_quotas(self) -> None:
         too_large = await self._submit("alice", payload={"text": "x" * 100})

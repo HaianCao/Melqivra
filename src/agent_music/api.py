@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -33,6 +35,17 @@ from agent_music.job_store import (
     UserJobQuotaExceededError,
 )
 from agent_music.models import GpuJob, JobEvent, JobState
+from agent_music.observability import (
+    InMemoryServiceTelemetry,
+    classify_http_route,
+    resolve_trace_context,
+)
+from agent_music.rate_limit import (
+    RateLimitDecision,
+    RateLimiter,
+    RateLimiterUnavailableError,
+)
+from agent_music.rate_limit_factory import build_rate_limiter
 from agent_music.scheduler import GpuHarness
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -43,6 +56,7 @@ _TERMINAL_JOB_STATES = {
     JobState.CANCELLED,
     JobState.DEAD_LETTERED,
 }
+_LOGGER = logging.getLogger("melqivra.api")
 
 
 class SubmitJobRequest(BaseModel):
@@ -108,6 +122,26 @@ class ErrorResponse(BaseModel):
     error: ErrorDetail
 
 
+class RouteMetricsResponse(BaseModel):
+    """One bounded content-free route aggregate."""
+
+    requests: int
+    duration_milliseconds_total: float
+    duration_milliseconds_max: float
+
+
+class ServiceMetricsResponse(BaseModel):
+    """Authenticated process metrics without tenant or creative-content labels."""
+
+    schema_version: int
+    process_started_at: float
+    active_requests: int
+    requests_total: int
+    rate_limited_total: int
+    responses_by_status_class: dict[str, int]
+    routes: dict[str, RouteMetricsResponse]
+
+
 class ApiError(RuntimeError):
     """Safe public service error with a stable machine-readable code."""
 
@@ -119,10 +153,20 @@ class ApiError(RuntimeError):
 
 
 class RequestContractMiddleware:
-    """Attach request identity and security headers without task-group wrapping."""
+    """Bound bodies and attach safe request, trace, metric, and log contracts."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        max_request_body_bytes: int,
+        telemetry: InMemoryServiceTelemetry,
+    ) -> None:
+        if max_request_body_bytes < 1:
+            raise ValueError("HTTP request-body limit must be positive")
         self._app = app
+        self._max_request_body_bytes = max_request_body_bytes
+        self._telemetry = telemetry
 
     async def __call__(
         self,
@@ -136,17 +180,128 @@ class RequestContractMiddleware:
 
         supplied = Headers(scope=scope).get("x-request-id", "")
         request_id = supplied if _REQUEST_ID.fullmatch(supplied) else f"req_{uuid.uuid4().hex}"
-        scope.setdefault("state", {})["request_id"] = request_id
+        trace = resolve_trace_context(Headers(scope=scope).get("traceparent"))
+        state = scope.setdefault("state", {})
+        state["request_id"] = request_id
+        state["trace_id"] = trace.trace_id
+        route_class = classify_http_route(str(scope.get("path", "")))
+        method = str(scope.get("method", "UNKNOWN")).upper()
+        started_at = time.perf_counter()
+        status_code = 500
+        self._telemetry.request_started()
 
         async def send_with_contract(message: Message) -> None:
+            nonlocal status_code
             if message["type"] == "http.response.start":
+                status_code = int(message["status"])
                 headers = MutableHeaders(scope=message)
                 headers["X-Request-ID"] = request_id
                 headers["X-Content-Type-Options"] = "nosniff"
                 headers["Cache-Control"] = "no-store"
+                headers["Traceparent"] = trace.traceparent
+                decision = state.get("rate_limit_decision")
+                if isinstance(decision, RateLimitDecision):
+                    headers["RateLimit-Limit"] = str(decision.limit)
+                    headers["RateLimit-Remaining"] = str(decision.remaining)
+                    headers["RateLimit-Reset"] = str(decision.reset_after_seconds)
+                    if not decision.allowed:
+                        headers["Retry-After"] = str(decision.reset_after_seconds)
             await send(message)
 
-        await self._app(scope, receive, send_with_contract)
+        try:
+            buffered = await self._bounded_receive(scope, receive)
+            if buffered is None:
+                status_code = status.HTTP_413_CONTENT_TOO_LARGE
+                await self._send_error(
+                    send_with_contract,
+                    status_code=status_code,
+                    request_id=request_id,
+                    code="request_body_too_large",
+                    message="HTTP request body exceeds the configured size limit",
+                )
+                return
+            await self._app(scope, buffered, send_with_contract)
+        finally:
+            duration_milliseconds = max(0.0, (time.perf_counter() - started_at) * 1_000)
+            decision = state.get("rate_limit_decision")
+            rate_limited = isinstance(decision, RateLimitDecision) and not decision.allowed
+            self._telemetry.request_finished(
+                route_class=route_class,
+                status_code=status_code,
+                duration_milliseconds=duration_milliseconds,
+                rate_limited=rate_limited,
+            )
+            _LOGGER.info(
+                "service_request",
+                extra={
+                    "duration_milliseconds": round(duration_milliseconds, 3),
+                    "http_method": method,
+                    "http_status_code": status_code,
+                    "request_id": request_id,
+                    "route_class": route_class,
+                    "trace_id": trace.trace_id,
+                },
+            )
+
+    async def _bounded_receive(self, scope: Scope, receive: Receive) -> Receive | None:
+        headers = Headers(scope=scope)
+        declared = headers.get("content-length")
+        if declared is not None:
+            try:
+                if int(declared) > self._max_request_body_bytes:
+                    return None
+            except ValueError:
+                pass
+        messages: list[Message] = []
+        observed_bytes = 0
+        while True:
+            message = await receive()
+            messages.append(message)
+            if message["type"] != "http.request":
+                break
+            observed_bytes += len(message.get("body", b""))
+            if observed_bytes > self._max_request_body_bytes:
+                return None
+            if not message.get("more_body", False):
+                break
+        position = 0
+
+        async def replay_receive() -> Message:
+            nonlocal position
+            if position < len(messages):
+                message = messages[position]
+                position += 1
+                return message
+            return await receive()
+
+        return replay_receive
+
+    @staticmethod
+    async def _send_error(
+        send: Send,
+        *,
+        status_code: int,
+        request_id: str,
+        code: str,
+        message: str,
+    ) -> None:
+        content = json.dumps(
+            {"error": {"code": code, "message": message, "request_id": request_id}},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status_code,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(content)).encode("ascii")),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": content})
 
 
 def _serialize_job(harness: GpuHarness, job: GpuJob) -> JobResponse:
@@ -174,6 +329,8 @@ def create_app(
     harness: GpuHarness | None = None,
     authenticator: Authenticator | None = None,
     artifact_reader: ArtifactReader | None = None,
+    rate_limiter: RateLimiter | None = None,
+    telemetry: InMemoryServiceTelemetry | None = None,
 ) -> FastAPI:
     """Build an application with owned or explicitly injected service adapters."""
 
@@ -185,6 +342,8 @@ def create_app(
     resolved_authenticator = authenticator
     resolved_harness = harness or GpuHarness(resolved_settings)
     resolved_artifact_reader = artifact_reader or resolved_harness.artifact_reader
+    resolved_rate_limiter = rate_limiter or build_rate_limiter(resolved_settings)
+    resolved_telemetry = telemetry or InMemoryServiceTelemetry()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -193,14 +352,22 @@ def create_app(
         try:
             yield
         finally:
-            await resolved_harness.close()
+            try:
+                await resolved_harness.close()
+            finally:
+                resolved_rate_limiter.close()
 
     app = FastAPI(
         title="Melqivra Service API",
         version="1.0.0",
         lifespan=lifespan,
     )
-    app.add_middleware(RequestContractMiddleware)
+    app.add_middleware(
+        RequestContractMiddleware,
+        max_request_body_bytes=resolved_settings.api_max_request_body_bytes,
+        telemetry=resolved_telemetry,
+    )
+    app.state.telemetry = resolved_telemetry
 
     @app.exception_handler(ApiError)
     async def api_error_handler(request: Request, error: ApiError) -> JSONResponse:
@@ -237,19 +404,58 @@ def create_app(
 
     def get_principal(request: Request) -> Principal:
         try:
-            return resolved_authenticator.authenticate(request.headers)
+            principal = resolved_authenticator.authenticate(request.headers)
         except AuthenticationError as error:
             raise ApiError(
                 status.HTTP_401_UNAUTHORIZED,
                 "authentication_required",
                 str(error),
             ) from error
+        try:
+            decision = resolved_rate_limiter.consume(str(principal.user_id))
+        except RateLimiterUnavailableError as error:
+            raise ApiError(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "rate_limit_unavailable",
+                "Request-rate quota is temporarily unavailable",
+            ) from error
+        request.state.rate_limit_decision = decision
+        if not decision.allowed:
+            raise ApiError(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "request_rate_quota_exceeded",
+                "Request-rate quota exceeded",
+            )
+        return principal
 
     PrincipalDependency = Annotated[Principal, Depends(get_principal)]
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get(
+        "/v1/operations/metrics",
+        response_model=ServiceMetricsResponse,
+        responses={401: {"model": ErrorResponse}, 429: {"model": ErrorResponse}},
+    )
+    async def operations_metrics(
+        principal: PrincipalDependency,
+    ) -> ServiceMetricsResponse:
+        del principal
+        snapshot = resolved_telemetry.snapshot()
+        return ServiceMetricsResponse(
+            schema_version=snapshot.schema_version,
+            process_started_at=snapshot.process_started_at,
+            active_requests=snapshot.active_requests,
+            requests_total=snapshot.requests_total,
+            rate_limited_total=snapshot.rate_limited_total,
+            responses_by_status_class=snapshot.responses_by_status_class,
+            routes={
+                route: RouteMetricsResponse(**asdict(metric))
+                for route, metric in snapshot.routes.items()
+            },
+        )
 
     @app.get("/v1/gpu/runner")
     async def runner_status(
@@ -554,13 +760,26 @@ def create_app(
         paths = schema.get("paths", {})
         if isinstance(paths, dict):
             for path, operations in paths.items():
-                if not isinstance(path, str) or not path.startswith("/v1/gpu"):
+                if not isinstance(path, str) or not path.startswith("/v1/"):
                     continue
                 if not isinstance(operations, dict):
                     continue
                 for operation in operations.values():
                     if isinstance(operation, dict):
                         operation["security"] = [{security_name: []}]
+                        responses = operation.setdefault("responses", {})
+                        if isinstance(responses, dict):
+                            responses.setdefault(
+                                "429",
+                                {
+                                    "description": "Request-rate quota exceeded",
+                                    "content": {
+                                        "application/json": {
+                                            "schema": {"$ref": "#/components/schemas/ErrorResponse"}
+                                        }
+                                    },
+                                },
+                            )
         app.openapi_schema = schema
         return schema
 
