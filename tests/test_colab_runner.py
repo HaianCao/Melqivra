@@ -475,6 +475,11 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
                 (transfer / "request" / "take.wav").read_bytes(),
             )
             self.assertEqual("colab", result["_environment"]["provider"])
+            lifecycle = result["_lifecycle_metrics"]
+            self.assertEqual("colab", lifecycle["provider"])
+            self.assertEqual("attached", lifecycle["readiness"]["mode"])
+            self.assertGreaterEqual(lifecycle["artifact_transfer_seconds"], 0.0)
+            self.assertGreaterEqual(lifecycle["total_seconds"], 0.0)
 
             repeated = await runner.run(job, self._ignore_event)
             self.assertEqual(result["_transfer_id"], repeated["_transfer_id"])

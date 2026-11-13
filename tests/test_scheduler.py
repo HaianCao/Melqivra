@@ -129,6 +129,12 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
             [first.id, second.id],
             self.runner.completed_job_ids,
         )
+        second_result = self.harness.store.get(second.id).result
+        assert second_result is not None
+        self.assertAlmostEqual(
+            0.07,
+            second_result["_lifecycle_metrics"]["idle_before_job_seconds"],
+        )
         self.advance_clock(0.121)
         await wait_until(lambda: self.runner.state == RunnerState.STOPPED)
         self.assertEqual(1, self.runner.stop_count)

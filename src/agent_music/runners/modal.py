@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
@@ -75,6 +76,7 @@ class ModalRunner(GpuRunner):
         )
         self._state = RunnerState.ABSENT
         self._preflight_complete = False
+        self._last_readiness_metrics: dict[str, object] = {}
         self._readiness_guard = asyncio.Lock()
         self._readiness_task: asyncio.Task[None] | None = None
         self._stop_guard = asyncio.Lock()
@@ -123,6 +125,7 @@ class ModalRunner(GpuRunner):
         self._state = RunnerState.BUSY
         self._active_job_id = job.id
         self._run_finished.clear()
+        run_started = time.monotonic()
         try:
             with tempfile.TemporaryDirectory(prefix="melqivra-modal-job-") as temp_dir:
                 temp_path = Path(temp_dir)
@@ -154,6 +157,7 @@ class ModalRunner(GpuRunner):
                         await on_event(event)
 
                 try:
+                    execution_started = time.monotonic()
                     await self._client.run(
                         self._client.run_job_argv(
                             self._settings.modal_runner_file,
@@ -162,6 +166,7 @@ class ModalRunner(GpuRunner):
                         ),
                         on_stdout=forward_line,
                     )
+                    execution_seconds = time.monotonic() - execution_started
                 except Exception:
                     if job.id in self._cancel_requested:
                         raise asyncio.CancelledError from None
@@ -173,13 +178,24 @@ class ModalRunner(GpuRunner):
                     raise ValueError("Remote result must be a JSON object")
                 if result.get("status") != "succeeded":
                     raise RuntimeError(str(result.get("error", "Remote job failed")))
+                artifact_transfer_seconds = 0.0
                 if job.kind == "music.generate":
+                    artifact_transfer_started = time.monotonic()
                     result["_transfer_id"] = await self._download_artifacts(job, result)
+                    artifact_transfer_seconds = time.monotonic() - artifact_transfer_started
                     result["_environment"] = {
                         "provider": "modal",
                         "runner": "modal",
                         "app_name": self._settings.modal_app_name,
                     }
+                result["_lifecycle_metrics"] = {
+                    "provider": "modal",
+                    "readiness": dict(self._last_readiness_metrics),
+                    "execution_seconds": execution_seconds,
+                    "artifact_transfer_seconds": artifact_transfer_seconds,
+                    "remote_duration_seconds": result.get("duration_seconds"),
+                    "total_seconds": time.monotonic() - run_started,
+                }
                 return result
         except Exception:
             if job.id in self._cancel_requested:
@@ -229,14 +245,28 @@ class ModalRunner(GpuRunner):
                 self._state = RunnerState.RECLAIMED
 
     async def _reconcile_readiness(self) -> None:
+        started = time.monotonic()
+        version_seconds = 0.0
+        preflight_performed = False
         try:
             if not self._settings.modal_runner_file.is_file():
                 raise FileNotFoundError(self._settings.modal_runner_file)
             if not self._preflight_complete:
+                preflight_performed = True
+                version_started = time.monotonic()
                 version = await self._client.run(self._client.version_argv())
                 validate_modal_cli_version(version.stdout, self._settings.modal_cli_version)
                 self._preflight_complete = True
+                version_seconds = time.monotonic() - version_started
+            heartbeat_started = time.monotonic()
             await self._client.run(self._client.token_info_argv())
+            heartbeat_seconds = time.monotonic() - heartbeat_started
+            self._last_readiness_metrics = {
+                "mode": "cold" if preflight_performed else "warm",
+                "version_seconds": version_seconds,
+                "heartbeat_seconds": heartbeat_seconds,
+                "total_seconds": time.monotonic() - started,
+            }
             self._state = RunnerState.READY
         except BaseException:
             self._state = RunnerState.FAILED

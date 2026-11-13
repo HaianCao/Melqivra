@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar
 
@@ -51,6 +52,7 @@ class ColabRunner(GpuRunner):
         self._session_present = False
         self._cache_verified = False
         self._preflight_complete = False
+        self._last_readiness_metrics: dict[str, object] = {}
         self._provision_guard = asyncio.Lock()
         self._provision_task: asyncio.Task[None] | None = None
         self._stop_guard = asyncio.Lock()
@@ -101,6 +103,7 @@ class ColabRunner(GpuRunner):
             PurePosixPath(self._settings.colab_remote_cancel_root) / cancel_name
         )
         self._run_finished.clear()
+        run_started = time.monotonic()
         try:
             with tempfile.TemporaryDirectory(prefix="melqivra-job-") as temp_dir:
                 temp_path = Path(temp_dir)
@@ -122,6 +125,7 @@ class ColabRunner(GpuRunner):
                     encoding="utf-8",
                 )
                 await on_event({"type": "stage", "stage": "uploading", "progress": 0.05})
+                upload_started = time.monotonic()
                 await self._client.run(
                     self._client.upload_argv(
                         self._settings.colab_session_name,
@@ -129,6 +133,7 @@ class ColabRunner(GpuRunner):
                         self._settings.colab_remote_request_path,
                     )
                 )
+                upload_seconds = time.monotonic() - upload_started
 
                 async def forward_line(line: str) -> None:
                     if job.id in self._cancel_requested:
@@ -141,6 +146,7 @@ class ColabRunner(GpuRunner):
                         await on_event(event)
 
                 try:
+                    execution_started = time.monotonic()
                     await self._client.run(
                         self._client.exec_file_argv(
                             self._settings.colab_session_name,
@@ -148,6 +154,7 @@ class ColabRunner(GpuRunner):
                         ),
                         on_stdout=forward_line,
                     )
+                    execution_seconds = time.monotonic() - execution_started
                 except ColabCliError:
                     if job.id in self._cancel_requested:
                         raise asyncio.CancelledError from None
@@ -155,6 +162,7 @@ class ColabRunner(GpuRunner):
                 if job.id in self._cancel_requested:
                     raise asyncio.CancelledError
 
+                result_download_started = time.monotonic()
                 await self._client.run(
                     self._client.download_argv(
                         self._settings.colab_session_name,
@@ -162,6 +170,7 @@ class ColabRunner(GpuRunner):
                         result_path,
                     )
                 )
+                result_download_seconds = time.monotonic() - result_download_started
                 result = json.loads(result_path.read_text(encoding="utf-8"))
                 if not isinstance(result, dict):
                     raise ValueError("Remote result must be a JSON object")
@@ -177,13 +186,26 @@ class ColabRunner(GpuRunner):
                     ):
                         raise RuntimeError("Remote cache verification result is missing")
                     self._cache_verified = True
+                artifact_transfer_seconds = 0.0
                 if job.kind == "music.generate":
+                    artifact_transfer_started = time.monotonic()
                     result["_transfer_id"] = await self._download_artifacts(job, result)
+                    artifact_transfer_seconds = time.monotonic() - artifact_transfer_started
                     result["_environment"] = {
                         "provider": "colab",
                         "runner": "colab",
                         "session_name": self._settings.colab_session_name,
                     }
+                result["_lifecycle_metrics"] = {
+                    "provider": "colab",
+                    "readiness": dict(self._last_readiness_metrics),
+                    "upload_seconds": upload_seconds,
+                    "execution_seconds": execution_seconds,
+                    "result_download_seconds": result_download_seconds,
+                    "artifact_transfer_seconds": artifact_transfer_seconds,
+                    "cache": result.get("cache"),
+                    "total_seconds": time.monotonic() - run_started,
+                }
                 return result
         except Exception:
             if job.id in self._cancel_requested:
@@ -250,17 +272,27 @@ class ColabRunner(GpuRunner):
                 self._state = RunnerState.RECLAIMED
 
     async def _provision(self) -> None:
+        started = time.monotonic()
+        had_session = self._session_present
+        version_seconds = 0.0
+        provision_seconds = 0.0
+        mount_seconds = 0.0
         try:
             if not self._preflight_complete:
+                version_started = time.monotonic()
                 version = await self._client.run(self._client.version_argv())
                 validate_colab_cli_version(version.stdout, self._settings.colab_cli_version)
                 self._preflight_complete = True
+                version_seconds = time.monotonic() - version_started
+            heartbeat_started = time.monotonic()
             status = await self._client.run(
                 self._client.status_argv(self._settings.colab_session_name),
                 check=False,
             )
+            heartbeat_seconds = time.monotonic() - heartbeat_started
             if status.returncode == 0:
                 self._session_present = True
+                mode = "warm" if had_session else "attached"
             else:
                 status_error = ColabCliError(
                     self._client.status_argv(self._settings.colab_session_name),
@@ -271,20 +303,33 @@ class ColabRunner(GpuRunner):
                 self._session_present = False
                 self._cache_verified = False
                 self._state = RunnerState.PROVISIONING
+                provision_started = time.monotonic()
                 await self._client.run(
                     self._client.new_argv(
                         self._settings.colab_session_name,
                         self._settings.colab_gpu,
                     )
                 )
+                provision_seconds = time.monotonic() - provision_started
                 self._session_present = True
+                mode = "recovered" if had_session else "cold"
                 if self._settings.colab_mount_drive:
+                    mount_started = time.monotonic()
                     await self._client.run(
                         self._client.drivemount_argv(
                             self._settings.colab_session_name,
                             self._settings.colab_drive_mount_path,
                         )
                     )
+                    mount_seconds = time.monotonic() - mount_started
+            self._last_readiness_metrics = {
+                "mode": mode,
+                "version_seconds": version_seconds,
+                "heartbeat_seconds": heartbeat_seconds,
+                "provision_seconds": provision_seconds,
+                "drive_mount_seconds": mount_seconds,
+                "total_seconds": time.monotonic() - started,
+            }
             self._state = RunnerState.READY
         except BaseException:
             self._state = RunnerState.FAILED
