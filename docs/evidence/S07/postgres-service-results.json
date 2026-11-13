@@ -30,6 +30,14 @@
       4
     ]
   },
+  "migration_catalog_policy": {
+    "action_oriented_resource_names": true,
+    "canonical_hashes_preserved": true,
+    "catalog_module": "agent_music.postgres_migrations",
+    "contiguous_versions_enforced": true,
+    "policy": "docs/development/database-migrations.md",
+    "stored_logical_names_preserved": true
+  },
   "attempt_policy": {
     "ci_pr_run": 43443849360,
     "ci_push_run": 43443842155,
@@ -64,7 +72,7 @@
   },
   "postgres_contract": {
     "branch_coverage_percent": 80,
-    "command": "coverage run --branch --source=agent_music.postgres_store,agent_music.postgres_project_store -m unittest tests.test_postgres_store tests.test_postgres_project_store -v",
+    "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository -v",
     "failed": 0,
     "passed": 15
   },
@@ -83,10 +91,10 @@
   "schema_version": 1,
   "standard_gate": {
     "critical_branch_coverage_percent": 84,
-    "discovered_tests": 234,
+    "discovered_tests": 236,
     "failed": 0,
-    "mypy_source_files": 63,
-    "passed": 219,
+    "mypy_source_files": 64,
+    "passed": 221,
     "postgres_skipped_without_dsn": 15
   },
   "status": "passed"

@@ -32,7 +32,7 @@ from agent_music.domain import (
     SectionId,
     to_json_object,
 )
-from agent_music.project_store import ProjectRepository
+from agent_music.project_repository import ProjectRepository
 
 
 class CreativeToolService:

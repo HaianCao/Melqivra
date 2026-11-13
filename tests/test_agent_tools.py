@@ -9,7 +9,7 @@ from pathlib import Path
 from agent_music.agent_harness import ToolCall, ToolContext, ToolPolicyError, ToolRegistry
 from agent_music.agent_tools import ProjectToolService
 from agent_music.domain import DocumentType, ProjectId, RevisionId, UserId
-from agent_music.project_store import SqliteProjectRepository
+from agent_music.project_repository import SqliteProjectRepository
 
 
 class ProjectToolServiceTests(unittest.TestCase):

@@ -14,7 +14,7 @@ from agent_music.domain import (
     UserId,
     validate_identifier,
 )
-from agent_music.project_store import (
+from agent_music.project_repository import (
     CorruptRevisionError,
     RevisionConflictError,
     SqliteProjectRepository,

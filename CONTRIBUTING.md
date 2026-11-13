@@ -39,6 +39,8 @@ must provide the evidence required by their roadmap stage.
 - Add tests at the lowest effective layer and regression tests for fixes.
 - Do not add silent fallbacks for models, precision, storage, or security.
 - Document configuration with a safe default in `.env.example`.
+- Follow [the database migration policy](docs/development/database-migrations.md)
+  for every persistent schema change.
 - Record third-party code, model, dataset, and fixture licenses separately.
 
 ## Commits and stages

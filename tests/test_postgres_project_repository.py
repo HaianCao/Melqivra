@@ -10,8 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 import psycopg
 
 from agent_music.domain import DocumentType, ProjectId, RevisionId, UserId
-from agent_music.postgres_project_store import PostgresProjectRepository
-from agent_music.project_store import CorruptRevisionError, RevisionConflictError
+from agent_music.postgres_project_repository import PostgresProjectRepository
+from agent_music.project_repository import CorruptRevisionError, RevisionConflictError
 
 POSTGRES_DSN = os.getenv("MELQIVRA_TEST_POSTGRES_DSN", "")
 

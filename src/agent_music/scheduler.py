@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from agent_music.config import HarnessSettings
+from agent_music.job_store import JobStore, LostJobLeaseError, build_job_store
 from agent_music.models import GpuJob, JobState, RunnerSnapshot, RunnerState
 from agent_music.result_processing import (
     JobResultProcessor,
@@ -16,7 +17,6 @@ from agent_music.result_processing import (
 )
 from agent_music.runners.base import EventCallback, GpuRunner
 from agent_music.runners.strategy import build_runner
-from agent_music.store import JobStore, LostJobLeaseError, build_job_store
 
 EventSink = Callable[[str, dict[str, Any]], None]
 

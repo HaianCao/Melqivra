@@ -25,7 +25,7 @@ from agent_music.domain import (
     UserId,
     to_json_object,
 )
-from agent_music.project_store import SqliteProjectRepository
+from agent_music.project_repository import SqliteProjectRepository
 
 
 class AcceptedContractTests(unittest.TestCase):

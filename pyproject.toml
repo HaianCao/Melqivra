@@ -70,7 +70,7 @@ ignore_missing_imports = true
 
 [tool.coverage.run]
 branch = true
-source = ["agent_music.scheduler", "agent_music.store"]
+source = ["agent_music.scheduler", "agent_music.job_store"]
 
 [tool.coverage.report]
 fail_under = 75

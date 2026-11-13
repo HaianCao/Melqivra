@@ -28,7 +28,7 @@ from agent_music.domain import (
     UserId,
     validate_identifier,
 )
-from agent_music.project_store import ProjectRepository, canonical_json
+from agent_music.project_repository import ProjectRepository, canonical_json
 
 
 class CreativePlanningError(ValueError):

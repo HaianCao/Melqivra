@@ -17,7 +17,7 @@ from agent_music.project_archive import (
     export_project_archive,
     import_project_archive,
 )
-from agent_music.project_store import SqliteProjectRepository
+from agent_music.project_repository import SqliteProjectRepository
 
 
 class ArtifactStoreTests(unittest.TestCase):

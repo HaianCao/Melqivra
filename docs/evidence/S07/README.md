@@ -60,7 +60,7 @@ and pool distributions. `dependency-review.json` records their LGPL-3.0-only
 metadata, purpose, and alternatives; the locked dependency audit reports no known
 vulnerabilities.
 
-Migration `0001_job_queue.sql` is packaged inside the wheel and applied under a
+Migration `0001_create_gpu_job_queue.sql` is packaged inside the wheel and applied under a
 PostgreSQL advisory transaction lock. The migration history stores a canonical,
 line-ending-independent SHA-256 and rejects changed or unknown applied versions.
 The first schema preserves strict FIFO through an identity enqueue order,
@@ -78,7 +78,7 @@ real contracts: idempotent/checksummed migration, changed-migration rejection,
 strict FIFO and stale fencing, cross-tenant cancellation isolation, competing
 worker claims, scheduler completion, and restart retrieval. PostgreSQL adapter
 branch coverage is 81% with an 80% dedicated threshold. The container was removed
-after the run; see `postgres-job-store-results.json`.
+after the run; see `postgres-service-results.json`.
 
 The standard local suite discovered 218 tests: 212 passed and the six PostgreSQL
 tests skipped without their explicit DSN. Strict mypy passes on 62 source files,
@@ -96,7 +96,7 @@ plus the real PostgreSQL service contract.
 
 ## Third checkpoint: expiring leases and global GPU capacity
 
-Migration `0002_job_leases.sql` adds worker identity, expiry, and attempt count to
+Migration `0002_add_gpu_job_leases.sql` adds worker identity, expiry, and attempt count to
 jobs plus one durable `gpu_capacity_slots` row. Claiming that row under
 `FOR UPDATE` makes the reference deployment's concurrency-one limit global across
 competing PostgreSQL workers rather than local to one scheduler process. Lease
@@ -158,7 +158,7 @@ contract on that exact commit.
 
 ## Fifth checkpoint: durable attempts and bounded dead-letter policy
 
-Migration `0003_job_attempt_history.sql` expands the job state constraint with
+Migration `0003_add_gpu_job_attempt_history.sql` expands the job state constraint with
 `dead_lettered`, snapshots a positive `max_attempts` value on every accepted job,
 and adds ordered fenced attempt rows. A live version-2 running attempt is
 backfilled without changing ownership. Claim, heartbeat renewal, success,
@@ -204,7 +204,7 @@ migrator and preserves tenant-scoped non-disclosure, immutable revision payloads
 checksum validation, stable lineage ordering, optimistic working pointers, and
 accepted-pointer semantics.
 
-Migration `0004_project_revisions.sql` adds tenant-owned projects, immutable
+Migration `0004_create_project_revision_store.sql` adds tenant-owned projects, immutable
 checksummed revisions, same-project/document parent constraints, and working and
 accepted pointers whose foreign keys cannot target another lineage. Project-row
 locking serializes competing writers even when the first revision has no index
@@ -230,3 +230,37 @@ real-container contracts, CI expansion, and evidence. Protected push run
 `43447676604` and pull-request run `43447688283` each passed the four
 Windows/Linux Python 3.11/3.13 quality jobs plus the combined PostgreSQL job and
 project service contract on that exact commit.
+
+## Seventh checkpoint: persistence naming and migration catalog hardening
+
+A repository-wide persistence review found that the behavior was sound but the
+module/resource vocabulary had drifted. Generic `store.py` and
+`postgres_store.py` names obscured their job-specific role, project adapters mixed
+"store" and "repository", and the shared PostgreSQL migrator lived inside the job
+adapter. The refactor now uses explicit `job_store`, `project_repository`, and
+`postgres_migrations` modules throughout source, tests, scripts, coverage, and CI.
+
+The four existing SQL resources retain their exact versions, logical migration
+names, normalized SQL, and canonical SHA-256 hashes. Their packaged filenames are
+now action-oriented:
+
+- `0001_create_gpu_job_queue.sql`
+- `0002_add_gpu_job_leases.sql`
+- `0003_add_gpu_job_attempt_history.sql`
+- `0004_create_project_revision_store.sql`
+
+`docs/development/database-migrations.md` defines the append-only naming and
+compatibility policy. CPU-safe catalog tests reject gaps, duplicate logical names
+or resources, ambiguous filenames, missing wheel resources, and checksum drift.
+Migration discovery/execution is isolated from both PostgreSQL adapters. The
+legacy hosted check display name remains unchanged because branch protection
+requires that exact external status; its command runs migrations plus both job and
+project adapters.
+
+The complete local gate discovers 236 tests: 221 pass and fifteen PostgreSQL
+tests skip without an explicit DSN. Strict mypy covers 64 source files, Ruff
+format/lint pass, critical scheduler/job-store branch coverage remains 84%,
+distribution builds contain only the explicit new module/resource names, and the
+dependency audit reports no known vulnerabilities. A fresh PostgreSQL 17.12
+database again passes all fifteen real contracts at 80% combined migration and
+adapter branch coverage; the container and anonymous volume were removed.

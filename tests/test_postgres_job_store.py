@@ -14,14 +14,14 @@ from uuid import UUID
 import psycopg
 
 from agent_music.config import HarnessSettings
+from agent_music.job_store import LostJobLeaseError
 from agent_music.models import JobAttemptOutcome, JobState
-from agent_music.postgres_store import (
+from agent_music.postgres_job_store import PostgresJobStore
+from agent_music.postgres_migrations import (
     POSTGRES_MIGRATIONS,
-    PostgresJobStore,
     PostgresMigrationError,
 )
 from agent_music.scheduler import GpuHarness
-from agent_music.store import LostJobLeaseError
 
 POSTGRES_DSN = os.getenv("MELQIVRA_TEST_POSTGRES_DSN", "")
 
@@ -158,11 +158,11 @@ class PostgresJobStoreTests(unittest.TestCase):
         ]
         with (
             patch(
-                "agent_music.postgres_store.time.time",
+                "agent_music.postgres_job_store.time.time",
                 side_effect=(2_000.0, 1_500.0, 1_000.0),
             ),
             patch(
-                "agent_music.postgres_store.uuid.uuid4",
+                "agent_music.postgres_job_store.uuid.uuid4",
                 side_effect=ids_in_reverse_sort_order,
             ),
         ):
@@ -254,7 +254,7 @@ class PostgresJobStoreTests(unittest.TestCase):
 
     def test_lease_renewal_expiry_and_fresh_attempt_fencing(self) -> None:
         with (
-            patch("agent_music.postgres_store.time.time", return_value=1_000.0),
+            patch("agent_music.postgres_job_store.time.time", return_value=1_000.0),
             patch.object(self.store, "_database_time", return_value=1_000.0),
         ):
             job = self.store.enqueue(user_id="alice", kind="generate", payload={})
@@ -303,7 +303,7 @@ class PostgresJobStoreTests(unittest.TestCase):
         self.store.close()
         self.store = PostgresJobStore(POSTGRES_DSN, max_attempts=1)
         with (
-            patch("agent_music.postgres_store.time.time", return_value=2_000.0),
+            patch("agent_music.postgres_job_store.time.time", return_value=2_000.0),
             patch.object(self.store, "_database_time", return_value=2_000.0),
         ):
             cancelled_job = self.store.enqueue(
@@ -332,7 +332,7 @@ class PostgresJobStoreTests(unittest.TestCase):
         self.store.close()
         self.store = PostgresJobStore(POSTGRES_DSN, max_attempts=2)
         with (
-            patch("agent_music.postgres_store.time.time", return_value=3_000.0),
+            patch("agent_music.postgres_job_store.time.time", return_value=3_000.0),
             patch.object(self.store, "_database_time", return_value=3_000.0),
         ):
             job = self.store.enqueue(user_id="alice", kind="generate", payload={})
