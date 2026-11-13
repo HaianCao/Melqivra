@@ -255,3 +255,9 @@ The complete preparation gate passes with 207 tests, strict mypy on 61 source
 files, 88% critical scheduler/store branch coverage, successful wheel and source
 distribution builds, and no known audited vulnerabilities. No provider session
 or GPU was created by this checkpoint.
+
+The subsequent zero-cost WSL2 preflight confirmed Modal CLI 1.6.3, a successful
+non-printing authentication check, zero active apps, and successful loading of
+the probe command contract. `modal-lifecycle-preflight.json` records the
+sanitized result. The preflight did not create an app, container, or GPU and did
+not change the probe's `prepared_not_run` status.
