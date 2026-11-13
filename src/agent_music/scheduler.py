@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -19,6 +21,8 @@ from agent_music.runners.base import EventCallback, GpuRunner
 from agent_music.runners.strategy import build_runner
 
 EventSink = Callable[[str, dict[str, Any]], None]
+_PROVIDER_EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_.-]{0,54}$")
+_LOGGER = logging.getLogger(__name__)
 
 
 class GpuHarness:
@@ -173,6 +177,7 @@ class GpuHarness:
     async def _execute(self, job: GpuJob) -> None:
         if job.lease_token is None:
             raise RuntimeError("Claimed job has no fencing token")
+        lease_token = job.lease_token
         idle_before_job = 0.0
         if self._last_activity_monotonic is not None:
             idle_before_job = max(
@@ -183,7 +188,26 @@ class GpuHarness:
         self._touch_activity()
 
         async def on_event(event: dict[str, Any]) -> None:
-            self._event_sink(job.id, event)
+            raw_type = event.get("type")
+            event_type = (
+                f"provider.{raw_type}"
+                if isinstance(raw_type, str) and _PROVIDER_EVENT_TYPE.fullmatch(raw_type)
+                else "provider.event"
+            )
+            payload = {key: value for key, value in event.items() if key != "type"}
+            self.store.append_event(
+                job_id=job.id,
+                lease_token=lease_token,
+                event_type=event_type,
+                payload=payload,
+            )
+            try:
+                self._event_sink(job.id, event)
+            except Exception:
+                _LOGGER.warning(
+                    "Optional GPU event notification failed",
+                    extra={"job_id": job.id},
+                )
 
         try:
             processed = await self._run_with_heartbeat(

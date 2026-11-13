@@ -21,7 +21,8 @@
       "2": "f234f2ff8ad1af4881ebf4a937076e61ca969536339cfe6277fd57527cf65876",
       "3": "ff2a956f2d2b635f9df7854a766a6cc65f3993e77e5961b4a309cc79c22cf70e",
       "4": "121232d5ae4a6ae554e8081deefb7cc9649002b194c1dfa6aa5e1e08fa37b59d",
-      "5": "5ef9b936dd9f91764f60002b3566a24f8f571224e50067df02b9c6d97d2df607"
+      "5": "5ef9b936dd9f91764f60002b3566a24f8f571224e50067df02b9c6d97d2df607",
+      "6": "1ca8a72c9d1298e9c52b7a26d879a15777174e8d2c67d0fb65e26b57d1112c45"
     },
     "packaged_in_wheel": true,
     "versions": [
@@ -29,7 +30,8 @@
       2,
       3,
       4,
-      5
+      5,
+      6
     ]
   },
   "migration_catalog_policy": {
@@ -85,7 +87,7 @@
     "branch_coverage_percent": 81,
     "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories -v",
     "failed": 0,
-    "passed": 22
+    "passed": 24
   },
   "approval_audit_policy": {
     "append_only_audit_trigger": true,
@@ -112,7 +114,23 @@
     "openapi_auth_scheme_matches_mode": true,
     "payload_size_limit": true,
     "request_id_error_contract": true,
-    "tenant_cursor_pagination": true
+    "tenant_cursor_pagination": true,
+    "python_311_asgi_fix_commit": "3a6e983ba32a22b66b717742136965187ed69593",
+    "python_311_asgi_fix_pr_run": 43465749057,
+    "python_311_asgi_fix_push_run": 43465738875
+  },
+  "job_event_stream_policy": {
+    "atomic_terminal_state_and_event": true,
+    "cross_tenant_non_disclosure": true,
+    "durable_without_redis": true,
+    "invalid_future_cursor_rejected": true,
+    "last_event_id_reconnect": true,
+    "max_payload_bytes": 16384,
+    "migration": "0006_create_gpu_job_event_stream.sql",
+    "per_job_monotonic_sequence": true,
+    "provider_events_are_fenced": true,
+    "restart_replay": true,
+    "v5_snapshot_backfill": true
   },
   "project_revision_policy": {
     "adapter": "PostgresProjectRepository",
@@ -125,15 +143,15 @@
     "repository_port": "ProjectRepository",
     "tenant_non_disclosure": true
   },
-  "recorded_at": "2026-11-13",
+  "recorded_at": "2026-11-14",
   "schema_version": 1,
   "standard_gate": {
-    "critical_branch_coverage_percent": 86,
-    "discovered_tests": 255,
+    "critical_branch_coverage_percent": 87,
+    "discovered_tests": 262,
     "failed": 0,
     "mypy_source_files": 69,
-    "passed": 233,
-    "postgres_skipped_without_dsn": 22
+    "passed": 238,
+    "postgres_skipped_without_dsn": 24
   },
   "status": "passed"
 }

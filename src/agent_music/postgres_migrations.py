@@ -70,6 +70,11 @@ POSTGRES_MIGRATIONS = (
         name="approval_audit_authority",
         resource="migrations/postgresql/0005_create_approval_audit_authority.sql",
     ),
+    PostgresMigration(
+        version=6,
+        name="job_event_stream",
+        resource="migrations/postgresql/0006_create_gpu_job_event_stream.sql",
+    ),
 )
 
 

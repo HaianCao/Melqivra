@@ -375,3 +375,47 @@ the scope and appends response headers directly, without a secondary task group.
 The API suite passes repeatedly in an isolated Python 3.11 environment, and the
 complete local gate again passes all 255 discovered tests with the same typing,
 coverage, build, and audit results.
+
+Checkpoint `3a6e983` contains that pure-ASGI compatibility fix. Protected push
+run `43465738875` and pull-request run `43465749057` each pass the four
+Windows/Linux Python 3.11/3.13 jobs plus the real PostgreSQL contract.
+
+## Eleventh checkpoint: durable job events and SSE reconnect
+
+Migration `0006_create_gpu_job_event_stream.sql` adds an ordered event stream
+whose sequence is allocated under the owning job row. Existing version-5 jobs
+receive one explicit `job.snapshot` backfill; new jobs record queue, claim,
+provider progress, cancel request, terminal completion, lease recovery, retry,
+and dead-letter transitions. Lifecycle state and its event commit in the same
+SQLite or PostgreSQL transaction. Provider progress requires the current fencing
+token, so a stale worker cannot append after lease loss; event types and JSON are
+validated and each payload is capped at 16 KiB before durable insertion.
+
+The typed job-store port exposes only tenant-scoped event reads. A caller cannot
+distinguish a missing job from another tenant's job, and an event cursor beyond
+the durable high-water mark is rejected. Concurrent progress writers serialize
+to contiguous per-job sequences. Restarted SQLite and PostgreSQL adapters replay
+the same persisted events without relying on Redis or process memory.
+
+`GET /v1/gpu/jobs/{job_id}/events` returns authenticated server-sent events. Each
+record uses its durable sequence as the SSE `id`; `Last-Event-ID` resumes strictly
+after that sequence. The stream drains all committed events before closing after
+a terminal state, emits bounded keepalive comments while active, disables proxy
+buffering, and stops polling after client disconnect. The optional in-process
+notification hook runs only after durable append and cannot fail the job.
+
+A fresh PostgreSQL 17.12 container passed all twenty-four job, migration,
+project, approval, replay, audit, contention, recovery, and event contracts at
+81% combined adapter branch coverage. The event-specific contracts cover v5
+backfill, concurrent ordering, stale fencing, restart replay, tenant isolation,
+invalid cursors, terminal agreement, cancellation, lease-expiry requeue, and
+dead-letter convergence. The disposable container and anonymous volume were
+removed.
+
+The complete local gate discovers 262 tests: 238 pass and twenty-four PostgreSQL
+tests skip without an explicit DSN. Strict mypy covers 69 source files, Ruff
+format/lint pass, critical scheduler/job-store branch coverage is 87%, migration
+0006 is present in the wheel, distribution builds succeed, and the dependency
+audit reports no known vulnerabilities. S3/MinIO publication, backup/restore,
+retention/orphan reconciliation, broader quotas/observability, and the final
+multi-process restart demo remain later S07 work.

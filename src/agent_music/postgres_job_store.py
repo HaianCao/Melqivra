@@ -12,10 +12,19 @@ from psycopg_pool import ConnectionPool
 
 from agent_music.job_store import (
     InvalidJobCursorError,
+    InvalidJobEventCursorError,
     LostJobLeaseError,
     UserJobQuotaExceededError,
+    validate_job_event,
 )
-from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobPage, JobState
+from agent_music.models import (
+    GpuJob,
+    JobAttempt,
+    JobAttemptOutcome,
+    JobEvent,
+    JobPage,
+    JobState,
+)
 from agent_music.postgres_migrations import (
     PostgresConnection,
     PostgresMigrator,
@@ -89,6 +98,68 @@ class PostgresJobStore:
                 lease_owner = NULL, lease_expires_at = NULL
             WHERE slot_id = 1
             """
+        )
+
+    @staticmethod
+    def _append_event(
+        connection: PostgresConnection,
+        *,
+        job_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        created_at: float,
+        expected_lease_token: int | None = None,
+    ) -> JobEvent:
+        validate_job_event(event_type, payload)
+        row = connection.execute(
+            """
+            SELECT next_event_sequence, state, attempt_count, lease_token
+            FROM gpu_jobs
+            WHERE id = %s
+            FOR UPDATE
+            """,
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        if expected_lease_token is not None and (
+            row["state"] != JobState.RUNNING.value or row["lease_token"] != expected_lease_token
+        ):
+            raise LostJobLeaseError("Lost GPU job lease; refusing stale event")
+        sequence = int(row["next_event_sequence"])
+        connection.execute(
+            """
+            UPDATE gpu_jobs
+            SET next_event_sequence = next_event_sequence + 1
+            WHERE id = %s
+            """,
+            (job_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO gpu_job_events(
+                job_id, sequence, event_type, payload_json,
+                job_state, attempt_number, created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                job_id,
+                sequence,
+                event_type,
+                Jsonb(payload),
+                row["state"],
+                row["attempt_count"],
+                created_at,
+            ),
+        )
+        return JobEvent(
+            job_id=job_id,
+            sequence=sequence,
+            event_type=event_type,
+            payload=payload,
+            job_state=JobState(str(row["state"])),
+            attempt_number=int(row["attempt_count"]),
+            created_at=created_at,
         )
 
     @staticmethod
@@ -170,6 +241,14 @@ class PostgresJobStore:
         ).fetchone()
         if attempt is None:
             raise RuntimeError("PostgreSQL recovery and attempt history diverged")
+        event_type = "job.requeued" if state == JobState.QUEUED else f"job.{state.value}"
+        PostgresJobStore._append_event(
+            connection,
+            job_id=job_id,
+            event_type=event_type,
+            payload={"reason": attempt_outcome.value},
+            created_at=now,
+        )
         return True
 
     def enqueue(
@@ -236,6 +315,13 @@ class PostgresJobStore:
             ).fetchone()
             if row is None:
                 raise RuntimeError("PostgreSQL insert returned no job")
+            self._append_event(
+                connection,
+                job_id=job_id,
+                event_type="job.queued",
+                payload={},
+                created_at=now,
+            )
             return self._row_to_job(row)
 
     def get(self, job_id: str) -> GpuJob:
@@ -407,6 +493,13 @@ class PostgresJobStore:
                     lease_owner,
                     lease_expires_at,
                 ),
+            )
+            self._append_event(
+                connection,
+                job_id=str(claimed["id"]),
+                event_type="job.running",
+                payload={},
+                created_at=now,
             )
             return self._row_to_job(claimed)
 
@@ -590,6 +683,13 @@ class PostgresJobStore:
             ).fetchone()
             if attempt is None:
                 raise RuntimeError("PostgreSQL terminal job and attempt history diverged")
+            self._append_event(
+                connection,
+                job_id=job_id,
+                event_type=f"job.{state.value}",
+                payload={},
+                created_at=now,
+            )
             self._clear_capacity_slot(connection)
 
     def request_cancel(self, job_id: str) -> GpuJob:
@@ -633,7 +733,14 @@ class PostgresJobStore:
                     """,
                     (JobState.CANCELLED.value, now, now, job_id),
                 ).fetchone()
-            elif state == JobState.RUNNING:
+                self._append_event(
+                    connection,
+                    job_id=job_id,
+                    event_type="job.cancelled",
+                    payload={},
+                    created_at=now,
+                )
+            elif state == JobState.RUNNING and not bool(row["cancel_requested"]):
                 row = connection.execute(
                     """
                     UPDATE gpu_jobs
@@ -643,6 +750,13 @@ class PostgresJobStore:
                     """,
                     (now, job_id),
                 ).fetchone()
+                self._append_event(
+                    connection,
+                    job_id=job_id,
+                    event_type="job.cancel_requested",
+                    payload={},
+                    created_at=now,
+                )
             if row is None:
                 raise RuntimeError("PostgreSQL cancellation lost its row lock")
             return self._row_to_job(row)
@@ -707,6 +821,64 @@ class PostgresJobStore:
                 (job_id,),
             ).fetchall()
         return tuple(self._row_to_attempt(row) for row in rows)
+
+    def append_event(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> JobEvent:
+        """Append one provider event only for the current fenced attempt."""
+
+        with self._pool.connection() as connection, connection.transaction():
+            return self._append_event(
+                connection,
+                job_id=job_id,
+                event_type=event_type,
+                payload=payload,
+                created_at=self._database_time(connection),
+                expected_lease_token=lease_token,
+            )
+
+    def list_events_for_user(
+        self,
+        *,
+        user_id: str,
+        job_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[JobEvent, ...]:
+        """Read one tenant-owned event batch after an SSE sequence cursor."""
+
+        if after_sequence < 0:
+            raise InvalidJobEventCursorError("Job event cursor is invalid")
+        if limit < 1 or limit > 100:
+            raise ValueError("Job event page limit must be between 1 and 100")
+        with self._pool.connection() as connection:
+            job = connection.execute(
+                """
+                SELECT next_event_sequence FROM gpu_jobs
+                WHERE id = %s AND user_id = %s
+                """,
+                (job_id, user_id),
+            ).fetchone()
+            if job is None:
+                raise KeyError(job_id)
+            latest_sequence = int(job["next_event_sequence"]) - 1
+            if after_sequence > latest_sequence:
+                raise InvalidJobEventCursorError("Job event cursor is invalid")
+            rows = connection.execute(
+                """
+                SELECT * FROM gpu_job_events
+                WHERE job_id = %s AND sequence > %s
+                ORDER BY sequence ASC
+                LIMIT %s
+                """,
+                (job_id, after_sequence, limit),
+            ).fetchall()
+        return tuple(self._row_to_event(row) for row in rows)
 
     def recover_interrupted(self) -> int:
         """Reconcile running work after explicit control-plane interruption."""
@@ -820,4 +992,19 @@ class PostgresJobStore:
             finished_at=(float(row["finished_at"]) if row["finished_at"] is not None else None),
             outcome=JobAttemptOutcome(str(row["outcome"])),
             error=str(row["error"]) if row["error"] is not None else None,
+        )
+
+    @staticmethod
+    def _row_to_event(row: dict[str, Any]) -> JobEvent:
+        payload = row["payload_json"]
+        if not isinstance(payload, dict):
+            raise ValueError("PostgreSQL job event payload must be a JSON object")
+        return JobEvent(
+            job_id=str(row["job_id"]),
+            sequence=int(row["sequence"]),
+            event_type=str(row["event_type"]),
+            payload=cast(dict[str, Any], payload),
+            job_state=JobState(str(row["job_state"])),
+            attempt_number=int(row["attempt_number"]),
+            created_at=float(row["created_at"]),
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -11,7 +12,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobPage, JobState
+from agent_music.models import (
+    GpuJob,
+    JobAttempt,
+    JobAttemptOutcome,
+    JobEvent,
+    JobPage,
+    JobState,
+)
 
 if TYPE_CHECKING:
     from agent_music.config import HarnessSettings
@@ -27,6 +35,30 @@ class UserJobQuotaExceededError(RuntimeError):
 
 class InvalidJobCursorError(ValueError):
     """A pagination cursor is missing or does not belong to the tenant."""
+
+
+class InvalidJobEventCursorError(ValueError):
+    """An event sequence is outside the tenant-visible durable stream."""
+
+
+_JOB_EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
+MAX_JOB_EVENT_PAYLOAD_BYTES = 16_384
+
+
+def validate_job_event(event_type: str, payload: dict[str, Any]) -> None:
+    """Reject malformed or non-JSON durable event data at the store boundary."""
+
+    if _JOB_EVENT_TYPE.fullmatch(event_type) is None:
+        raise ValueError("Job event type is invalid")
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(encoded) > MAX_JOB_EVENT_PAYLOAD_BYTES:
+        raise ValueError("Job event payload exceeds the durable size limit")
 
 
 class JobStore(Protocol):
@@ -88,6 +120,24 @@ class JobStore(Protocol):
 
     def list_attempts(self, job_id: str) -> tuple[JobAttempt, ...]: ...
 
+    def append_event(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> JobEvent: ...
+
+    def list_events_for_user(
+        self,
+        *,
+        user_id: str,
+        job_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[JobEvent, ...]: ...
+
     def recover_interrupted(self) -> int: ...
 
     def recover_expired(self) -> int: ...
@@ -145,6 +195,7 @@ class SqliteJobStore:
                     lease_expires_at REAL,
                     attempt_count INTEGER NOT NULL DEFAULT 0,
                     max_attempts INTEGER NOT NULL DEFAULT 3,
+                    next_event_sequence INTEGER NOT NULL DEFAULT 1,
                     idempotency_key TEXT,
                     UNIQUE(user_id, idempotency_key)
                 );
@@ -170,6 +221,16 @@ class SqliteJobStore:
                 );
                 CREATE INDEX IF NOT EXISTS ix_gpu_job_attempts_job_started
                     ON gpu_job_attempts(job_id, started_at);
+                CREATE TABLE IF NOT EXISTS gpu_job_events (
+                    job_id TEXT NOT NULL REFERENCES gpu_jobs(id) ON DELETE CASCADE,
+                    sequence INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    job_state TEXT NOT NULL,
+                    attempt_number INTEGER NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY(job_id, sequence)
+                );
                 """
             )
             columns = {
@@ -181,6 +242,7 @@ class SqliteJobStore:
                 "lease_expires_at": "REAL",
                 "attempt_count": "INTEGER NOT NULL DEFAULT 0",
                 "max_attempts": "INTEGER NOT NULL DEFAULT 3",
+                "next_event_sequence": "INTEGER NOT NULL DEFAULT 1",
             }
             for name, declaration in additions.items():
                 if name not in columns:
@@ -202,6 +264,31 @@ class SqliteJobStore:
                 WHERE state = ? AND attempt_count > 0 AND lease_token IS NOT NULL
                 """,
                 (JobAttemptOutcome.RUNNING.value, JobState.RUNNING.value),
+            )
+            self._connection.execute(
+                """
+                INSERT OR IGNORE INTO gpu_job_events(
+                    job_id, sequence, event_type, payload_json,
+                    job_state, attempt_number, created_at
+                )
+                SELECT id, 1, 'job.snapshot', '{}', state, attempt_count, updated_at
+                FROM gpu_jobs
+                """
+            )
+            self._connection.execute(
+                """
+                UPDATE gpu_jobs
+                SET next_event_sequence = (
+                    SELECT COALESCE(MAX(sequence), 0) + 1
+                    FROM gpu_job_events
+                    WHERE job_id = gpu_jobs.id
+                )
+                WHERE next_event_sequence <= (
+                    SELECT COALESCE(MAX(sequence), 0)
+                    FROM gpu_job_events
+                    WHERE job_id = gpu_jobs.id
+                )
+                """
             )
 
     def close(self) -> None:
@@ -268,6 +355,12 @@ class SqliteJobStore:
                         self._max_attempts,
                         idempotency_key,
                     ),
+                )
+                self._append_event_locked(
+                    job_id=job_id,
+                    event_type="job.queued",
+                    payload={},
+                    created_at=now,
                 )
                 self._connection.execute("COMMIT")
             except BaseException:
@@ -427,6 +520,12 @@ class SqliteJobStore:
                         JobAttemptOutcome.RUNNING.value,
                     ),
                 )
+                self._append_event_locked(
+                    job_id=str(row["id"]),
+                    event_type="job.running",
+                    payload={},
+                    created_at=now,
+                )
                 self._connection.execute("COMMIT")
             except BaseException:
                 self._connection.execute("ROLLBACK")
@@ -584,6 +683,12 @@ class SqliteJobStore:
                 )
                 if attempt.rowcount != 1:
                     raise RuntimeError("SQLite terminal job and attempt history diverged")
+                self._append_event_locked(
+                    job_id=job_id,
+                    event_type=f"job.{state.value}",
+                    payload={},
+                    created_at=now,
+                )
                 self._connection.execute("COMMIT")
             except BaseException:
                 self._connection.execute("ROLLBACK")
@@ -604,30 +709,56 @@ class SqliteJobStore:
 
         now = self._now()
         with self._lock:
-            job = (
-                self.get(job_id)
-                if user_id is None
-                else self.get_for_user(user_id=user_id, job_id=job_id)
-            )
-            if job.state == JobState.QUEUED:
-                self._connection.execute(
-                    """
-                    UPDATE gpu_jobs
-                    SET state = ?, cancel_requested = 1,
-                        finished_at = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (JobState.CANCELLED.value, now, now, job_id),
-                )
-            elif job.state == JobState.RUNNING:
-                self._connection.execute(
-                    """
-                    UPDATE gpu_jobs
-                    SET cancel_requested = 1, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (now, job_id),
-                )
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                if user_id is None:
+                    row = self._connection.execute(
+                        "SELECT * FROM gpu_jobs WHERE id = ?",
+                        (job_id,),
+                    ).fetchone()
+                else:
+                    row = self._connection.execute(
+                        "SELECT * FROM gpu_jobs WHERE id = ? AND user_id = ?",
+                        (job_id, user_id),
+                    ).fetchone()
+                if row is None:
+                    raise KeyError(job_id)
+                state = JobState(str(row["state"]))
+                if state == JobState.QUEUED:
+                    self._connection.execute(
+                        """
+                        UPDATE gpu_jobs
+                        SET state = ?, cancel_requested = 1,
+                            finished_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (JobState.CANCELLED.value, now, now, job_id),
+                    )
+                    self._append_event_locked(
+                        job_id=job_id,
+                        event_type="job.cancelled",
+                        payload={},
+                        created_at=now,
+                    )
+                elif state == JobState.RUNNING and not bool(row["cancel_requested"]):
+                    self._connection.execute(
+                        """
+                        UPDATE gpu_jobs
+                        SET cancel_requested = 1, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (now, job_id),
+                    )
+                    self._append_event_locked(
+                        job_id=job_id,
+                        event_type="job.cancel_requested",
+                        payload={},
+                        created_at=now,
+                    )
+                self._connection.execute("COMMIT")
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
         return (
             self.get(job_id)
             if user_id is None
@@ -690,6 +821,136 @@ class SqliteJobStore:
                 (job_id,),
             ).fetchall()
         return tuple(self._row_to_attempt(row) for row in rows)
+
+    def append_event(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> JobEvent:
+        """Append one provider event only for the current fenced attempt."""
+
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                event = self._append_event_locked(
+                    job_id=job_id,
+                    event_type=event_type,
+                    payload=payload,
+                    created_at=self._now(),
+                    expected_lease_token=lease_token,
+                )
+                self._connection.execute("COMMIT")
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
+        return event
+
+    def list_events_for_user(
+        self,
+        *,
+        user_id: str,
+        job_id: str,
+        after_sequence: int,
+        limit: int,
+    ) -> tuple[JobEvent, ...]:
+        """Read one tenant-owned event batch after an SSE sequence cursor."""
+
+        if after_sequence < 0:
+            raise InvalidJobEventCursorError("Job event cursor is invalid")
+        if limit < 1 or limit > 100:
+            raise ValueError("Job event page limit must be between 1 and 100")
+        with self._lock:
+            job = self._connection.execute(
+                """
+                SELECT next_event_sequence FROM gpu_jobs
+                WHERE id = ? AND user_id = ?
+                """,
+                (job_id, user_id),
+            ).fetchone()
+            if job is None:
+                raise KeyError(job_id)
+            latest_sequence = int(job["next_event_sequence"]) - 1
+            if after_sequence > latest_sequence:
+                raise InvalidJobEventCursorError("Job event cursor is invalid")
+            rows = self._connection.execute(
+                """
+                SELECT * FROM gpu_job_events
+                WHERE job_id = ? AND sequence > ?
+                ORDER BY sequence ASC
+                LIMIT ?
+                """,
+                (job_id, after_sequence, limit),
+            ).fetchall()
+        return tuple(self._row_to_event(row) for row in rows)
+
+    def _append_event_locked(
+        self,
+        *,
+        job_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        created_at: float,
+        expected_lease_token: int | None = None,
+    ) -> JobEvent:
+        validate_job_event(event_type, payload)
+        payload_json = json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        row = self._connection.execute(
+            """
+            SELECT next_event_sequence, state, attempt_count, lease_token
+            FROM gpu_jobs WHERE id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        if expected_lease_token is not None and (
+            row["state"] != JobState.RUNNING.value or row["lease_token"] != expected_lease_token
+        ):
+            raise LostJobLeaseError("Lost GPU job lease; refusing stale event")
+        sequence = int(row["next_event_sequence"])
+        self._connection.execute(
+            """
+            UPDATE gpu_jobs
+            SET next_event_sequence = next_event_sequence + 1
+            WHERE id = ?
+            """,
+            (job_id,),
+        )
+        self._connection.execute(
+            """
+            INSERT INTO gpu_job_events(
+                job_id, sequence, event_type, payload_json,
+                job_state, attempt_number, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                job_id,
+                sequence,
+                event_type,
+                payload_json,
+                row["state"],
+                row["attempt_count"],
+                created_at,
+            ),
+        )
+        return JobEvent(
+            job_id=job_id,
+            sequence=sequence,
+            event_type=event_type,
+            payload=payload,
+            job_state=JobState(str(row["state"])),
+            attempt_number=int(row["attempt_count"]),
+            created_at=created_at,
+        )
 
     def recover_interrupted(self) -> int:
         """Reconcile running work after explicit single-node interruption."""
@@ -816,6 +1077,13 @@ class SqliteJobStore:
                 )
                 if attempt.rowcount != 1:
                     raise RuntimeError("SQLite recovery and attempt history diverged")
+            event_type = "job.requeued" if state == JobState.QUEUED else f"job.{state.value}"
+            self._append_event_locked(
+                job_id=str(row["id"]),
+                event_type=event_type,
+                payload={"reason": attempt_outcome.value},
+                created_at=now,
+            )
         return len(rows)
 
     @staticmethod
@@ -855,6 +1123,21 @@ class SqliteJobStore:
             finished_at=(float(row["finished_at"]) if row["finished_at"] is not None else None),
             outcome=JobAttemptOutcome(str(row["outcome"])),
             error=str(row["error"]) if row["error"] is not None else None,
+        )
+
+    @staticmethod
+    def _row_to_event(row: sqlite3.Row) -> JobEvent:
+        payload = json.loads(str(row["payload_json"]))
+        if not isinstance(payload, dict):
+            raise ValueError("SQLite job event payload must be a JSON object")
+        return JobEvent(
+            job_id=str(row["job_id"]),
+            sequence=int(row["sequence"]),
+            event_type=str(row["event_type"]),
+            payload=payload,
+            job_state=JobState(str(row["job_state"])),
+            attempt_number=int(row["attempt_number"]),
+            created_at=float(row["created_at"]),
         )
 
 

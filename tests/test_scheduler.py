@@ -147,6 +147,52 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
         await wait_until(lambda: self.runner.state == RunnerState.STOPPED)
         self.assertEqual(1, self.runner.stop_count)
 
+    async def test_provider_progress_is_durable_before_terminal_success(self) -> None:
+        job = self.harness.enqueue(
+            user_id="alice",
+            kind="harness.echo",
+            payload={"message": "event-stream"},
+        )
+        await wait_until(lambda: self.harness.store.get(job.id).state == JobState.SUCCEEDED)
+
+        events = self.harness.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual("job.queued", events[0].event_type)
+        self.assertEqual("job.running", events[1].event_type)
+        self.assertEqual(
+            ["provider.stage"] * 5,
+            [event.event_type for event in events[2:-1]],
+        )
+        self.assertEqual("job.succeeded", events[-1].event_type)
+        self.assertEqual(JobState.SUCCEEDED, events[-1].job_state)
+        self.assertEqual(
+            sorted(event.sequence for event in events),
+            [event.sequence for event in events],
+        )
+
+    async def test_optional_event_notification_cannot_fail_durable_work(self) -> None:
+        def unavailable_sink(_job_id: str, _event: dict[str, object]) -> None:
+            raise RuntimeError("notification unavailable")
+
+        self.harness._event_sink = unavailable_sink
+        job = self.harness.enqueue(
+            user_id="alice",
+            kind="harness.echo",
+            payload={},
+        )
+        await wait_until(lambda: self.harness.store.get(job.id).state == JobState.SUCCEEDED)
+        events = self.harness.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual("job.succeeded", events[-1].event_type)
+
     async def test_job_during_grace_period_reuses_warm_session(self) -> None:
         first = self.harness.enqueue(
             user_id="alice",

@@ -17,6 +17,7 @@ import psycopg
 from agent_music.config import HarnessSettings
 from agent_music.job_store import (
     InvalidJobCursorError,
+    InvalidJobEventCursorError,
     LostJobLeaseError,
     UserJobQuotaExceededError,
 )
@@ -39,7 +40,11 @@ class PostgresJobStoreTests(unittest.TestCase):
         with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
             connection.execute(
                 """
-                TRUNCATE TABLE gpu_capacity_slots, gpu_job_attempts, gpu_jobs
+                TRUNCATE TABLE
+                    gpu_capacity_slots,
+                    gpu_job_events,
+                    gpu_job_attempts,
+                    gpu_jobs
                 RESTART IDENTITY
                 """
             )
@@ -60,7 +65,7 @@ class PostgresJobStoreTests(unittest.TestCase):
             rows = connection.execute(
                 "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-        self.assertEqual([1, 2, 3, 4, 5], [row[0] for row in rows])
+        self.assertEqual([1, 2, 3, 4, 5, 6], [row[0] for row in rows])
         self.assertEqual(
             expected,
             {row[0]: (row[1], row[2]) for row in rows},
@@ -156,6 +161,39 @@ class PostgresJobStoreTests(unittest.TestCase):
         self.assertEqual(JobAttemptOutcome.RUNNING, attempts[0].outcome)
         self.assertEqual(7, attempts[0].lease_token)
 
+    def test_event_migration_backfills_one_v5_state_snapshot(self) -> None:
+        self.store.close()
+        with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
+            connection.execute("DROP TABLE gpu_job_events")
+            connection.execute(
+                "ALTER TABLE gpu_jobs DROP CONSTRAINT gpu_jobs_next_event_sequence_positive"
+            )
+            connection.execute("ALTER TABLE gpu_jobs DROP COLUMN next_event_sequence")
+            connection.execute("DELETE FROM schema_migrations WHERE version = 6")
+            connection.execute(
+                """
+                INSERT INTO gpu_jobs(
+                    id, user_id, kind, payload_json, state,
+                    created_at, updated_at, max_attempts
+                ) VALUES (
+                    'v5-queued', 'alice', 'generate', '{}'::jsonb, 'queued',
+                    1000, 1001, 3
+                )
+                """
+            )
+
+        self.store = PostgresJobStore(POSTGRES_DSN)
+        events = self.store.list_events_for_user(
+            user_id="alice",
+            job_id="v5-queued",
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual(1, len(events))
+        self.assertEqual("job.snapshot", events[0].event_type)
+        self.assertEqual(JobState.QUEUED, events[0].job_state)
+        self.assertEqual(1_001.0, events[0].created_at)
+
     def test_fifo_idempotency_and_stale_fencing_match_sqlite(self) -> None:
         ids_in_reverse_sort_order = [
             UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
@@ -206,6 +244,79 @@ class PostgresJobStoreTests(unittest.TestCase):
         assert claimed_second is not None and claimed_second.lease_token is not None
         self.assertEqual(second.id, claimed_second.id)
         self.assertGreater(claimed_second.lease_token, claimed_first.lease_token)
+
+    def test_event_stream_is_ordered_fenced_and_tenant_scoped(self) -> None:
+        job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+        claimed = self.store.claim_next(lease_owner="worker-a", lease_seconds=60.0)
+        assert claimed is not None and claimed.lease_token is not None
+
+        def append(index: int) -> int:
+            event = self.store.append_event(
+                job_id=job.id,
+                lease_token=claimed.lease_token,
+                event_type="provider.stage",
+                payload={"index": index},
+            )
+            return event.sequence
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            sequences = tuple(executor.map(append, range(8)))
+        self.assertEqual(list(range(3, 11)), sorted(sequences))
+        with self.assertRaisesRegex(LostJobLeaseError, "stale event"):
+            self.store.append_event(
+                job_id=job.id,
+                lease_token=claimed.lease_token + 1,
+                event_type="provider.stage",
+                payload={},
+            )
+        with self.assertRaisesRegex(ValueError, "size limit"):
+            self.store.append_event(
+                job_id=job.id,
+                lease_token=claimed.lease_token,
+                event_type="provider.stage",
+                payload={"text": "x" * 16_385},
+            )
+        self.store.complete(job.id, claimed.lease_token, {"ok": True})
+
+        events = self.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual(list(range(1, 12)), [event.sequence for event in events])
+        self.assertEqual("job.succeeded", events[-1].event_type)
+        self.assertEqual(JobState.SUCCEEDED, events[-1].job_state)
+        self.assertEqual(set(range(8)), {event.payload["index"] for event in events[2:-1]})
+        with self.assertRaises(KeyError):
+            self.store.list_events_for_user(
+                user_id="bob",
+                job_id=job.id,
+                after_sequence=0,
+                limit=100,
+            )
+        with self.assertRaises(InvalidJobEventCursorError):
+            self.store.list_events_for_user(
+                user_id="alice",
+                job_id=job.id,
+                after_sequence=12,
+                limit=100,
+            )
+
+        restarted = PostgresJobStore(POSTGRES_DSN)
+        self.addCleanup(restarted.close)
+        self.assertEqual(
+            [10, 11],
+            [
+                event.sequence
+                for event in restarted.list_events_for_user(
+                    user_id="alice",
+                    job_id=job.id,
+                    after_sequence=9,
+                    limit=100,
+                )
+            ],
+        )
 
     def test_tenant_pagination_and_active_quota_match_sqlite(self) -> None:
         first = self.store.enqueue(
@@ -310,6 +421,18 @@ class PostgresJobStoreTests(unittest.TestCase):
             job_id=queued.id,
         )
         self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertEqual(
+            ["job.queued", "job.running", "job.requeued", "job.cancelled"],
+            [
+                event.event_type
+                for event in self.store.list_events_for_user(
+                    user_id="alice",
+                    job_id=queued.id,
+                    after_sequence=0,
+                    limit=100,
+                )
+            ],
+        )
 
     def test_global_capacity_serializes_competing_workers(self) -> None:
         first = self.store.enqueue(user_id="alice", kind="one", payload={})
@@ -388,6 +511,15 @@ class PostgresJobStoreTests(unittest.TestCase):
             [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.SUCCEEDED],
             [attempt.outcome for attempt in self.store.list_attempts(job.id)],
         )
+        recovered_events = self.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertIn("job.requeued", [event.event_type for event in recovered_events])
+        self.assertEqual("job.succeeded", recovered_events[-1].event_type)
+        self.assertEqual(JobState.SUCCEEDED, recovered_events[-1].job_state)
 
         self.store.close()
         self.store = PostgresJobStore(POSTGRES_DSN, max_attempts=1)
@@ -416,6 +548,15 @@ class PostgresJobStoreTests(unittest.TestCase):
             JobAttemptOutcome.CANCELLED,
             self.store.list_attempts(cancelled_job.id)[0].outcome,
         )
+        cancelled_events = self.store.list_events_for_user(
+            user_id="bob",
+            job_id=cancelled_job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual("job.cancel_requested", cancelled_events[-2].event_type)
+        self.assertEqual("job.cancelled", cancelled_events[-1].event_type)
+        self.assertEqual(JobState.CANCELLED, cancelled_events[-1].job_state)
 
     def test_attempt_history_and_dead_letter_limit_match_sqlite(self) -> None:
         self.store.close()
@@ -452,6 +593,14 @@ class PostgresJobStoreTests(unittest.TestCase):
             [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.LEASE_EXPIRED],
             [attempt.outcome for attempt in attempts],
         )
+        dead_letter_events = self.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual("job.dead_lettered", dead_letter_events[-1].event_type)
+        self.assertEqual(JobState.DEAD_LETTERED, dead_letter_events[-1].job_state)
 
     def test_scheduler_completes_and_reopens_postgres_job(self) -> None:
         async def exercise() -> str:
