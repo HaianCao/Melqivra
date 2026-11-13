@@ -211,6 +211,29 @@ class ArtifactColabClient(BlockingColabClient):
         raise AssertionError(f"Unexpected command: {argv}")
 
 
+class HungTransferColabClient(ArtifactColabClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.transfer_started = asyncio.Event()
+        self.release_transfer = asyncio.Event()
+        self.cancel_started = asyncio.Event()
+
+    async def run(
+        self,
+        argv: list[str],
+        *,
+        check: bool = True,
+        on_stdout: object | None = None,
+    ) -> CommandResult:
+        if argv[0] == "download" and not argv[2].endswith("agent_music_result.json"):
+            self.transfer_started.set()
+            await self.release_transfer.wait()
+        return await super().run(argv, check=check, on_stdout=on_stdout)
+
+    async def cancel_current(self) -> None:
+        self.cancel_started.set()
+
+
 class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_provisioning_is_single_flight_for_concurrent_callers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -515,6 +538,48 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, "size mismatch"):
                 await runner.run(job, self._ignore_event)
 
+            self.assertEqual([], list(settings.transfer_root.iterdir()))
+
+    async def test_hung_transfer_cannot_reclaim_or_publish_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            worker = root / "worker.py"
+            worker.write_text("# worker\n", encoding="utf-8")
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_remote_worker_file=worker,
+                colab_mount_drive=False,
+                colab_command_timeout_seconds=0.1,
+            )
+            client = HungTransferColabClient()
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+            await runner.ensure_ready()
+            job = GpuJob(
+                id="job-colab-artifact",
+                user_id="user",
+                kind="music.generate",
+                payload={"generation_request": {}},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+
+            run_task = asyncio.create_task(runner.run(job, self._ignore_event))
+            await asyncio.wait_for(client.transfer_started.wait(), timeout=1.0)
+
+            with self.assertRaisesRegex(TimeoutError, "did not drain"):
+                await runner.stop()
+            self.assertEqual(RunnerState.FAILED, runner.state)
+            self.assertTrue(client.cancel_started.is_set())
+
+            client.release_transfer.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await run_task
             self.assertEqual([], list(settings.transfer_root.iterdir()))
 
     async def test_colab_cache_contract_is_verified_once_per_live_session(self) -> None:

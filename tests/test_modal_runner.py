@@ -224,6 +224,31 @@ class BlockingTransferModalClient(FakeModalClient):
         self.command_cancelled.set()
 
 
+class HungTransferModalClient(FakeModalClient):
+    def __init__(self) -> None:
+        super().__init__(remote_artifacts={"runs/request/take.wav": b"RIFF-private"})
+        self.transfer_started = asyncio.Event()
+        self.release_transfer = asyncio.Event()
+
+    async def run(
+        self,
+        argv: Sequence[str],
+        *,
+        check: bool = True,
+        on_stdout: LineCallback | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        if len(argv) > 2 and argv[1:3] == ["volume", "get"]:
+            self.transfer_started.set()
+            await self.release_transfer.wait()
+        return await super().run(
+            argv,
+            check=check,
+            on_stdout=on_stdout,
+            environment=environment,
+        )
+
+
 class BlockingCancellationModalClient(FakeModalClient):
     def __init__(self) -> None:
         super().__init__()
@@ -467,6 +492,45 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(RunnerState.READY, runner.state)
             self.assertTrue(client.cancelled)
+
+    async def test_hung_transfer_cannot_reclaim_or_publish_success(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner_file = root / "remote_worker.py"
+            runner_file.write_text("# fixture\n", encoding="utf-8")
+            client = HungTransferModalClient()
+            runner = ModalRunner(
+                HarnessSettings(
+                    modal_runner_file=runner_file,
+                    modal_artifact_volume="melqivra-cache",
+                    modal_command_timeout_seconds=0.1,
+                    transfer_root=root / "transfers",
+                ),
+                client=client,
+            )
+            job = GpuJob(
+                id="job-transfer-hung",
+                user_id="user-1",
+                kind="music.generate",
+                payload={"generation_request": {}},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+            await runner.ensure_ready()
+            run_task = asyncio.create_task(runner.run(job, lambda _event: _completed()))
+            await asyncio.wait_for(client.transfer_started.wait(), timeout=1.0)
+
+            with self.assertRaisesRegex(TimeoutError, "did not drain"):
+                await runner.stop()
+            self.assertEqual(RunnerState.FAILED, runner.state)
+            self.assertTrue(client.cancelled)
+
+            client.release_transfer.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await run_task
+            self.assertEqual([], list((root / "transfers").iterdir()))
 
     async def test_scheduler_persists_running_modal_cancel_as_cancelled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

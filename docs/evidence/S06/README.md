@@ -211,3 +211,25 @@ Deterministic tests assert cold/attached readiness classification, non-negative
 provider timings, and exact fake-clock idle time. These fields provide the schema
 for the final real-provider cold/warm/recovery comparison without logging prompts,
 lyrics, local paths, credentials, or other private content.
+
+## Thirteenth checkpoint: bounded hung-transfer reclaim
+
+Modal and Colab now recheck cancellation inside the atomic artifact staging
+transaction and immediately before returning any remote result. A cancellation
+that races with the last download therefore removes the staging directory and
+cannot publish a transfer or report success.
+
+Deterministic failure injection makes each provider ignore its first cancellation
+while an artifact download remains hung. Reclaim is bounded by the configured
+command timeout, stops the scoped provider resource, enters `FAILED` instead of
+falsely claiming `RECLAIMED`, and the eventual run completion is still classified
+as cancellation with no visible artifact. Separate real-subprocess tests prove
+both CLI clients terminate a hung command on timeout and release their serialized
+command slot for the next operation. No provider session or GPU is used by this
+checkpoint.
+
+The complete checkpoint gate passes with 203 tests, strict mypy on 58 source
+files, 88% critical scheduler/store branch coverage, successful wheel and source
+distribution builds, and no known audited vulnerabilities. The subprocess wait
+path uses one shared non-cancelling waiter so Windows timeout handling cannot
+corrupt the event loop or retain the serialized CLI command slot.
