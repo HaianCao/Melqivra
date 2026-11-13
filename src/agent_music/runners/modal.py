@@ -77,6 +77,10 @@ class ModalRunner(GpuRunner):
         self._preflight_complete = False
         self._readiness_guard = asyncio.Lock()
         self._readiness_task: asyncio.Task[None] | None = None
+        self._stop_guard = asyncio.Lock()
+        self._active_job_id: str | None = None
+        self._run_finished = asyncio.Event()
+        self._run_finished.set()
         self._cancel_requested: set[str] = set()
 
     @property
@@ -117,6 +121,8 @@ class ModalRunner(GpuRunner):
             raise RuntimeError("Modal runner is not ready")
 
         self._state = RunnerState.BUSY
+        self._active_job_id = job.id
+        self._run_finished.clear()
         try:
             with tempfile.TemporaryDirectory(prefix="melqivra-modal-job-") as temp_dir:
                 temp_path = Path(temp_dir)
@@ -175,8 +181,15 @@ class ModalRunner(GpuRunner):
                         "app_name": self._settings.modal_app_name,
                     }
                 return result
+        except Exception:
+            if job.id in self._cancel_requested:
+                raise asyncio.CancelledError from None
+            raise
         finally:
-            if self._state != RunnerState.FAILED:
+            self._cancel_requested.discard(job.id)
+            self._active_job_id = None
+            self._run_finished.set()
+            if self._state == RunnerState.BUSY:
                 self._state = RunnerState.READY
 
     async def cancel(self, job_id: str) -> None:
@@ -185,19 +198,35 @@ class ModalRunner(GpuRunner):
         await self._client.run(self._client.stop_argv(), check=False)
 
     async def stop(self) -> None:
-        async with self._readiness_guard:
-            readiness_task = self._readiness_task
-        if readiness_task is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.shield(readiness_task)
-        if self._state in {RunnerState.ABSENT, RunnerState.RECLAIMED}:
-            return
-        self._state = RunnerState.STOPPING
-        try:
-            await self._client.cancel_current()
-            await self._client.run(self._client.stop_argv(), check=False)
-        finally:
-            self._state = RunnerState.RECLAIMED
+        async with self._stop_guard:
+            async with self._readiness_guard:
+                readiness_task = self._readiness_task
+            if readiness_task is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(readiness_task)
+            if self._state in {RunnerState.ABSENT, RunnerState.RECLAIMED}:
+                return
+
+            drained_active_command = False
+            if self._state == RunnerState.BUSY:
+                self._state = RunnerState.DRAINING
+                if self._active_job_id is not None:
+                    self._cancel_requested.add(self._active_job_id)
+                await self._client.cancel_current()
+                drained_active_command = True
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._run_finished.wait(),
+                        timeout=self._settings.modal_command_timeout_seconds,
+                    )
+
+            self._state = RunnerState.STOPPING
+            try:
+                if not drained_active_command:
+                    await self._client.cancel_current()
+                await self._client.run(self._client.stop_argv(), check=False)
+            finally:
+                self._state = RunnerState.RECLAIMED
 
     async def _reconcile_readiness(self) -> None:
         try:
