@@ -65,6 +65,11 @@ POSTGRES_MIGRATIONS = (
         name="project_revisions",
         resource="migrations/postgresql/0004_create_project_revision_store.sql",
     ),
+    PostgresMigration(
+        version=5,
+        name="approval_audit_authority",
+        resource="migrations/postgresql/0005_create_approval_audit_authority.sql",
+    ),
 )
 
 

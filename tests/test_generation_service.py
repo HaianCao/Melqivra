@@ -5,7 +5,11 @@ from __future__ import annotations
 import time
 import unittest
 
-from agent_music.agent_harness import ApprovalDecision, ApprovalLedger, ToolPolicyError
+from agent_music.agent_harness import ToolPolicyError
+from agent_music.approval_repository import (
+    ApprovalDecision,
+    InMemoryApprovalRepository,
+)
 from agent_music.creative import ApprovedGenerationContract
 from agent_music.domain import ProjectId, RevisionId, UserId
 from agent_music.generation import MusicGenerationRequest, TakeSpec, VocalMode
@@ -73,7 +77,7 @@ class GenerationSubmissionTests(unittest.TestCase):
                 TakeSpec("take_two", "expressive", 2, {}),
             ),
         )
-        self.approvals = ApprovalLedger()
+        self.approvals = InMemoryApprovalRepository()
         self.jobs = RecordingJobs()
         self.service = GenerationSubmissionService(self.approvals, self.jobs)
 

@@ -5,11 +5,12 @@ from __future__ import annotations
 import uuid
 from typing import Protocol
 
-from agent_music.agent_harness import (
-    ApprovalLedger,
+from agent_music.agent_harness import ToolPolicyError
+from agent_music.approval_repository import (
+    ApprovalPolicyError,
+    ApprovalRepository,
     ApprovalRequest,
     RiskClass,
-    ToolPolicyError,
 )
 from agent_music.creative import ApprovedGenerationContract
 from agent_music.domain import UserId
@@ -39,7 +40,7 @@ def generation_approval_action(contract_checksum: str) -> str:
 class GenerationSubmissionService:
     """Require exact client approval before enqueuing expensive music work."""
 
-    def __init__(self, approvals: ApprovalLedger, jobs: JobSubmitter) -> None:
+    def __init__(self, approvals: ApprovalRepository, jobs: JobSubmitter) -> None:
         self._approvals = approvals
         self._jobs = jobs
 
@@ -85,13 +86,16 @@ class GenerationSubmissionService:
         )
         if request.source_revision_ids != expected_revisions:
             raise ToolPolicyError("Generation request revisions changed after approval")
-        self._approvals.require_approved(
-            approval_id=approval_id,
-            user_id=user_id,
-            project_id=contract.project_id,
-            action=generation_approval_action(contract.checksum),
-            risk=RiskClass.GPU,
-        )
+        try:
+            self._approvals.require_approved(
+                approval_id=approval_id,
+                user_id=user_id,
+                project_id=contract.project_id,
+                action=generation_approval_action(contract.checksum),
+                risk=RiskClass.GPU,
+            )
+        except ApprovalPolicyError as error:
+            raise ToolPolicyError(str(error)) from error
         return self._jobs.enqueue(
             user_id=str(user_id),
             kind="music.generate",

@@ -8,22 +8,24 @@ from collections.abc import Sequence
 from agent_music.agent_harness import (
     AgentCancelledError,
     AgentHarness,
-    ApprovalDecision,
-    ApprovalLedger,
-    ApprovalRequest,
     ContextSource,
     EventKind,
     HarnessLimits,
     Message,
     PlannerError,
     PlannerReply,
-    RiskClass,
     Role,
     ToolCall,
     ToolContext,
     ToolDefinition,
     ToolRegistry,
     build_project_context,
+)
+from agent_music.approval_repository import (
+    ApprovalDecision,
+    ApprovalRequest,
+    InMemoryApprovalRepository,
+    RiskClass,
 )
 from agent_music.domain import JsonObject, ProjectId, UserId
 
@@ -176,9 +178,9 @@ class AgentRuntimeTests(unittest.TestCase):
                 [Message(Role.USER, "too long")],
             )
 
-    def test_approval_ledger_is_scoped_and_one_way(self) -> None:
-        ledger = ApprovalLedger()
-        request = ledger.propose(
+    def test_approval_repository_is_scoped_and_one_way(self) -> None:
+        repository = InMemoryApprovalRepository()
+        request = repository.propose(
             ApprovalRequest(
                 "approval_one",
                 "gpu.generate",
@@ -188,13 +190,24 @@ class AgentRuntimeTests(unittest.TestCase):
             )
         )
         self.assertEqual(ApprovalDecision.PENDING, request.decision)
-        ledger.decide(approval_id="approval_one", user_id=UserId("usr_one"), approved=True)
+        repository.decide(
+            approval_id="approval_one",
+            user_id=UserId("usr_one"),
+            approved=True,
+        )
         self.assertEqual(
             frozenset({"gpu.generate"}),
-            ledger.approved_actions(user_id=UserId("usr_one"), project_id=ProjectId("prj_one")),
+            repository.approved_actions(
+                user_id=UserId("usr_one"),
+                project_id=ProjectId("prj_one"),
+            ),
         )
         with self.assertRaises(ValueError):
-            ledger.decide(approval_id="approval_one", user_id=UserId("usr_one"), approved=False)
+            repository.decide(
+                approval_id="approval_one",
+                user_id=UserId("usr_one"),
+                approved=False,
+            )
 
 
 if __name__ == "__main__":
