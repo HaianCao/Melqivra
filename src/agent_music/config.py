@@ -76,6 +76,7 @@ class HarnessSettings:
     job_heartbeat_seconds: float = 15.0
     job_max_attempts: int = 3
     api_auth_mode: str = "development"
+    api_embedded_worker: bool = True
     api_max_active_jobs_per_user: int = 10
     api_max_job_payload_bytes: int = 65_536
     api_max_request_body_bytes: int = 131_072
@@ -188,6 +189,7 @@ class HarnessSettings:
             job_heartbeat_seconds=float(os.getenv("GPU_JOB_HEARTBEAT_SECONDS", "15")),
             job_max_attempts=int(os.getenv("GPU_JOB_MAX_ATTEMPTS", "3")),
             api_auth_mode=os.getenv("API_AUTH_MODE", "development").strip().lower(),
+            api_embedded_worker=_env_bool("API_EMBEDDED_WORKER", True),
             api_max_active_jobs_per_user=int(os.getenv("API_MAX_ACTIVE_JOBS_PER_USER", "10")),
             api_max_job_payload_bytes=int(os.getenv("API_MAX_JOB_PAYLOAD_BYTES", "65536")),
             api_max_request_body_bytes=int(os.getenv("API_MAX_REQUEST_BODY_BYTES", "131072")),

@@ -141,6 +141,22 @@ an API restart. PostgreSQL is also the global request-rate authority across API
 processes; development mode uses a bounded in-memory adapter with the same
 contract.
 
+The local quickstart keeps the scheduler embedded in the API. A service
+deployment separates the process roles while retaining PostgreSQL as the single
+durable queue and capacity authority:
+
+~~~dotenv
+API_EMBEDDED_WORKER=false
+~~~
+
+~~~shell
+uv run melqivra serve
+uv run melqivra worker
+~~~
+
+Multiple worker processes are safe, but the database capacity row still permits
+exactly one active GPU attempt in the reference deployment.
+
 Production artifact publication is available through the optional locked
 object-storage dependency set:
 
@@ -203,8 +219,10 @@ restore verifies all checksums, uploads immutable bytes before metadata, refuses
 non-empty targets, and supports an exact retry after interruption. See
 [`docs/development/service-backup-and-restore.md`](docs/development/service-backup-and-restore.md)
 for the archive contract, bounds, Docker client mode, recovery procedure, and
-post-restore checks. The full multi-process restart demo remains in-progress S07
-work.
+post-restore checks. The S07 multi-process proof is executable through
+`scripts/s07_service_recovery_demo.py`; it requires explicit disposable
+PostgreSQL/S3 test endpoints and is also run by the protected service-contract
+CI job.
 
 Submit a job:
 

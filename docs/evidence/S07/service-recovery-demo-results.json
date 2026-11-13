@@ -1,0 +1,59 @@
+{
+  "cleanup": {
+    "active_capacity_slots_after": 0,
+    "child_processes_after": 0,
+    "containers_after": 0,
+    "nonterminal_jobs_after": 0,
+    "volumes_after": 0
+  },
+  "command": "uv run --frozen python scripts/s07_service_recovery_demo.py",
+  "infrastructure": {
+    "minio_image": "alpine/minio@sha256:cf23643a6cf9ce159c57643ceb88279e431262282428c9e0bf3a7ef1a97e84b4",
+    "minio_license": "AGPL-3.0-only disposable test infrastructure",
+    "postgres_image": "postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065",
+    "postgres_version": "17.12"
+  },
+  "result": {
+    "api_processes_started": 2,
+    "api_worker_separated": true,
+    "artifact_sha256": "6c5d0c67176e5a08a851da88de4e815eab275a26e579b7103a28c1627e66f201",
+    "completion_order_preserved": true,
+    "job_count": 3,
+    "max_concurrent_attempts": 1,
+    "pre_worker_jobs_queued": true,
+    "recovered_attempt_outcomes": [
+      "lease_expired",
+      "succeeded"
+    ],
+    "sse_cursor_before_restart": 3,
+    "sse_resumed_event_types": [
+      "job.requeued",
+      "job.running",
+      "provider.stage",
+      "provider.stage",
+      "provider.stage",
+      "provider.stage",
+      "provider.stage",
+      "job.succeeded"
+    ],
+    "sse_sequences_contiguous_after_cursor": true,
+    "successful_attempts_per_job": [
+      1,
+      1,
+      1
+    ],
+    "tenant_artifact_isolation": true,
+    "tenant_count": 3,
+    "tenant_job_isolation": true,
+    "worker_crashes_injected": 1,
+    "worker_processes_started": 2
+  },
+  "schema_version": 1,
+  "service_contract": {
+    "combined_adapter_branch_coverage_percent": 81,
+    "tests_failed": 0,
+    "tests_passed": 49,
+    "tests_skipped": 0
+  },
+  "status": "passed"
+}

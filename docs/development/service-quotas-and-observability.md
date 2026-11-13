@@ -18,6 +18,11 @@ SQLite development mode uses a bounded, thread-safe in-memory adapter. It is not
 a cross-process production quota and is deliberately selected only with the
 development job authority.
 
+For a separated service deployment, set `API_EMBEDDED_WORKER=false`, run
+`melqivra serve` for the HTTP role, and run one or more `melqivra worker`
+processes. PostgreSQL still permits only one active reference-deployment attempt.
+The default remains `true` for the single-process local quickstart.
+
 The response contract uses the standard fields:
 
 - `RateLimit-Limit`: configured requests per window;

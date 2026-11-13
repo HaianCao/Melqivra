@@ -21,6 +21,7 @@ from agent_music.cli import (
     _doctor,
     _reconcile_artifacts,
     _restore_service,
+    _run_worker,
 )
 from agent_music.config import HarnessSettings
 from agent_music.service_backup import ServiceBackupReport, ServiceRestoreReport
@@ -51,10 +52,35 @@ class DoctorTests(unittest.TestCase):
             self.assertIn("job_lease_seconds=60.0", output.getvalue())
             self.assertIn("job_heartbeat_seconds=15.0", output.getvalue())
             self.assertIn("job_max_attempts=3", output.getvalue())
+            self.assertIn("api_embedded_worker=True", output.getvalue())
             self.assertIn("doctor=ok", output.getvalue())
             self.assertTrue((root / "state").is_dir())
             self.assertTrue((root / "artifacts").is_dir())
             self.assertTrue((root / "colab").is_dir())
+
+    def test_worker_command_owns_and_closes_one_harness(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = HarnessSettings(
+                database_path=root / "state" / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                runner="fake",
+                colab_cli_config=root / "colab" / "sessions.json",
+            )
+            output = io.StringIO()
+
+            async def run_worker() -> int:
+                stop = asyncio.Event()
+                stop.set()
+                return await _run_worker(settings, shutdown_event=stop)
+
+            with contextlib.redirect_stdout(output):
+                exit_code = asyncio.run(run_worker())
+
+            self.assertEqual(0, exit_code)
+            self.assertEqual("worker=ready", output.getvalue().strip())
+            self.assertTrue(settings.database_path.is_file())
 
     def test_colab_doctor_fails_cleanly_when_cli_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
