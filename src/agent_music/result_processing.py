@@ -81,6 +81,10 @@ class GenerationResultProcessor:
             "kind": job.kind,
             "generation": to_json_object(imported),
             "metrics": batch.metrics,
+            "runner_lifecycle": _json_object(
+                result.get("_lifecycle_metrics", {}),
+                "_lifecycle_metrics",
+            ),
         }
 
 

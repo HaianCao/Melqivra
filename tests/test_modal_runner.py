@@ -288,6 +288,11 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(RunnerState.READY, runner.state)
             self.assertIsNone(runner.session_name)
             self.assertEqual("succeeded", result["status"])
+            lifecycle = result["_lifecycle_metrics"]
+            self.assertEqual("modal", lifecycle["provider"])
+            self.assertEqual("cold", lifecycle["readiness"]["mode"])
+            self.assertGreaterEqual(lifecycle["execution_seconds"], 0.0)
+            self.assertGreaterEqual(lifecycle["total_seconds"], 0.0)
             self.assertEqual("submitting", events[0]["stage"])
             self.assertEqual("remote_started", events[1]["stage"])
             command_text = " ".join(part for command in client.commands for part in command)

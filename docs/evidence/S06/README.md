@@ -197,3 +197,17 @@ is reset on session loss or reclaim. Missing, stale, incomplete, corrupt, escape
 or duplicated cache entries fail explicitly. CPU fixtures prove descriptor,
 size, checksum, Drive-root, and once-per-session behavior; S01 remains the source
 of real Google Drive atomic population and cold-restore evidence.
+
+## Twelfth checkpoint: unified lifecycle metrics
+
+Every successful Modal and Colab runner result now carries one sanitized lifecycle
+record. It reports readiness mode and timing, CLI version/auth heartbeat timing,
+provision and Drive-mount timing where applicable, remote execution, result and
+artifact transfer, cache verification, total runner duration, and scheduler idle
+time before dispatch. The generation completion processor preserves this record
+beside backend inference metrics.
+
+Deterministic tests assert cold/attached readiness classification, non-negative
+provider timings, and exact fake-clock idle time. These fields provide the schema
+for the final real-provider cold/warm/recovery comparison without logging prompts,
+lyrics, local paths, credentials, or other private content.

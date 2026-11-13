@@ -142,6 +142,12 @@ class GpuHarness:
     async def _execute(self, job: GpuJob) -> None:
         if job.lease_token is None:
             raise RuntimeError("Claimed job has no fencing token")
+        idle_before_job = 0.0
+        if self._last_activity_monotonic is not None:
+            idle_before_job = max(
+                self._monotonic_clock() - self._last_activity_monotonic,
+                0.0,
+            )
         self._current_job_id = job.id
         self._touch_activity()
 
@@ -154,6 +160,10 @@ class GpuHarness:
                 self.runner.run(job, on_event),
                 timeout=self.settings.job_timeout_seconds,
             )
+            lifecycle = result.setdefault("_lifecycle_metrics", {})
+            if not isinstance(lifecycle, dict):
+                raise ValueError("Runner lifecycle metrics must be an object")
+            lifecycle["idle_before_job_seconds"] = idle_before_job
             latest = self.store.get(job.id)
             if latest.cancel_requested:
                 raise asyncio.CancelledError
