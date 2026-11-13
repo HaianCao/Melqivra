@@ -9,7 +9,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from agent_music.runners.colab_cli import ColabCliClient
+from agent_music.runners.colab_cli import (
+    ColabCliClient,
+    ColabCliCompatibilityError,
+    ColabCliFailureKind,
+    CommandResult,
+    classify_colab_failure,
+    validate_colab_cli_version,
+)
 
 
 class ColabCliClientTests(unittest.TestCase):
@@ -46,6 +53,27 @@ class ColabCliClientTests(unittest.TestCase):
         )
         self.assertIn(str(Path("/tmp/a file;not-shell.json")), argv)
         self.assertEqual("/content/job.json", argv[-1])
+
+    def test_failure_classification_is_explicit(self) -> None:
+        self.assertEqual(
+            ColabCliFailureKind.AUTHENTICATION,
+            classify_colab_failure(CommandResult(1, "", "OAuth token expired")),
+        )
+        self.assertEqual(
+            ColabCliFailureKind.SESSION_MISSING,
+            classify_colab_failure(CommandResult(1, "", "session not found")),
+        )
+        self.assertEqual(
+            ColabCliFailureKind.INCOMPATIBLE,
+            classify_colab_failure(CommandResult(2, "", "unknown command status")),
+        )
+
+    def test_version_contract_requires_exact_verified_release(self) -> None:
+        self.assertEqual("0.8.0", validate_colab_cli_version("colab 0.8.0", "0.8.0"))
+        with self.assertRaises(ColabCliCompatibilityError):
+            validate_colab_cli_version("colab 0.9.0", "0.8.0")
+        with self.assertRaises(ColabCliCompatibilityError):
+            validate_colab_cli_version("development build", "0.8.0")
 
 
 class ColabCliCancellationTests(unittest.IsolatedAsyncioTestCase):

@@ -179,7 +179,7 @@ GPU_RUNNER=colab
 Install and authenticate the official CLI in Linux/WSL:
 
 ~~~shell
-uv tool install google-colab-cli
+uv tool install google-colab-cli==0.8.0
 colab version
 colab new -s smoke --gpu T4
 colab stop -s smoke
@@ -191,6 +191,7 @@ Copy .env.example to .env, then set:
 GPU_RUNNER=colab
 GPU_MAX_CONCURRENCY=1
 GPU_IDLE_TIMEOUT_SECONDS=300
+COLAB_CLI_VERSION=0.8.0
 COLAB_SESSION_NAME=melqivra-t4
 COLAB_GPU=T4
 COLAB_AUTH_PROVIDER=oauth2

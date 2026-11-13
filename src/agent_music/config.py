@@ -44,6 +44,7 @@ class HarnessSettings:
     modal_command_timeout_seconds: float = 1_800.0
 
     colab_executable: str = "colab"
+    colab_cli_version: str = "0.8.0"
     colab_session_name: str = "melqivra-t4"
     colab_gpu: str = "T4"
     colab_auth_provider: str = "oauth2"
@@ -81,6 +82,7 @@ class HarnessSettings:
             modal_artifact_prefix=os.getenv("MODAL_ARTIFACT_PREFIX", "runs").strip("/"),
             modal_command_timeout_seconds=float(os.getenv("MODAL_COMMAND_TIMEOUT_SECONDS", "1800")),
             colab_executable=os.getenv("COLAB_EXECUTABLE", "colab"),
+            colab_cli_version=os.getenv("COLAB_CLI_VERSION", "0.8.0").strip(),
             colab_session_name=os.getenv("COLAB_SESSION_NAME", "melqivra-t4"),
             colab_gpu=os.getenv("COLAB_GPU", "T4"),
             colab_auth_provider=os.getenv("COLAB_AUTH_PROVIDER", "oauth2"),
@@ -135,6 +137,8 @@ class HarnessSettings:
             )
         if self.colab_command_timeout_seconds <= 0:
             raise ValueError("COLAB_COMMAND_TIMEOUT_SECONDS must be positive")
+        if not self.colab_cli_version:
+            raise ValueError("COLAB_CLI_VERSION must not be empty")
 
     def ensure_directories(self) -> None:
         """Create local state directories."""

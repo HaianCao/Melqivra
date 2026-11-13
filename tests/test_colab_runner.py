@@ -12,7 +12,12 @@ from pathlib import Path
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, JobState, RunnerState
 from agent_music.runners.colab import ColabRunner
-from agent_music.runners.colab_cli import ColabCliError, CommandResult
+from agent_music.runners.colab_cli import (
+    ColabCliCompatibilityError,
+    ColabCliError,
+    ColabCliFailureKind,
+    CommandResult,
+)
 from agent_music.scheduler import GpuHarness
 
 
@@ -31,6 +36,9 @@ class BlockingColabClient:
 
     def status_argv(self, session_name: str) -> list[str]:
         return ["status", session_name]
+
+    def version_argv(self) -> list[str]:
+        return ["version"]
 
     def new_argv(self, session_name: str, gpu: str) -> list[str]:
         return ["new", session_name, gpu]
@@ -58,6 +66,8 @@ class BlockingColabClient:
         on_stdout: object | None = None,
     ) -> CommandResult:
         del check, on_stdout
+        if argv[0] == "version":
+            return CommandResult(0, "colab 0.8.0", "")
         if argv[0] == "exec":
             self.exec_started.set()
             await self.cancelled.wait()
@@ -69,9 +79,21 @@ class BlockingColabClient:
 
 
 class ProvisioningColabClient(BlockingColabClient):
-    def __init__(self, *, status_returncodes: tuple[int, ...] = (1,)) -> None:
+    def __init__(
+        self,
+        *,
+        status_returncodes: tuple[int, ...] = (1,),
+        status_stderr: tuple[str, ...] | None = None,
+        version_output: str = "colab 0.8.0",
+    ) -> None:
         super().__init__()
         self.status_returncodes = list(status_returncodes)
+        self.status_stderr = list(
+            status_stderr
+            if status_stderr is not None
+            else tuple("" if code == 0 else "session not found" for code in status_returncodes)
+        )
+        self.version_output = version_output
         self.status_started = asyncio.Event()
         self.release_status = asyncio.Event()
         self.commands: list[str] = []
@@ -85,11 +107,14 @@ class ProvisioningColabClient(BlockingColabClient):
     ) -> CommandResult:
         del check, on_stdout
         self.commands.append(argv[0])
+        if argv[0] == "version":
+            return CommandResult(0, self.version_output, "")
         if argv[0] == "status":
             self.status_started.set()
             await self.release_status.wait()
             returncode = self.status_returncodes.pop(0)
-            return CommandResult(returncode, "", "")
+            stderr = self.status_stderr.pop(0)
+            return CommandResult(returncode, "", stderr)
         return CommandResult(0, "", "")
 
 
@@ -145,14 +170,17 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
             client.release_status.set()
             await asyncio.gather(first, second)
 
-            self.assertEqual(["status", "new", "drivemount"], client.commands)
+            self.assertEqual(["version", "status", "new", "drivemount"], client.commands)
             self.assertEqual(RunnerState.READY, runner.state)
             self.assertEqual(settings.colab_session_name, runner.session_name)
 
             await runner.stop()
             self.assertEqual(RunnerState.RECLAIMED, runner.state)
             self.assertIsNone(runner.session_name)
-            self.assertEqual(["status", "new", "drivemount", "stop"], client.commands)
+            self.assertEqual(
+                ["version", "status", "new", "drivemount", "stop"],
+                client.commands,
+            )
 
     async def test_ready_heartbeat_recovers_one_lost_session(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -170,14 +198,58 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
             runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
 
             await runner.ensure_ready()
-            self.assertEqual(["status"], client.commands)
+            self.assertEqual(["version", "status"], client.commands)
             self.assertEqual(RunnerState.READY, runner.state)
 
             await asyncio.gather(runner.ensure_ready(), runner.ensure_ready())
 
-            self.assertEqual(["status", "status", "new"], client.commands)
+            self.assertEqual(["version", "status", "status", "new"], client.commands)
             self.assertEqual(RunnerState.READY, runner.state)
             self.assertEqual(settings.colab_session_name, runner.session_name)
+
+    async def test_expired_auth_fails_without_attempting_new_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_mount_drive=False,
+            )
+            client = ProvisioningColabClient(status_stderr=("OAuth token expired",))
+            client.release_status.set()
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+
+            with self.assertRaises(ColabCliError) as captured:
+                await runner.ensure_ready()
+
+            self.assertEqual(ColabCliFailureKind.AUTHENTICATION, captured.exception.kind)
+            self.assertEqual(["version", "status"], client.commands)
+            self.assertEqual(RunnerState.FAILED, runner.state)
+            self.assertIsNone(runner.session_name)
+
+    async def test_incompatible_cli_fails_before_session_lookup(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_mount_drive=False,
+            )
+            client = ProvisioningColabClient(version_output="colab 0.9.0")
+            client.release_status.set()
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+
+            with self.assertRaises(ColabCliCompatibilityError):
+                await runner.ensure_ready()
+
+            self.assertEqual(["version"], client.commands)
+            self.assertEqual(RunnerState.FAILED, runner.state)
 
     async def test_stop_drains_active_job_before_reclaiming_session(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

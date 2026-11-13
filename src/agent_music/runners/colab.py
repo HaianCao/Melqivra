@@ -12,7 +12,12 @@ from typing import Any, ClassVar
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, RunnerState
 from agent_music.runners.base import EventCallback, GpuRunner
-from agent_music.runners.colab_cli import ColabCliClient, ColabCliError
+from agent_music.runners.colab_cli import (
+    ColabCliClient,
+    ColabCliError,
+    ColabCliFailureKind,
+    validate_colab_cli_version,
+)
 
 
 class ColabRunner(GpuRunner):
@@ -41,6 +46,7 @@ class ColabRunner(GpuRunner):
         )
         self._state = RunnerState.ABSENT
         self._session_present = False
+        self._preflight_complete = False
         self._provision_guard = asyncio.Lock()
         self._provision_task: asyncio.Task[None] | None = None
         self._stop_guard = asyncio.Lock()
@@ -196,6 +202,10 @@ class ColabRunner(GpuRunner):
 
     async def _provision(self) -> None:
         try:
+            if not self._preflight_complete:
+                version = await self._client.run(self._client.version_argv())
+                validate_colab_cli_version(version.stdout, self._settings.colab_cli_version)
+                self._preflight_complete = True
             status = await self._client.run(
                 self._client.status_argv(self._settings.colab_session_name),
                 check=False,
@@ -203,6 +213,12 @@ class ColabRunner(GpuRunner):
             if status.returncode == 0:
                 self._session_present = True
             else:
+                status_error = ColabCliError(
+                    self._client.status_argv(self._settings.colab_session_name),
+                    status,
+                )
+                if status_error.kind != ColabCliFailureKind.SESSION_MISSING:
+                    raise status_error
                 self._session_present = False
                 self._state = RunnerState.PROVISIONING
                 await self._client.run(

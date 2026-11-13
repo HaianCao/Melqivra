@@ -8,7 +8,11 @@ import shutil
 import sys
 
 from agent_music.config import HarnessSettings
-from agent_music.runners.colab_cli import ColabCliClient
+from agent_music.runners.colab_cli import (
+    ColabCliClient,
+    ColabCliCompatibilityError,
+    validate_colab_cli_version,
+)
 from agent_music.runners.modal_cli import ModalCliClient
 
 
@@ -72,21 +76,19 @@ async def _doctor(settings: HarnessSettings) -> int:
             config_path=settings.colab_cli_config,
             timeout_seconds=settings.colab_command_timeout_seconds,
         )
-        result = await colab_client.run(
-            [
-                executable,
-                "--auth",
-                settings.colab_auth_provider,
-                "--config",
-                str(settings.colab_cli_config),
-                "version",
-            ],
-            check=False,
-        )
+        result = await colab_client.run(colab_client.version_argv(), check=False)
         if result.returncode != 0:
             print(f"ERROR: {result.stderr}", file=sys.stderr)
             return 1
-        print(result.stdout)
+        try:
+            observed_version = validate_colab_cli_version(
+                result.stdout,
+                settings.colab_cli_version,
+            )
+        except ColabCliCompatibilityError as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+        print(f"colab_cli_version={observed_version}")
     print("doctor=ok")
     return 0
 
