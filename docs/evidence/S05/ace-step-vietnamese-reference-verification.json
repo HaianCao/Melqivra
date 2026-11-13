@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-13",
+  "run_id": "ace-vi-ref-20261113-a",
+  "passed": true,
+  "source_revision": "44c15413f6dc9b55acfbd214209dbb6c0aac74b9",
+  "provider": "modal",
+  "gpu_name": "Tesla T4",
+  "requested_precision": "float32",
+  "observed_precision": "float32",
+  "reference_audio_sha256": "6a8c6d8dcafea6f74571a4d498f9bcace80b7bc5ee2229d628dd9d1a186997dd",
+  "artifact": {
+    "sha256": "f113ef826105108f531a8db7d0fb57f2eaaf8774169b599d0f711cd1562e6da2",
+    "size_bytes": 3840078,
+    "validation": {
+      "absolute_peak": 0.891265869140625,
+      "channels": 2,
+      "clipped": false,
+      "duration_matches": true,
+      "duration_seconds": 20.0,
+      "finite_samples": true,
+      "passed": true,
+      "sample_rate_hz": 48000,
+      "sample_width_bytes": 2,
+      "silent": false
+    }
+  },
+  "download": {
+    "individual_file_transfer_used": true,
+    "remote_sha256_matched": true,
+    "private_audio_committed": false
+  }
+}

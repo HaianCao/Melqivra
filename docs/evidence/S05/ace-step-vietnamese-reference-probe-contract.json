@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-11-13",
-  "status": "prepared_not_authorized",
+  "status": "succeeded",
   "purpose": "Smallest bounded diagnostic of the former Colab Vietnamese reference-vocal path on a reproducible T4 backend pin",
   "authorization": {
-    "gpu_execution_approved": false,
-    "reference_media_reuse_approved": false,
+    "gpu_execution_approved": true,
+    "reference_media_reuse_approved": true,
     "required_before_run": [
       "client confirms ownership or sufficient rights and consent for the reference voice and media",
       "client approves the exact T4 time and provider cost ceiling",
@@ -90,7 +90,8 @@
       "max_transfer_bytes": 10000000
     },
     "estimated_max_metered_usd": 0.189149,
-    "approved_max_metered_usd": null,
-    "execution_must_remain_blocked_while_null": true
-  }
+    "approved_max_metered_usd": 0.2,
+    "execution_must_remain_blocked_while_null": false
+  },
+  "outcome": "ace-step-vietnamese-reference-t4-run.json"
 }
