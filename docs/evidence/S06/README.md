@@ -154,3 +154,17 @@ SQLite control plane, and starts a fresh harness on the same database. Startup
 requeues the interrupted job, claims it under a new fencing token, and completes
 it exactly once. These tests use FakeRunner and do not substitute for real Modal
 or Colab reclaim timing evidence.
+
+## Ninth checkpoint: Colab checksum transfer publication
+
+Colab `music.generate` results now declare safe relative artifact paths together
+with exact byte lengths and SHA-256 digests. The runner downloads each file into
+a job-scoped temporary directory, independently verifies it, and atomically
+publishes the complete batch under the same deterministic transfer-ID convention
+used by Modal. Existing batches are reverified on idempotent replay.
+
+Path traversal, duplicate paths, malformed checksums, missing files, size drift,
+and checksum drift fail before publication. A corruption regression proves a
+tampered download leaves no partial transfer directory, while a successful retry
+returns the same stable transfer ID and provider metadata. Real Colab transfer
+timing remains part of the final provider evidence.

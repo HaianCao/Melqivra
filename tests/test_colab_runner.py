@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import tempfile
 import time
 import unittest
@@ -143,6 +145,55 @@ class DrainingColabClient(BlockingColabClient):
         self.cancel_started.set()
         await self.release_cancel.wait()
         self.cancelled.set()
+
+
+class ArtifactColabClient(BlockingColabClient):
+    def __init__(self, *, tamper_download: bool = False) -> None:
+        super().__init__()
+        self.expected_audio = b"RIFF-colab-private"
+        self.tamper_download = tamper_download
+
+    async def run(
+        self,
+        argv: list[str],
+        *,
+        check: bool = True,
+        on_stdout: object | None = None,
+    ) -> CommandResult:
+        del check, on_stdout
+        if argv[0] == "version":
+            return CommandResult(0, "colab 0.8.0", "")
+        if argv[0] in {"status", "upload", "exec", "stop"}:
+            return CommandResult(0, "", "")
+        if argv[0] == "download":
+            remote_path = argv[2]
+            local_path = Path(argv[3])
+            await asyncio.to_thread(local_path.parent.mkdir, parents=True, exist_ok=True)
+            if remote_path.endswith("agent_music_result.json"):
+                await asyncio.to_thread(
+                    local_path.write_text,
+                    json.dumps(
+                        {
+                            "status": "succeeded",
+                            "job_id": "job-colab-artifact",
+                            "result": {
+                                "artifacts": [
+                                    {
+                                        "relative_path": "request/take.wav",
+                                        "size_bytes": len(self.expected_audio),
+                                        "sha256": hashlib.sha256(self.expected_audio).hexdigest(),
+                                    }
+                                ]
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            else:
+                payload = b"tampered" if self.tamper_download else self.expected_audio
+                await asyncio.to_thread(local_path.write_bytes, payload)
+            return CommandResult(0, "", "")
+        raise AssertionError(f"Unexpected command: {argv}")
 
 
 class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
@@ -365,6 +416,79 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual("Job cancelled", harness.store.get(job.id).error)
             finally:
                 await harness.close()
+
+    async def test_music_artifacts_are_checksummed_before_atomic_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            worker = root / "worker.py"
+            worker.write_text("# worker\n", encoding="utf-8")
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_remote_worker_file=worker,
+                colab_mount_drive=False,
+            )
+            client = ArtifactColabClient()
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+            await runner.ensure_ready()
+            job = GpuJob(
+                id="job-colab-artifact",
+                user_id="user",
+                kind="music.generate",
+                payload={"generation_request": {}},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+
+            result = await runner.run(job, self._ignore_event)
+
+            transfer = settings.transfer_root / str(result["_transfer_id"])
+            self.assertEqual(
+                client.expected_audio,
+                (transfer / "request" / "take.wav").read_bytes(),
+            )
+            self.assertEqual("colab", result["_environment"]["provider"])
+
+            repeated = await runner.run(job, self._ignore_event)
+            self.assertEqual(result["_transfer_id"], repeated["_transfer_id"])
+
+    async def test_tampered_colab_transfer_exposes_no_partial_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            worker = root / "worker.py"
+            worker.write_text("# worker\n", encoding="utf-8")
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_remote_worker_file=worker,
+                colab_mount_drive=False,
+            )
+            client = ArtifactColabClient(tamper_download=True)
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+            await runner.ensure_ready()
+            job = GpuJob(
+                id="job-colab-artifact",
+                user_id="user",
+                kind="music.generate",
+                payload={"generation_request": {}},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+
+            with self.assertRaisesRegex(ValueError, "size mismatch"):
+                await runner.run(job, self._ignore_event)
+
+            self.assertEqual([], list(settings.transfer_root.iterdir()))
 
     @staticmethod
     async def _ignore_event(event: dict[str, object]) -> None:
