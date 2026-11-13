@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -45,6 +46,28 @@ class ColabCliClientTests(unittest.TestCase):
         )
         self.assertIn(str(Path("/tmp/a file;not-shell.json")), argv)
         self.assertEqual("/content/job.json", argv[-1])
+
+
+class ColabCliCancellationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancel_current_interrupts_the_active_process(self) -> None:
+        client = ColabCliClient(
+            executable="colab",
+            auth_provider="oauth2",
+            config_path=Path("/state/sessions.json"),
+            timeout_seconds=30,
+        )
+        task = asyncio.create_task(
+            client.run(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                check=False,
+            )
+        )
+        await asyncio.sleep(0.1)
+
+        await client.cancel_current()
+        result = await asyncio.wait_for(task, timeout=5.0)
+
+        self.assertNotEqual(0, result.returncode)
 
 
 if __name__ == "__main__":

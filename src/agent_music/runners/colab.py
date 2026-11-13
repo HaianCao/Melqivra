@@ -11,7 +11,7 @@ from typing import Any
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, RunnerState
 from agent_music.runners.base import EventCallback, GpuRunner
-from agent_music.runners.colab_cli import ColabCliClient
+from agent_music.runners.colab_cli import ColabCliClient, ColabCliError
 
 
 class ColabRunner(GpuRunner):
@@ -116,13 +116,18 @@ class ColabRunner(GpuRunner):
                     if isinstance(event, dict):
                         await on_event(event)
 
-                await self._client.run(
-                    self._client.exec_file_argv(
-                        self._settings.colab_session_name,
-                        worker_file,
-                    ),
-                    on_stdout=forward_line,
-                )
+                try:
+                    await self._client.run(
+                        self._client.exec_file_argv(
+                            self._settings.colab_session_name,
+                            worker_file,
+                        ),
+                        on_stdout=forward_line,
+                    )
+                except ColabCliError:
+                    if job.id in self._cancel_requested:
+                        raise asyncio.CancelledError from None
+                    raise
                 if job.id in self._cancel_requested:
                     raise asyncio.CancelledError
 
@@ -140,14 +145,13 @@ class ColabRunner(GpuRunner):
                     raise RuntimeError(str(result.get("error", "Remote job failed")))
                 return result
         finally:
+            self._cancel_requested.discard(job.id)
             if self._state != RunnerState.FAILED:
                 self._state = RunnerState.READY
 
     async def cancel(self, job_id: str) -> None:
-        # Colab exec does not currently expose a per-execution cancellation API.
-        # Marking the job prevents a successful local commit. A future persistent
-        # remote worker can consume a cancellation marker cooperatively.
         self._cancel_requested.add(job_id)
+        await self._client.cancel_current()
 
     async def stop(self) -> None:
         if self._state == RunnerState.STOPPED:
