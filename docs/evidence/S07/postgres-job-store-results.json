@@ -29,6 +29,9 @@
     ]
   },
   "attempt_policy": {
+    "ci_pr_run": 43443849360,
+    "ci_push_run": 43443842155,
+    "commit": "79db7ed0cbc15788888c71e61f76f2af016be55f",
     "configuration": "GPU_JOB_MAX_ATTEMPTS",
     "default_max_attempts": 3,
     "exhausted_state": "dead_lettered",
