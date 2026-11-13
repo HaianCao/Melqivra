@@ -57,6 +57,11 @@ POSTGRES_MIGRATIONS = (
         name="job_attempt_history",
         resource="migrations/postgresql/0003_job_attempt_history.sql",
     ),
+    PostgresMigration(
+        version=4,
+        name="project_revisions",
+        resource="migrations/postgresql/0004_project_revisions.sql",
+    ),
 )
 
 PostgresConnection = Connection[dict[str, Any]]

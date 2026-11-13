@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 from agent_music.domain import (
     DocumentType,
@@ -35,6 +35,67 @@ class RevisionConflictError(RuntimeError):
 
 class CorruptRevisionError(RuntimeError):
     """Stored revision content no longer matches its checksum."""
+
+
+class ProjectRepository(Protocol):
+    """Tenant-scoped authority for projects and immutable document revisions."""
+
+    def close(self) -> None: ...
+
+    def create_project(
+        self,
+        *,
+        owner_id: UserId,
+        title: str,
+        project_id: ProjectId | None = None,
+        created_at: float | None = None,
+    ) -> Project: ...
+
+    def get_project(self, *, owner_id: UserId, project_id: ProjectId) -> Project: ...
+
+    def commit_revision(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        document_type: DocumentType,
+        payload: Mapping[str, JsonValue],
+        expected_working_revision_id: RevisionId | None,
+        actor: str,
+        reason: str,
+        revision_id: RevisionId | None = None,
+        created_at: float | None = None,
+    ) -> Revision: ...
+
+    def accept_revision(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        document_type: DocumentType,
+        revision_id: RevisionId,
+        expected_working_revision_id: RevisionId,
+    ) -> ProjectIndex: ...
+
+    def get_revision(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        revision_id: RevisionId,
+    ) -> Revision: ...
+
+    def revision_payload(self, revision: Revision) -> JsonObject: ...
+
+    def list_revisions(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        document_type: DocumentType,
+    ) -> tuple[Revision, ...]: ...
+
+    def get_index(self, *, owner_id: UserId, project_id: ProjectId) -> ProjectIndex: ...
 
 
 def canonical_json(payload: Mapping[str, JsonValue]) -> str:

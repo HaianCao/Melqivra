@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from agent_music.domain import DocumentType, JsonObject, JsonValue, ProjectId, RevisionId, UserId
-from agent_music.project_store import SqliteProjectRepository, canonical_json, content_checksum
+from agent_music.project_store import ProjectRepository, canonical_json, content_checksum
 
 ARCHIVE_VERSION = 1
 MANIFEST_NAME = "project.json"
@@ -20,7 +20,7 @@ class InvalidProjectArchiveError(ValueError):
 
 
 def export_project_archive(
-    repository: SqliteProjectRepository,
+    repository: ProjectRepository,
     *,
     owner_id: UserId,
     project_id: ProjectId,
@@ -80,7 +80,7 @@ def export_project_archive(
 
 
 def import_project_archive(
-    repository: SqliteProjectRepository,
+    repository: ProjectRepository,
     *,
     owner_id: UserId,
     source: Path,

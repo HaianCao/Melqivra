@@ -19,13 +19,15 @@
     "canonical_sha256_by_version": {
       "1": "9ebe14df2d5bad6dff3cc7cff07f3d93299f68019726d631b6d09e61c1158149",
       "2": "f234f2ff8ad1af4881ebf4a937076e61ca969536339cfe6277fd57527cf65876",
-      "3": "ff2a956f2d2b635f9df7854a766a6cc65f3993e77e5961b4a309cc79c22cf70e"
+      "3": "ff2a956f2d2b635f9df7854a766a6cc65f3993e77e5961b4a309cc79c22cf70e",
+      "4": "121232d5ae4a6ae554e8081deefb7cc9649002b194c1dfa6aa5e1e08fa37b59d"
     },
     "packaged_in_wheel": true,
     "versions": [
       1,
       2,
-      3
+      3,
+      4
     ]
   },
   "attempt_policy": {
@@ -62,19 +64,27 @@
   },
   "postgres_contract": {
     "branch_coverage_percent": 80,
-    "command": "coverage run --branch --source=agent_music.postgres_store -m unittest tests.test_postgres_store -v",
+    "command": "coverage run --branch --source=agent_music.postgres_store,agent_music.postgres_project_store -m unittest tests.test_postgres_store tests.test_postgres_project_store -v",
     "failed": 0,
-    "passed": 10
+    "passed": 15
+  },
+  "project_revision_policy": {
+    "adapter": "PostgresProjectRepository",
+    "competing_writer_winners": 1,
+    "immutable_revision_trigger": true,
+    "project_specific_contracts_passed": 5,
+    "repository_port": "ProjectRepository",
+    "tenant_non_disclosure": true
   },
   "recorded_at": "2026-11-13",
   "schema_version": 1,
   "standard_gate": {
     "critical_branch_coverage_percent": 84,
-    "discovered_tests": 229,
+    "discovered_tests": 234,
     "failed": 0,
-    "mypy_source_files": 62,
+    "mypy_source_files": 63,
     "passed": 219,
-    "postgres_skipped_without_dsn": 10
+    "postgres_skipped_without_dsn": 15
   },
   "status": "passed"
 }
