@@ -38,6 +38,7 @@ class HarnessSettingsTests(unittest.TestCase):
             "GPU_RUNNER": "COLAB",
             "GPU_MAX_CONCURRENCY": "1",
             "GPU_IDLE_TIMEOUT_SECONDS": "301",
+            "MODAL_CLI_VERSION": "1.6.3",
             "COLAB_CLI_VERSION": "0.8.0",
             "COLAB_MOUNT_DRIVE": "off",
         }
@@ -46,6 +47,7 @@ class HarnessSettingsTests(unittest.TestCase):
 
         self.assertEqual("colab", settings.runner)
         self.assertEqual(301.0, settings.idle_timeout_seconds)
+        self.assertEqual("1.6.3", settings.modal_cli_version)
         self.assertFalse(settings.colab_mount_drive)
         self.assertEqual("0.8.0", settings.colab_cli_version)
         self.assertEqual("melqivra-t4", settings.colab_session_name)
@@ -61,6 +63,7 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(scheduler_poll_seconds=0),
             HarnessSettings(job_timeout_seconds=0),
             HarnessSettings(modal_command_timeout_seconds=0),
+            HarnessSettings(modal_cli_version=""),
             HarnessSettings(modal_app_name="Invalid_Name"),
             HarnessSettings(colab_command_timeout_seconds=0),
             HarnessSettings(colab_cli_version=""),

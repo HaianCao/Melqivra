@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -15,11 +16,18 @@ from typing import Any, Protocol
 from agent_music.config import HarnessSettings
 from agent_music.models import GpuJob, RunnerState
 from agent_music.runners.base import EventCallback, GpuRunner
-from agent_music.runners.modal_cli import CommandResult, LineCallback, ModalCliClient
+from agent_music.runners.modal_cli import (
+    CommandResult,
+    LineCallback,
+    ModalCliClient,
+    validate_modal_cli_version,
+)
 
 
 class ModalClient(Protocol):
     """Minimal client boundary used by the Modal runner and deterministic tests."""
+
+    def version_argv(self) -> list[str]: ...
 
     def token_info_argv(self) -> list[str]: ...
 
@@ -65,7 +73,10 @@ class ModalRunner(GpuRunner):
             app_name=settings.modal_app_name,
             timeout_seconds=settings.modal_command_timeout_seconds,
         )
-        self._state = RunnerState.STOPPED
+        self._state = RunnerState.ABSENT
+        self._preflight_complete = False
+        self._readiness_guard = asyncio.Lock()
+        self._readiness_task: asyncio.Task[None] | None = None
         self._cancel_requested: set[str] = set()
 
     @property
@@ -79,17 +90,27 @@ class ModalRunner(GpuRunner):
         return self._settings.modal_app_name
 
     async def ensure_ready(self) -> None:
-        if self._state in {RunnerState.READY, RunnerState.BUSY}:
-            return
-        if not self._settings.modal_runner_file.is_file():
-            raise FileNotFoundError(self._settings.modal_runner_file)
-        self._state = RunnerState.STARTING
-        try:
-            await self._client.run(self._client.token_info_argv())
-            self._state = RunnerState.READY
-        except BaseException:
-            self._state = RunnerState.FAILED
-            raise
+        async with self._readiness_guard:
+            if self._state == RunnerState.BUSY:
+                return
+            task = self._readiness_task
+            if task is None:
+                if self._state not in {
+                    RunnerState.ABSENT,
+                    RunnerState.READY,
+                    RunnerState.RECLAIMED,
+                    RunnerState.FAILED,
+                }:
+                    raise RuntimeError(f"Cannot reconcile Modal runner from {self._state}")
+                if self._state != RunnerState.READY:
+                    self._state = RunnerState.PROVISIONING
+                task = asyncio.create_task(
+                    self._reconcile_readiness(),
+                    name="melqivra-modal-readiness",
+                )
+                self._readiness_task = task
+
+        await asyncio.shield(task)
 
     async def run(self, job: GpuJob, on_event: EventCallback) -> dict[str, Any]:
         if self._state != RunnerState.READY:
@@ -164,14 +185,38 @@ class ModalRunner(GpuRunner):
         await self._client.run(self._client.stop_argv(), check=False)
 
     async def stop(self) -> None:
-        if self._state == RunnerState.STOPPED:
+        async with self._readiness_guard:
+            readiness_task = self._readiness_task
+        if readiness_task is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(readiness_task)
+        if self._state in {RunnerState.ABSENT, RunnerState.RECLAIMED}:
             return
         self._state = RunnerState.STOPPING
         try:
             await self._client.cancel_current()
             await self._client.run(self._client.stop_argv(), check=False)
         finally:
-            self._state = RunnerState.STOPPED
+            self._state = RunnerState.RECLAIMED
+
+    async def _reconcile_readiness(self) -> None:
+        try:
+            if not self._settings.modal_runner_file.is_file():
+                raise FileNotFoundError(self._settings.modal_runner_file)
+            if not self._preflight_complete:
+                version = await self._client.run(self._client.version_argv())
+                validate_modal_cli_version(version.stdout, self._settings.modal_cli_version)
+                self._preflight_complete = True
+            await self._client.run(self._client.token_info_argv())
+            self._state = RunnerState.READY
+        except BaseException:
+            self._state = RunnerState.FAILED
+            raise
+        finally:
+            current_task = asyncio.current_task()
+            async with self._readiness_guard:
+                if self._readiness_task is current_task:
+                    self._readiness_task = None
 
     async def _download_artifacts(self, job: GpuJob, result: dict[str, Any]) -> str:
         if not self._settings.modal_artifact_volume:

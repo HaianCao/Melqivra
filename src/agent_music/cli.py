@@ -13,7 +13,11 @@ from agent_music.runners.colab_cli import (
     ColabCliCompatibilityError,
     validate_colab_cli_version,
 )
-from agent_music.runners.modal_cli import ModalCliClient
+from agent_music.runners.modal_cli import (
+    ModalCliClient,
+    ModalCliCompatibilityError,
+    validate_modal_cli_version,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -54,11 +58,19 @@ async def _doctor(settings: HarnessSettings) -> int:
         if version.returncode != 0:
             print(f"ERROR: {version.stderr}", file=sys.stderr)
             return 1
+        try:
+            observed_version = validate_modal_cli_version(
+                version.stdout,
+                settings.modal_cli_version,
+            )
+        except ModalCliCompatibilityError as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
         token = await modal_client.run(modal_client.token_info_argv(), check=False)
         if token.returncode != 0:
             print("ERROR: Modal authentication is not available", file=sys.stderr)
             return 1
-        print(version.stdout)
+        print(f"modal_cli_version={observed_version}")
     if settings.runner == "colab":
         if not settings.colab_remote_worker_file.is_file():
             print(

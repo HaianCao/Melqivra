@@ -5,12 +5,24 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import signal
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 LineCallback = Callable[[str], Awaitable[None]]
+_VERSION_PATTERN = re.compile(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)")
+
+
+class ModalCliFailureKind(StrEnum):
+    """Actionable failure classes from the official Modal CLI."""
+
+    AUTHENTICATION = "authentication"
+    INCOMPATIBLE = "incompatible"
+    APP_MISSING = "app_missing"
+    COMMAND = "command"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,13 +38,64 @@ class ModalCliError(RuntimeError):
     """A Modal CLI command failed without exposing job content."""
 
     def __init__(self, argv: Sequence[str], result: CommandResult) -> None:
+        self.kind = classify_modal_failure(result)
         safe_command = " ".join(argv[:4])
         super().__init__(
-            f"Modal CLI command failed ({result.returncode}): {safe_command}; "
+            f"Modal CLI {self.kind} failure ({result.returncode}): {safe_command}; "
             f"stderr={result.stderr[-1000:]}"
         )
         self.argv = tuple(argv)
         self.result = result
+
+
+class ModalCliCompatibilityError(RuntimeError):
+    """The installed official CLI does not match the verified contract."""
+
+
+def classify_modal_failure(result: CommandResult) -> ModalCliFailureKind:
+    """Classify known Modal failures without authorizing fallback."""
+
+    output = f"{result.stdout}\n{result.stderr}".casefold()
+    auth_markers = (
+        "authentication",
+        "credential",
+        "forbidden",
+        "not authenticated",
+        "token expired",
+        "unauthorized",
+    )
+    if any(marker in output for marker in auth_markers):
+        return ModalCliFailureKind.AUTHENTICATION
+    incompatible_markers = (
+        "incompatible",
+        "no such option",
+        "unknown command",
+        "unsupported version",
+    )
+    if any(marker in output for marker in incompatible_markers):
+        return ModalCliFailureKind.INCOMPATIBLE
+    app_missing_markers = (
+        "app does not exist",
+        "app not found",
+        "no app named",
+    )
+    if any(marker in output for marker in app_missing_markers):
+        return ModalCliFailureKind.APP_MISSING
+    return ModalCliFailureKind.COMMAND
+
+
+def validate_modal_cli_version(output: str, expected: str) -> str:
+    """Return the observed semantic version or reject an unverified CLI."""
+
+    match = _VERSION_PATTERN.search(output)
+    if match is None:
+        raise ModalCliCompatibilityError("Modal CLI version output is unrecognized")
+    observed = match.group(1)
+    if observed != expected:
+        raise ModalCliCompatibilityError(
+            f"Modal CLI {observed} is incompatible; expected exactly {expected}"
+        )
+    return observed
 
 
 class ModalCliClient:

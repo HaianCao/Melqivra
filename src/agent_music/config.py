@@ -36,6 +36,7 @@ class HarnessSettings:
     job_timeout_seconds: float = 1_800.0
 
     modal_executable: str = "modal"
+    modal_cli_version: str = "1.6.3"
     modal_app_name: str = "melqivra-gpu-runner"
     modal_runner_file: Path = DEFAULT_MODAL_RUNNER_FILE
     modal_remote_output_root: str = "/tmp/agent_music_output"
@@ -73,6 +74,7 @@ class HarnessSettings:
             scheduler_poll_seconds=float(os.getenv("GPU_SCHEDULER_POLL_SECONDS", "0.5")),
             job_timeout_seconds=float(os.getenv("GPU_JOB_TIMEOUT_SECONDS", "1800")),
             modal_executable=os.getenv("MODAL_EXECUTABLE", "modal"),
+            modal_cli_version=os.getenv("MODAL_CLI_VERSION", "1.6.3").strip(),
             modal_app_name=os.getenv("MODAL_APP_NAME", "melqivra-gpu-runner"),
             modal_runner_file=Path(os.getenv("MODAL_RUNNER_FILE", str(DEFAULT_MODAL_RUNNER_FILE))),
             modal_remote_output_root=os.getenv(
@@ -125,6 +127,8 @@ class HarnessSettings:
             raise ValueError("GPU_JOB_TIMEOUT_SECONDS must be positive")
         if self.modal_command_timeout_seconds <= 0:
             raise ValueError("MODAL_COMMAND_TIMEOUT_SECONDS must be positive")
+        if not self.modal_cli_version:
+            raise ValueError("MODAL_CLI_VERSION must not be empty")
         modal_prefix_parts = self.modal_artifact_prefix.replace("\\", "/").split("/")
         if any(part in {"", ".", ".."} for part in modal_prefix_parts):
             raise ValueError("MODAL_ARTIFACT_PREFIX must be a safe relative path")
