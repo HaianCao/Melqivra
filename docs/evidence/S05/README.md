@@ -1,6 +1,6 @@
 # S05 evidence — First audio vertical slice
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 Recorded from: 2026-11-12 (Asia/Saigon)
 
@@ -173,11 +173,25 @@ zero. The exact provider billing snapshot was not exposed by the CLI, so the
 evidence records the executable $0.189149 list-price upper bound rather than an
 unverified billed-cost claim.
 
-## Remaining before closure
+## Closure verdict
 
-1. Keep the narrow HeartMuLa T4 memory warning visible; do not treat the backend
-   as universal or route unsupported languages/instrumental requests to it.
-2. Run the complete repository gate and protected CI for the final evidence
-   checkpoint.
-3. Review the S05 exit criteria and close the stage without expanding the exact
-   ACE research result into a production capability claim.
+S05 meets its roadmap exit criteria:
+
+- an accepted immutable generation contract crossed the durable job boundary and
+  produced two distinct playable HeartMuLa takes on a real T4;
+- every take pins exact revisions, backend/model/license identity, settings,
+  seed, environment, lineage, audio metadata, and checksums;
+- atomic import, idempotent retry, restart retrieval, stale fencing, validation,
+  and failure paths prevent false success or partial publication;
+- Take B was reviewed and selected without mutating either source take;
+- the separate authorized ACE diagnostic passed its exact float32 T4 contract
+  without changing the conservative production routing policy;
+- the complete local gate passed with 173 tests and 84% critical branch
+  coverage, and protected CI runs `43345950137` and `43345957291` passed on
+  Windows/Linux Python 3.11/3.13.
+
+Known limitations remain release-visible: HeartMuLa is limited to its five
+declared vocal languages and has narrow T4 headroom; instrumental and
+repeated-seed behavior are unclaimed; the ACE fork remains research-only; local
+CUDA is unimplemented; and the current SQLite/development-auth topology is not
+the later production service boundary.
