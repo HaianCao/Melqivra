@@ -93,3 +93,39 @@ local-container evidence, and dedicated CI job. Checkpoint `d05a85f` corrects th
 new job's immutable checkout-action SHA. Protected push run `43430479894` and PR
 run `43430486001` each passed the four Windows/Linux Python 3.11/3.13 quality jobs
 plus the real PostgreSQL service contract.
+
+## Third checkpoint: expiring leases and global GPU capacity
+
+Migration `0002_job_leases.sql` adds worker identity, expiry, and attempt count to
+jobs plus one durable `gpu_capacity_slots` row. Claiming that row under
+`FOR UPDATE` makes the reference deployment's concurrency-one limit global across
+competing PostgreSQL workers rather than local to one scheduler process. Lease
+decisions use PostgreSQL's clock after the capacity lock is acquired; SQLite reads
+its clock after `BEGIN IMMEDIATE`. A delayed heartbeat therefore cannot revive a
+lease that expired while waiting for the database lock.
+
+Each harness has one stable worker ID. Its heartbeat covers provisioning, remote
+execution, result processing, and the fenced terminal commit. Startup and the
+scheduler loop recover only absent or expired leases, so a replacement process
+does not steal live work. Lost renewal cancels the provider operation and cannot
+write success, failure, or cancellation through the stale fencing token. Expired
+cancel requests converge to `CANCELLED`; other expired attempts return to the FIFO
+with a fresh fencing token and incremented attempt count. FIFO uses SQLite `rowid`
+or PostgreSQL `enqueue_order`, not host wall clocks.
+
+The SQLite failure suite proves an unexpired lease survives a broker restart, an
+expired lease is reclaimed, a long fake job remains on its first renewed attempt,
+and injected heartbeat loss cancels stale work before a second fenced attempt.
+The disposable PostgreSQL 17.12 container passes eight real contracts, including
+the version-1-to-version-2 migration, database-clock renewal/expiry, stale commit
+rejection, cancelled-expiry convergence, and two workers competing for the single
+capacity slot. PostgreSQL adapter branch coverage is 81% against its 80% gate.
+
+The complete local gate discovers 224 tests: 216 pass and the eight PostgreSQL
+tests skip without their explicit DSN. Strict mypy passes on 62 source files,
+Ruff format/lint pass, critical scheduler/SQLite-store branch coverage is 84%,
+both migrations are present in the wheel, distribution builds succeed, and the
+dependency audit reports no known vulnerabilities. The disposable container and
+its anonymous data volume were removed. Dead-letter policy, durable attempt
+history, approvals/audit, authentication, SSE, quotas, S3/MinIO, and backup/restore
+remain later S07 work.

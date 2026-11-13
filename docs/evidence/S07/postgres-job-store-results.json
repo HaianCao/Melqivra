@@ -1,7 +1,8 @@
 {
   "cleanup": {
+    "anonymous_volume_removed": true,
     "container_removed": true,
-    "persistent_volume_created": false
+    "persistent_volume_retained": false
   },
   "continuous_integration": {
     "jobs_per_run": 5,
@@ -15,26 +16,31 @@
     "postgres_version": "17.12"
   },
   "migration": {
-    "canonical_sha256": "9ebe14df2d5bad6dff3cc7cff07f3d93299f68019726d631b6d09e61c1158149",
+    "canonical_sha256_by_version": {
+      "1": "9ebe14df2d5bad6dff3cc7cff07f3d93299f68019726d631b6d09e61c1158149",
+      "2": "f234f2ff8ad1af4881ebf4a937076e61ca969536339cfe6277fd57527cf65876"
+    },
     "packaged_in_wheel": true,
     "versions": [
-      1
+      1,
+      2
     ]
   },
   "postgres_contract": {
     "branch_coverage_percent": 81,
     "command": "coverage run --branch --source=agent_music.postgres_store -m unittest tests.test_postgres_store -v",
     "failed": 0,
-    "passed": 6
+    "passed": 8
   },
   "recorded_at": "2026-11-13",
   "schema_version": 1,
   "standard_gate": {
-    "critical_branch_coverage_percent": 88,
-    "discovered_tests": 218,
+    "critical_branch_coverage_percent": 84,
+    "discovered_tests": 224,
     "failed": 0,
     "mypy_source_files": 62,
-    "postgres_skipped_without_dsn": 6
+    "passed": 216,
+    "postgres_skipped_without_dsn": 8
   },
   "status": "passed"
 }

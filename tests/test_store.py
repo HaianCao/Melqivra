@@ -12,7 +12,7 @@ from uuid import UUID
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from agent_music.models import JobState
-from agent_music.store import SqliteJobStore
+from agent_music.store import LostJobLeaseError, SqliteJobStore
 
 
 class SqliteJobStoreTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class SqliteJobStoreTests(unittest.TestCase):
             UUID("00000000-0000-0000-0000-000000000000"),
         ]
         with (
-            patch("agent_music.store.time.time", return_value=1_000.0),
+            patch("agent_music.store.time.time", side_effect=(2_000.0, 1_000.0)),
             patch("agent_music.store.uuid.uuid4", side_effect=ids_in_reverse_sort_order),
         ):
             first = self.store.enqueue(user_id="alice", kind="one", payload={})
@@ -88,6 +88,61 @@ class SqliteJobStoreTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Lost GPU job lease"):
             self.store.complete(job.id, claimed.lease_token + 1, {"ok": True})
+
+    def test_lease_renewal_expiry_and_fresh_attempt_fencing(self) -> None:
+        with patch("agent_music.store.time.time", return_value=1_000.0):
+            job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+            first = self.store.claim_next(lease_owner="worker-a", lease_seconds=10.0)
+        assert first is not None and first.lease_token is not None
+        self.assertEqual("worker-a", first.lease_owner)
+        self.assertEqual(1, first.attempt_count)
+        self.assertEqual(1_010.0, first.lease_expires_at)
+
+        with patch("agent_music.store.time.time", return_value=1_005.0):
+            self.assertTrue(
+                self.store.renew_lease(
+                    job_id=job.id,
+                    lease_token=first.lease_token,
+                    lease_owner="worker-a",
+                    lease_seconds=10.0,
+                )
+            )
+        self.assertEqual(1_015.0, self.store.get(job.id).lease_expires_at)
+
+        with patch("agent_music.store.time.time", return_value=1_011.0):
+            self.assertEqual(0, self.store.recover_expired())
+            self.assertIsNone(self.store.claim_next(lease_owner="worker-b", lease_seconds=10.0))
+
+        with patch("agent_music.store.time.time", return_value=1_016.0):
+            self.assertEqual(1, self.store.recover_expired())
+            second = self.store.claim_next(
+                lease_owner="worker-b",
+                lease_seconds=10.0,
+            )
+            assert second is not None and second.lease_token is not None
+            self.assertEqual(2, second.attempt_count)
+            self.assertGreater(second.lease_token, first.lease_token)
+            with self.assertRaises(LostJobLeaseError):
+                self.store.complete(job.id, first.lease_token, {"stale": True})
+            self.store.complete(job.id, second.lease_token, {"ok": True})
+
+    def test_expired_cancel_request_converges_to_cancelled(self) -> None:
+        with patch("agent_music.store.time.time", return_value=2_000.0):
+            job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+            claimed = self.store.claim_next(
+                lease_owner="worker-a",
+                lease_seconds=10.0,
+            )
+            assert claimed is not None
+            self.store.request_cancel(job.id)
+
+        with patch("agent_music.store.time.time", return_value=2_011.0):
+            self.assertEqual(1, self.store.recover_expired())
+
+        cancelled = self.store.get(job.id)
+        self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertIsNotNone(cancelled.finished_at)
+        self.assertIn("cancelled", (cancelled.error or "").lower())
 
     def test_queue_position_and_queued_cancellation(self) -> None:
         first = self.store.enqueue(user_id="alice", kind="one", payload={})

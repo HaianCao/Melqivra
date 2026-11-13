@@ -19,6 +19,7 @@ class FakeRunner(GpuRunner):
         self._cancelled: set[str] = set()
         self.provision_count = 0
         self.stop_count = 0
+        self.cancel_count = 0
         self.active_jobs = 0
         self.max_active_jobs = 0
         self.completed_job_ids: list[str] = []
@@ -68,10 +69,12 @@ class FakeRunner(GpuRunner):
                 "payload": job.payload,
             }
         finally:
+            self._cancelled.discard(job.id)
             self.active_jobs -= 1
             self._state = RunnerState.READY
 
     async def cancel(self, job_id: str) -> None:
+        self.cancel_count += 1
         self._cancelled.add(job_id)
 
     async def stop(self) -> None:

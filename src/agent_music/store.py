@@ -16,6 +16,10 @@ if TYPE_CHECKING:
     from agent_music.config import HarnessSettings
 
 
+class LostJobLeaseError(RuntimeError):
+    """A worker no longer owns a live fencing lease for a running job."""
+
+
 class JobStore(Protocol):
     """Durable job authority required by the concurrency-one scheduler."""
 
@@ -34,7 +38,21 @@ class JobStore(Protocol):
 
     def get_for_user(self, *, user_id: str, job_id: str) -> GpuJob: ...
 
-    def claim_next(self) -> GpuJob | None: ...
+    def claim_next(
+        self,
+        *,
+        lease_owner: str = "legacy-worker",
+        lease_seconds: float = 60.0,
+    ) -> GpuJob | None: ...
+
+    def renew_lease(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        lease_owner: str,
+        lease_seconds: float,
+    ) -> bool: ...
 
     def complete(self, job_id: str, lease_token: int, result: dict[str, Any]) -> None: ...
 
@@ -51,6 +69,8 @@ class JobStore(Protocol):
     def queue_position(self, job_id: str) -> int | None: ...
 
     def recover_interrupted(self) -> int: ...
+
+    def recover_expired(self) -> int: ...
 
 
 class SqliteJobStore:
@@ -91,6 +111,9 @@ class SqliteJobStore:
                     error TEXT,
                     cancel_requested INTEGER NOT NULL DEFAULT 0,
                     lease_token INTEGER,
+                    lease_owner TEXT,
+                    lease_expires_at REAL,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
                     idempotency_key TEXT,
                     UNIQUE(user_id, idempotency_key)
                 );
@@ -104,6 +127,20 @@ class SqliteJobStore:
                     VALUES ('next_fencing_token', 1);
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in self._connection.execute("PRAGMA table_info(gpu_jobs)").fetchall()
+            }
+            additions = {
+                "lease_owner": "TEXT",
+                "lease_expires_at": "REAL",
+                "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for name, declaration in additions.items():
+                if name not in columns:
+                    self._connection.execute(
+                        f"ALTER TABLE gpu_jobs ADD COLUMN {name} {declaration}"
+                    )
 
     def close(self) -> None:
         """Close the underlying connection."""
@@ -183,18 +220,40 @@ class SqliteJobStore:
             raise KeyError(job_id)
         return self._row_to_job(row)
 
-    def claim_next(self) -> GpuJob | None:
+    def claim_next(
+        self,
+        *,
+        lease_owner: str = "legacy-worker",
+        lease_seconds: float = 60.0,
+    ) -> GpuJob | None:
         """Atomically claim the oldest queued job."""
 
-        now = time.time()
+        if not lease_owner:
+            raise ValueError("Job lease owner must not be empty")
+        if lease_seconds <= 0:
+            raise ValueError("Job lease duration must be positive")
         with self._lock:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
+                now = time.time()
+                lease_expires_at = now + lease_seconds
+                self._recover_expired_locked(now)
+                active = self._connection.execute(
+                    """
+                    SELECT 1 FROM gpu_jobs
+                    WHERE state = ? AND lease_expires_at > ?
+                    LIMIT 1
+                    """,
+                    (JobState.RUNNING.value, now),
+                ).fetchone()
+                if active is not None:
+                    self._connection.execute("COMMIT")
+                    return None
                 row = self._connection.execute(
                     """
                     SELECT id FROM gpu_jobs
                     WHERE state = ? AND cancel_requested = 0
-                    ORDER BY created_at ASC, rowid ASC
+                    ORDER BY rowid ASC
                     LIMIT 1
                     """,
                     (JobState.QUEUED.value,),
@@ -220,7 +279,8 @@ class SqliteJobStore:
                     """
                     UPDATE gpu_jobs
                     SET state = ?, started_at = ?, updated_at = ?,
-                        lease_token = ?
+                        lease_token = ?, lease_owner = ?, lease_expires_at = ?,
+                        attempt_count = attempt_count + 1
                     WHERE id = ? AND state = ?
                     """,
                     (
@@ -228,6 +288,8 @@ class SqliteJobStore:
                         now,
                         now,
                         token,
+                        lease_owner,
+                        lease_expires_at,
                         row["id"],
                         JobState.QUEUED.value,
                     ),
@@ -237,6 +299,47 @@ class SqliteJobStore:
                 self._connection.execute("ROLLBACK")
                 raise
         return self.get(str(row["id"]))
+
+    def renew_lease(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        lease_owner: str,
+        lease_seconds: float,
+    ) -> bool:
+        """Extend one live lease without reviving an expired owner."""
+
+        if not lease_owner:
+            raise ValueError("Job lease owner must not be empty")
+        if lease_seconds <= 0:
+            raise ValueError("Job lease duration must be positive")
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                now = time.time()
+                cursor = self._connection.execute(
+                    """
+                    UPDATE gpu_jobs
+                    SET lease_expires_at = ?, updated_at = ?
+                    WHERE id = ? AND state = ? AND lease_token = ?
+                      AND lease_owner = ? AND lease_expires_at > ?
+                    """,
+                    (
+                        now + lease_seconds,
+                        now,
+                        job_id,
+                        JobState.RUNNING.value,
+                        lease_token,
+                        lease_owner,
+                        now,
+                    ),
+                )
+                self._connection.execute("COMMIT")
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
+        return cursor.rowcount == 1
 
     def complete(
         self,
@@ -285,31 +388,40 @@ class SqliteJobStore:
         result: dict[str, Any] | None,
         error: str | None,
     ) -> None:
-        now = time.time()
         result_json = (
             json.dumps(result, ensure_ascii=False, sort_keys=True) if result is not None else None
         )
         with self._lock:
-            cursor = self._connection.execute(
-                """
-                UPDATE gpu_jobs
-                SET state = ?, result_json = ?, error = ?,
-                    finished_at = ?, updated_at = ?
-                WHERE id = ? AND state = ? AND lease_token = ?
-                """,
-                (
-                    state.value,
-                    result_json,
-                    error,
-                    now,
-                    now,
-                    job_id,
-                    JobState.RUNNING.value,
-                    lease_token,
-                ),
-            )
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                now = time.time()
+                cursor = self._connection.execute(
+                    """
+                    UPDATE gpu_jobs
+                    SET state = ?, result_json = ?, error = ?,
+                        finished_at = ?, updated_at = ?,
+                        lease_owner = NULL, lease_expires_at = NULL
+                    WHERE id = ? AND state = ? AND lease_token = ?
+                      AND lease_expires_at > ?
+                    """,
+                    (
+                        state.value,
+                        result_json,
+                        error,
+                        now,
+                        now,
+                        job_id,
+                        JobState.RUNNING.value,
+                        lease_token,
+                        now,
+                    ),
+                )
+                self._connection.execute("COMMIT")
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
         if cursor.rowcount != 1:
-            raise RuntimeError("Lost GPU job lease; refusing stale commit")
+            raise LostJobLeaseError("Lost GPU job lease; refusing stale commit")
 
     def request_cancel(self, job_id: str) -> GpuJob:
         """Cancel a queued job or flag a running job for cooperative cancellation."""
@@ -389,36 +501,87 @@ class SqliteJobStore:
                 FROM gpu_jobs
                 WHERE state = ?
                   AND cancel_requested = 0
-                  AND (created_at < ? OR (created_at = ? AND rowid <= ?))
+                  AND rowid <= ?
                 """,
                 (
                     JobState.QUEUED.value,
-                    job.created_at,
-                    job.created_at,
                     int(target["rowid"]),
                 ),
             ).fetchone()
         return int(row["count"])
 
     def recover_interrupted(self) -> int:
-        """Requeue jobs left running by a crashed control plane."""
+        """Force-requeue running work for explicit single-node recovery tooling."""
 
         now = time.time()
         with self._lock:
             cursor = self._connection.execute(
                 """
                 UPDATE gpu_jobs
-                SET state = ?, started_at = NULL, lease_token = NULL,
-                    updated_at = ?, error = ?
+                SET state = CASE WHEN cancel_requested = 1 THEN ? ELSE ? END,
+                    started_at = NULL, lease_token = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL,
+                    finished_at = CASE WHEN cancel_requested = 1 THEN ? ELSE NULL END,
+                    updated_at = ?,
+                    error = CASE
+                        WHEN cancel_requested = 1 THEN ?
+                        ELSE ?
+                    END
                 WHERE state = ?
                 """,
                 (
+                    JobState.CANCELLED.value,
                     JobState.QUEUED.value,
                     now,
+                    now,
+                    "Job cancelled after control-plane interruption",
                     "Control plane restarted; job safely requeued",
                     JobState.RUNNING.value,
                 ),
             )
+        return int(cursor.rowcount)
+
+    def recover_expired(self) -> int:
+        """Reconcile only jobs whose heartbeat lease is absent or expired."""
+
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                now = time.time()
+                recovered = self._recover_expired_locked(now)
+                self._connection.execute("COMMIT")
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
+        return recovered
+
+    def _recover_expired_locked(self, now: float) -> int:
+        cursor = self._connection.execute(
+            """
+            UPDATE gpu_jobs
+            SET state = CASE WHEN cancel_requested = 1 THEN ? ELSE ? END,
+                started_at = NULL, lease_token = NULL,
+                lease_owner = NULL, lease_expires_at = NULL,
+                finished_at = CASE WHEN cancel_requested = 1 THEN ? ELSE NULL END,
+                updated_at = ?,
+                error = CASE
+                    WHEN cancel_requested = 1 THEN ?
+                    ELSE ?
+                END
+            WHERE state = ?
+              AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+            """,
+            (
+                JobState.CANCELLED.value,
+                JobState.QUEUED.value,
+                now,
+                now,
+                "Job cancelled after worker lease expired",
+                "Worker lease expired; job safely requeued",
+                JobState.RUNNING.value,
+                now,
+            ),
+        )
         return int(cursor.rowcount)
 
     @staticmethod
@@ -438,6 +601,11 @@ class SqliteJobStore:
             error=str(row["error"]) if row["error"] is not None else None,
             cancel_requested=bool(row["cancel_requested"]),
             lease_token=(int(row["lease_token"]) if row["lease_token"] is not None else None),
+            lease_owner=(str(row["lease_owner"]) if row["lease_owner"] is not None else None),
+            lease_expires_at=(
+                float(row["lease_expires_at"]) if row["lease_expires_at"] is not None else None
+            ),
+            attempt_count=int(row["attempt_count"]),
         )
 
 
