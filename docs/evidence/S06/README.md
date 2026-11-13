@@ -233,3 +233,25 @@ files, 88% critical scheduler/store branch coverage, successful wheel and source
 distribution builds, and no known audited vulnerabilities. The subprocess wait
 path uses one shared non-cancelling waiter so Windows timeout handling cannot
 corrupt the event loop or retain the serialized CLI command slot.
+
+## Fourteenth checkpoint: closure demo and bounded T4 probe contract
+
+`scripts/s06_lifecycle_demo.py` is the clean CPU-only stage demo. One run queued
+Alice and Bob concurrently, preserved FIFO at maximum concurrency one, provisioned
+exactly once, accepted Charlie at the exact 300-second grace boundary without a
+second provision, and stopped exactly once after the next complete 300-second
+idle interval. The sanitized result is recorded in `cpu-demo-results.json`.
+
+The dedicated `harness.gpu_healthcheck` remote operation requires an assigned
+NVIDIA GPU and is routed only to a Modal T4 function bounded to 120 seconds. The
+prepared durable-job probe runs exactly three sequential calls: cold, warm, and
+explicit stop/recovery. It rejects execution unless a local authorization record
+matches the exact run ID, current public pricing source, three-call bound, and a
+positive approved ceiling of at least the $0.069271 list-price estimate. The plan
+is recorded in `modal-lifecycle-probe-plan.json`; it has not run and makes no GPU,
+timing, recovery, billing, or cleanup claim yet.
+
+The complete preparation gate passes with 207 tests, strict mypy on 61 source
+files, 88% critical scheduler/store branch coverage, successful wheel and source
+distribution builds, and no known audited vulnerabilities. No provider session
+or GPU was created by this checkpoint.

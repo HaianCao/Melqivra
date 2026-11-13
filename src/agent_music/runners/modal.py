@@ -101,6 +101,7 @@ class ModalRunner(GpuRunner):
                 return
             task = self._readiness_task
             if task is None:
+                previous_state = self._state
                 if self._state not in {
                     RunnerState.ABSENT,
                     RunnerState.READY,
@@ -111,7 +112,7 @@ class ModalRunner(GpuRunner):
                 if self._state != RunnerState.READY:
                     self._state = RunnerState.PROVISIONING
                 task = asyncio.create_task(
-                    self._reconcile_readiness(),
+                    self._reconcile_readiness(previous_state),
                     name="melqivra-modal-readiness",
                 )
                 self._readiness_task = task
@@ -255,7 +256,7 @@ class ModalRunner(GpuRunner):
                 raise drain_error
             self._state = RunnerState.RECLAIMED
 
-    async def _reconcile_readiness(self) -> None:
+    async def _reconcile_readiness(self, previous_state: RunnerState) -> None:
         started = time.monotonic()
         version_seconds = 0.0
         preflight_performed = False
@@ -272,8 +273,14 @@ class ModalRunner(GpuRunner):
             heartbeat_started = time.monotonic()
             await self._client.run(self._client.token_info_argv())
             heartbeat_seconds = time.monotonic() - heartbeat_started
+            if preflight_performed:
+                mode = "cold"
+            elif previous_state == RunnerState.RECLAIMED:
+                mode = "recovered"
+            else:
+                mode = "warm"
             self._last_readiness_metrics = {
-                "mode": "cold" if preflight_performed else "warm",
+                "mode": mode,
                 "version_seconds": version_seconds,
                 "heartbeat_seconds": heartbeat_seconds,
                 "total_seconds": time.monotonic() - started,

@@ -1,0 +1,12 @@
+{
+  "command": "uv run --frozen python scripts/s06_lifecycle_demo.py",
+  "fifo_preserved": true,
+  "idle_timeout_seconds": 300.0,
+  "job_count": 3,
+  "max_active_jobs": 1,
+  "provisions_at_exact_grace": 1,
+  "recorded_at": "2026-11-13",
+  "schema_version": 1,
+  "status": "passed",
+  "stop_count": 1
+}

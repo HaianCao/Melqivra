@@ -19,6 +19,7 @@ if modal.is_local():
     image = image.add_local_file(str(local_worker), remote_path=str(REMOTE_WORKER))
 app = modal.App()
 GPU_JOB_KINDS = {"music.generate"}
+GPU_PROBE_KINDS = {"harness.gpu_healthcheck"}
 
 
 def _execute_worker(request_json: str) -> dict[str, Any]:
@@ -89,6 +90,21 @@ def run_gpu_job(request_json: str) -> dict[str, Any]:
     return _execute_worker(request_json)
 
 
+@app.function(  # type: ignore[untyped-decorator]
+    image=image,
+    gpu="T4",
+    cpu=2,
+    memory=1_024,
+    max_containers=1,
+    scaledown_window=2,
+    timeout=120,
+)
+def run_gpu_probe(request_json: str) -> dict[str, Any]:
+    """Run the bounded S06 GPU lifecycle healthcheck without model assets."""
+
+    return _execute_worker(request_json)
+
+
 @app.local_entrypoint()  # type: ignore[untyped-decorator]
 def main(request_file: str) -> str:
     """Read private job content from a file rather than CLI arguments."""
@@ -97,6 +113,12 @@ def main(request_file: str) -> str:
     request = json.loads(request_json)
     if not isinstance(request, dict):
         raise TypeError("Modal request must be a JSON object")
-    function = run_gpu_job if request.get("kind") in GPU_JOB_KINDS else run_control_job
+    kind = request.get("kind")
+    if kind in GPU_PROBE_KINDS:
+        function = run_gpu_probe
+    elif kind in GPU_JOB_KINDS:
+        function = run_gpu_job
+    else:
+        function = run_control_job
     result = function.remote(request_json)
     return json.dumps(result, ensure_ascii=False, sort_keys=True)

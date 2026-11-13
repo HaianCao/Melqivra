@@ -399,6 +399,11 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(1, client.commands.count(("modal", "--version")))
             self.assertEqual(2, client.commands.count(("modal", "token", "info")))
 
+            await runner.stop()
+            await runner.ensure_ready()
+            recovered = await runner.run(self._job(), lambda _event: _completed())
+            self.assertEqual("recovered", recovered["_lifecycle_metrics"]["readiness"]["mode"])
+
     async def test_expired_auth_and_incompatible_cli_fail_before_job_submission(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runner_file = Path(temporary) / "remote_worker.py"

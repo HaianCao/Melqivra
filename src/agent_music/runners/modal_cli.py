@@ -250,7 +250,10 @@ class ModalCliClient:
             return
         process_waiter = waiter or asyncio.create_task(process.wait())
         try:
-            process.send_signal(signal.SIGINT)
+            if os.name == "nt":
+                process.terminate()
+            else:
+                process.send_signal(signal.SIGINT)
         except ProcessLookupError:
             return
         except ValueError:
