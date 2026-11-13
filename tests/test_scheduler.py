@@ -15,6 +15,7 @@ from agent_music.config import HarnessSettings
 from agent_music.models import JobState, RunnerState
 from agent_music.runners.fake import FakeRunner
 from agent_music.scheduler import GpuHarness
+from agent_music.store import SqliteJobStore
 
 
 async def wait_until(predicate, deadline_seconds: float = 10.0) -> None:
@@ -165,6 +166,99 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first.id, duplicate.id)
         await wait_until(lambda: self.harness.store.get(first.id).state == JobState.SUCCEEDED)
         self.assertEqual([first.id], self.runner.completed_job_ids)
+
+    async def test_exact_idle_boundary_arrival_matrix(self) -> None:
+        for arrival_seconds, expected_provisions in ((0.0, 1), (299.0, 1), (300.0, 1), (301.0, 2)):
+            with self.subTest(arrival_seconds=arrival_seconds):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    settings = HarnessSettings(
+                        database_path=root / "harness.db",
+                        artifact_root=root / "artifacts",
+                        idle_timeout_seconds=300.0,
+                        scheduler_poll_seconds=0.01,
+                        job_timeout_seconds=2.0,
+                    )
+                    runner = FakeRunner(job_seconds=0.001)
+                    clock = FakeClock()
+                    harness = GpuHarness(
+                        settings,
+                        runner=runner,
+                        monotonic_clock=clock.monotonic,
+                        wall_clock=clock.wall,
+                    )
+                    await harness.start()
+                    try:
+                        first = harness.enqueue(
+                            user_id="alice",
+                            kind="harness.echo",
+                            payload={"index": 1},
+                        )
+                        await wait_until(
+                            lambda harness=harness, first=first: (
+                                harness.store.get(first.id).state == JobState.SUCCEEDED
+                                and harness.snapshot().current_job_id is None
+                            )
+                        )
+
+                        if arrival_seconds > 300.0:
+                            clock.advance(300.0)
+                            harness._wake.set()
+                            await wait_until(
+                                lambda runner=runner: runner.state == RunnerState.STOPPED
+                            )
+                            clock.advance(arrival_seconds - 300.0)
+                        else:
+                            clock.advance(arrival_seconds)
+
+                        second = harness.enqueue(
+                            user_id="bob",
+                            kind="harness.echo",
+                            payload={"index": 2},
+                        )
+                        await wait_until(
+                            lambda harness=harness, second=second: (
+                                harness.store.get(second.id).state == JobState.SUCCEEDED
+                            )
+                        )
+
+                        self.assertEqual(expected_provisions, runner.provision_count)
+                        self.assertEqual([first.id, second.id], runner.completed_job_ids)
+                    finally:
+                        await harness.close()
+
+    async def test_broker_restart_requeues_with_a_fresh_fencing_token(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                idle_timeout_seconds=300.0,
+                scheduler_poll_seconds=0.01,
+                job_timeout_seconds=2.0,
+            )
+            crashed_store = SqliteJobStore(settings.database_path)
+            queued = crashed_store.enqueue(
+                user_id="alice",
+                kind="harness.echo",
+                payload={"restart": True},
+            )
+            interrupted = crashed_store.claim_next()
+            assert interrupted is not None
+            original_token = interrupted.lease_token
+            crashed_store.close()
+
+            runner = FakeRunner(job_seconds=0.001)
+            restarted = GpuHarness(settings, runner=runner)
+            await restarted.start()
+            try:
+                await wait_until(lambda: restarted.store.get(queued.id).state == JobState.SUCCEEDED)
+                recovered = restarted.store.get(queued.id)
+
+                self.assertNotEqual(original_token, recovered.lease_token)
+                self.assertEqual([queued.id], runner.completed_job_ids)
+            finally:
+                await restarted.close()
 
 
 if __name__ == "__main__":

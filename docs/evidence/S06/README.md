@@ -140,3 +140,17 @@ bounded provider evidence rather than this no-network checkpoint.
 A scheduler integration regression also cancels a running Modal job through the
 public harness boundary and verifies the durable record reaches `CANCELLED` with
 the explicit `Job cancelled` reason rather than `FAILED`.
+
+## Eighth checkpoint: idle boundary and broker restart matrix
+
+Deterministic fake-clock integration now covers arrivals at 0, 299, exactly 300,
+and 301 seconds. Work queued before the exact deadline recheck wins and reuses
+the warm runner at 0/299/300; once the 300-second stop has committed, the
+301-second arrival provisions a new runner. This preserves the product invariant
+that queued work wins over idle shutdown without extending the grace period.
+
+A separate crash simulation leaves a job durably `RUNNING`, closes the original
+SQLite control plane, and starts a fresh harness on the same database. Startup
+requeues the interrupted job, claims it under a new fencing token, and completes
+it exactly once. These tests use FakeRunner and do not substitute for real Modal
+or Colab reclaim timing evidence.
