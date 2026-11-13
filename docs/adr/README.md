@@ -17,6 +17,7 @@ with a new ADR that links to and supersedes the old one.
 | [0004](0004-ace-step-is-research-only-on-t4.md) | Keep pinned ACE-Step research-only on T4 | Accepted |
 | [0005](0005-modal-is-the-default-remote-transport.md) | Modal is the default remote transport | Accepted |
 | [0006](0006-require-client-approved-multi-backend-routing.md) | Require client-approved multi-backend routing | Accepted |
+| [0007](0007-postgresql-is-the-service-authority.md) | PostgreSQL is the durable service authority | Accepted |
 
 Use [0000-template.md](0000-template.md) for new decisions.
 
