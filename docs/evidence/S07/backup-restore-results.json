@@ -1,0 +1,60 @@
+{
+  "archive_contract": {
+    "canonical_manifest_sha256": true,
+    "confidential_archive_documented": true,
+    "content_addressed_object_blobs": true,
+    "database_format": "postgresql-custom",
+    "database_restore_single_transaction": true,
+    "database_target_must_be_empty": true,
+    "immutable_bytes_restored_before_metadata": true,
+    "object_target_allows_only_empty_or_exact_retry": true,
+    "operator_output_is_content_free": true,
+    "path_and_size_bounds_enforced": true
+  },
+  "cleanup": {
+    "backup_archives_removed": true,
+    "minio_container_removed": true,
+    "minio_volume_removed": true,
+    "postgres_container_removed": true,
+    "postgres_volume_removed": true,
+    "restore_database_removed": true
+  },
+  "images": {
+    "minio": "alpine/minio@sha256:cf23643a6cf9ce159c57643ceb88279e431262282428c9e0bf3a7ef1a97e84b4",
+    "postgres": "postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065"
+  },
+  "limits": {
+    "command_timeout_seconds": 3600,
+    "max_database_bytes": 1099511627776,
+    "max_objects": 100000,
+    "max_total_object_bytes": 1099511627776,
+    "object_page_size": 1000
+  },
+  "postgres_client_version": "17.12",
+  "real_service_gate": {
+    "combined_adapter_branch_coverage_percent": 81,
+    "failed": 0,
+    "passed": 44
+  },
+  "recorded_at": "2026-11-14",
+  "restore_contract": {
+    "approval_and_audit_preserved": true,
+    "artifact_bytes_and_checksums_preserved": true,
+    "artifact_metadata_preserved": true,
+    "idempotency_attempts_and_events_preserved": true,
+    "jobs_preserved": true,
+    "projects_and_revisions_preserved": true,
+    "tenant_isolation_preserved": true,
+    "tool_replay_preserved": true
+  },
+  "schema_version": 1,
+  "standard_gate": {
+    "critical_branch_coverage_percent": 87,
+    "discovered_tests": 297,
+    "failed": 0,
+    "mypy_source_files": 79,
+    "passed": 265,
+    "service_tests_skipped_without_explicit_endpoints": 32
+  },
+  "status": "passed"
+}

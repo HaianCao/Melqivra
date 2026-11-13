@@ -15,8 +15,15 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from agent_music.artifact_reconciliation import ArtifactReconciliationReport
-from agent_music.cli import _build_parser, _doctor, _reconcile_artifacts
+from agent_music.cli import (
+    _backup_service,
+    _build_parser,
+    _doctor,
+    _reconcile_artifacts,
+    _restore_service,
+)
 from agent_music.config import HarnessSettings
+from agent_music.service_backup import ServiceBackupReport, ServiceRestoreReport
 
 
 class DoctorTests(unittest.TestCase):
@@ -193,6 +200,67 @@ class DoctorTests(unittest.TestCase):
             self.assertEqual(1, _reconcile_artifacts(settings, orphan_cursor=None))
         self.assertIn("Artifact reconciliation failed", error.getvalue())
         self.assertNotIn("secret-storage", error.getvalue())
+
+    def test_service_archive_cli_reports_only_sanitized_counts(self) -> None:
+        settings = HarnessSettings(
+            runner="fake",
+            job_store="postgres",
+            postgres_dsn="postgresql://secret@database/melqivra",
+            artifact_storage="s3",
+            s3_endpoint_url="https://secret-storage.example.test",
+            s3_bucket="melqivra-artifacts",
+        )
+        backup_report = ServiceBackupReport(
+            backup_id="bkp_0123456789abcdef0123456789abcdef",
+            database_schema_version=8,
+            database_size_bytes=100,
+            object_count=2,
+            object_bytes=200,
+            skipped_incomplete_pending_objects=0,
+            manifest_sha256="a" * 64,
+        )
+        restore_report = ServiceRestoreReport(
+            backup_id=backup_report.backup_id,
+            database_schema_version=8,
+            object_count=2,
+            object_bytes=200,
+            manifest_sha256="a" * 64,
+        )
+        output = io.StringIO()
+        with (
+            patch(
+                "agent_music.service_backup_factory.build_service_backup_manager"
+            ) as build_manager,
+            contextlib.redirect_stdout(output),
+        ):
+            build_manager.return_value.create_backup.return_value = backup_report
+            self.assertEqual(0, _backup_service(settings, output=Path("backup")))
+            build_manager.return_value.restore_backup.return_value = restore_report
+            self.assertEqual(
+                0,
+                _restore_service(settings, input_directory=Path("backup")),
+            )
+
+        rendered = output.getvalue()
+        self.assertIn('"database_schema_version": 8', rendered)
+        self.assertIn('"object_count": 2', rendered)
+        self.assertNotIn("secret", rendered)
+        self.assertEqual(2, build_manager.return_value.close.call_count)
+
+        error = io.StringIO()
+        with (
+            patch(
+                "agent_music.service_backup_factory.build_service_backup_manager",
+                side_effect=RuntimeError("postgresql://secret@database/melqivra"),
+            ),
+            contextlib.redirect_stderr(error),
+        ):
+            self.assertEqual(1, _backup_service(settings, output=Path("backup")))
+            self.assertEqual(
+                1,
+                _restore_service(settings, input_directory=Path("backup")),
+            )
+        self.assertNotIn("secret", error.getvalue())
 
     def test_imports_do_not_create_runtime_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

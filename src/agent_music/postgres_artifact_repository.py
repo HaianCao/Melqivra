@@ -23,6 +23,7 @@ from agent_music.artifact_repository import (
     validate_artifact_specs,
 )
 from agent_music.domain import ArtifactId, ProjectId, RevisionId, UserId, validate_identifier
+from agent_music.postgres_locks import acquire_artifact_lifecycle_shared_lock
 from agent_music.postgres_migrations import PostgresConnection, PostgresMigrator, PostgresPool
 
 
@@ -84,6 +85,7 @@ class PostgresArtifactRepository:
         timestamp = time.time() if created_at is None else created_at
 
         with self._pool.connection() as connection, connection.transaction():
+            acquire_artifact_lifecycle_shared_lock(connection)
             self._require_owned_project(
                 connection,
                 owner_id=owner_id,
@@ -177,6 +179,7 @@ class PostgresArtifactRepository:
 
         timestamp = time.time() if published_at is None else published_at
         with self._pool.connection() as connection, connection.transaction():
+            acquire_artifact_lifecycle_shared_lock(connection)
             batch = connection.execute(
                 """
                 SELECT * FROM artifact_batches
@@ -462,6 +465,7 @@ class PostgresArtifactRepository:
             raise ValueError("Artifact state-change time must be finite")
         idempotent_states = idempotent or {target}
         with self._pool.connection() as connection, connection.transaction():
+            acquire_artifact_lifecycle_shared_lock(connection)
             batch, artifacts = self._load_locked_batch(
                 connection,
                 owner_id=owner_id,
