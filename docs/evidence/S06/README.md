@@ -183,3 +183,17 @@ The worker rejects paths outside the control root and mismatched markers. Runner
 tests prove the marker upload follows active-command termination and binds to the
 current job. Modal uses scoped app termination rather than a filesystem marker
 because its scale-to-zero containers have no persistent session filesystem.
+
+## Eleventh checkpoint: live-session Drive cache verification
+
+An optional Colab cache configuration now binds the tracked S01-style manifest
+to one safe Google Drive root. Before the first `music.generate` job on a live
+session, the runner sends only normalized cache key, source revision, asset path,
+size, and SHA-256 metadata. The worker verifies every asset and the atomic
+`.melqivra-cache.json` descriptor before invoking the music plugin.
+
+Successful verification is remembered only for that confirmed live session and
+is reset on session loss or reclaim. Missing, stale, incomplete, corrupt, escaped,
+or duplicated cache entries fail explicitly. CPU fixtures prove descriptor,
+size, checksum, Drive-root, and once-per-session behavior; S01 remains the source
+of real Google Drive atomic population and cold-restore evidence.

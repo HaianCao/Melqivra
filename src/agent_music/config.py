@@ -56,6 +56,8 @@ class HarnessSettings:
     colab_remote_result_path: str = "/content/agent_music_result.json"
     colab_remote_output_root: str = "/content/agent_music_output"
     colab_remote_cancel_root: str = "/content/agent_music_control"
+    colab_cache_manifest_path: Path | None = None
+    colab_remote_cache_root: str = ""
     colab_remote_worker_file: Path = DEFAULT_REMOTE_WORKER_FILE
     colab_command_timeout_seconds: float = 900.0
 
@@ -65,6 +67,7 @@ class HarnessSettings:
     def from_env(cls) -> HarnessSettings:
         """Load settings from environment variables."""
 
+        colab_cache_manifest = os.getenv("COLAB_CACHE_MANIFEST_PATH", "").strip()
         settings = cls(
             database_path=Path(os.getenv("HARNESS_DATABASE_PATH", "data/harness.db")),
             artifact_root=Path(os.getenv("ARTIFACT_ROOT", "data/artifacts")),
@@ -104,6 +107,10 @@ class HarnessSettings:
             colab_remote_cancel_root=os.getenv(
                 "COLAB_REMOTE_CANCEL_ROOT", "/content/agent_music_control"
             ),
+            colab_cache_manifest_path=(
+                Path(colab_cache_manifest) if colab_cache_manifest else None
+            ),
+            colab_remote_cache_root=os.getenv("COLAB_REMOTE_CACHE_ROOT", "").strip(),
             colab_remote_worker_file=Path(
                 os.getenv(
                     "COLAB_REMOTE_WORKER_FILE",
@@ -150,6 +157,17 @@ class HarnessSettings:
         cancel_root = self.colab_remote_cancel_root.replace("\\", "/").rstrip("/")
         if cancel_root != "/content/agent_music_control":
             raise ValueError("COLAB_REMOTE_CANCEL_ROOT must match the packaged worker control root")
+        cache_configured = self.colab_cache_manifest_path is not None
+        if cache_configured != bool(self.colab_remote_cache_root):
+            raise ValueError(
+                "COLAB_CACHE_MANIFEST_PATH and COLAB_REMOTE_CACHE_ROOT must be configured together"
+            )
+        if self.colab_remote_cache_root:
+            cache_root = self.colab_remote_cache_root.replace("\\", "/").rstrip("/")
+            if not cache_root.startswith("/content/drive/") or any(
+                part in {"", ".", ".."} for part in cache_root.split("/")[1:]
+            ):
+                raise ValueError("COLAB_REMOTE_CACHE_ROOT must be a safe Drive path")
 
     def ensure_directories(self) -> None:
         """Create local state directories."""

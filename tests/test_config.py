@@ -41,6 +41,8 @@ class HarnessSettingsTests(unittest.TestCase):
             "MODAL_CLI_VERSION": "1.6.3",
             "COLAB_CLI_VERSION": "0.8.0",
             "COLAB_REMOTE_CANCEL_ROOT": "/content/agent_music_control",
+            "COLAB_CACHE_MANIFEST_PATH": "cache-manifest.json",
+            "COLAB_REMOTE_CACHE_ROOT": "/content/drive/MyDrive/melqivra/cache-key",
             "COLAB_MOUNT_DRIVE": "off",
         }
         with patch.dict(os.environ, environment, clear=True):
@@ -52,6 +54,11 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertFalse(settings.colab_mount_drive)
         self.assertEqual("0.8.0", settings.colab_cli_version)
         self.assertEqual("/content/agent_music_control", settings.colab_remote_cancel_root)
+        self.assertEqual(Path("cache-manifest.json"), settings.colab_cache_manifest_path)
+        self.assertEqual(
+            "/content/drive/MyDrive/melqivra/cache-key",
+            settings.colab_remote_cache_root,
+        )
         self.assertEqual("melqivra-t4", settings.colab_session_name)
 
     def test_unsafe_concurrency_is_rejected(self) -> None:
@@ -70,6 +77,12 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(colab_command_timeout_seconds=0),
             HarnessSettings(colab_cli_version=""),
             HarnessSettings(colab_remote_cancel_root="relative/path"),
+            HarnessSettings(colab_cache_manifest_path=Path("cache.json")),
+            HarnessSettings(colab_remote_cache_root="/content/drive/cache"),
+            HarnessSettings(
+                colab_cache_manifest_path=Path("cache.json"),
+                colab_remote_cache_root="/tmp/cache",
+            ),
         )
         for settings in invalid_settings:
             with self.subTest(settings=settings):
