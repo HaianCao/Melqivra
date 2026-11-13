@@ -3,17 +3,19 @@
 import json
 import re
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated, Any, cast
 
-from fastapi import Depends, FastAPI, Query, Request, Response, status
+from fastapi import Depends, FastAPI, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHttpException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from agent_music.authentication import (
     AuthenticationError,
@@ -90,6 +92,37 @@ class ApiError(RuntimeError):
         self.message = message
 
 
+class RequestContractMiddleware:
+    """Attach request identity and security headers without task-group wrapping."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        supplied = Headers(scope=scope).get("x-request-id", "")
+        request_id = supplied if _REQUEST_ID.fullmatch(supplied) else f"req_{uuid.uuid4().hex}"
+        scope.setdefault("state", {})["request_id"] = request_id
+
+        async def send_with_contract(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-Request-ID"] = request_id
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["Cache-Control"] = "no-store"
+            await send(message)
+
+        await self._app(scope, receive, send_with_contract)
+
+
 def _serialize_job(harness: GpuHarness, job: GpuJob) -> JobResponse:
     return JobResponse(
         id=job.id,
@@ -139,20 +172,7 @@ def create_app(
         version="1.0.0",
         lifespan=lifespan,
     )
-
-    @app.middleware("http")
-    async def request_contract(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        supplied = request.headers.get("x-request-id", "")
-        request_id = supplied if _REQUEST_ID.fullmatch(supplied) else f"req_{uuid.uuid4().hex}"
-        request.state.request_id = request_id
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Cache-Control"] = "no-store"
-        return response
+    app.add_middleware(RequestContractMiddleware)
 
     @app.exception_handler(ApiError)
     async def api_error_handler(request: Request, error: ApiError) -> JSONResponse:
