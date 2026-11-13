@@ -9,7 +9,7 @@
     "provider_report_pending_app_count": 1
   },
   "cleanup_passed": true,
-  "evidence_sha256": "d77f54794eb8c1ba1f2213a740a2d04332e2c5fbd3a0b23cb04cdc7bee7d1578",
+  "evidence_canonical_sha256": "6d4d63a1d6b52d5ffb1b0255065ce24453755258490bed3da6dd442fc06c0ded",
   "gpu_call_count": 3,
   "gpu_contract": "Tesla T4",
   "modal_cli_version": "1.6.3",

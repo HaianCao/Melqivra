@@ -100,9 +100,15 @@ class S06ProbeTests(unittest.TestCase):
         )
 
         self.assertEqual("passed", verification["status"])
+        canonical = json.dumps(
+            evidence,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
         self.assertEqual(
-            hashlib.sha256(PROBE_EVIDENCE.read_bytes()).hexdigest(),
-            verification["evidence_sha256"],
+            hashlib.sha256(canonical).hexdigest(),
+            verification["evidence_canonical_sha256"],
         )
         self.assertEqual(3, verification["gpu_call_count"])
         self.assertEqual(0, verification["active_apps_after"])
