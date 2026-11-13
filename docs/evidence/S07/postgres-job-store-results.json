@@ -70,6 +70,9 @@
   },
   "project_revision_policy": {
     "adapter": "PostgresProjectRepository",
+    "ci_pr_run": 43447688283,
+    "ci_push_run": 43447676604,
+    "commit": "050f06dc1504f336ae93685c2fa2e2b9ac59d31f",
     "competing_writer_winners": 1,
     "immutable_revision_trigger": true,
     "project_specific_contracts_passed": 5,
