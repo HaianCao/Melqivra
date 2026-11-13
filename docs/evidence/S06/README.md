@@ -291,8 +291,9 @@ The current-cycle billed cost was $0 after credits/allowances, while the enforce
 $0.069271 upper bound remains authoritative.
 
 See `modal-lifecycle-evidence.json` and
-`modal-lifecycle-verification.json`. The raw evidence SHA-256 is
-`d77f54794eb8c1ba1f2213a740a2d04332e2c5fbd3a0b23cb04cdc7bee7d1578`.
+`modal-lifecycle-verification.json`. The canonical JSON evidence SHA-256 is
+`6d4d63a1d6b52d5ffb1b0255065ce24453755258490bed3da6dd442fc06c0ded`,
+which is stable across Git line-ending conversion.
 
 The complete post-probe gate passes with 208 tests, strict mypy on 61 source
 files, Ruff format/lint, 88% critical scheduler/store branch coverage,
