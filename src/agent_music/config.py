@@ -78,7 +78,10 @@ class HarnessSettings:
     api_auth_mode: str = "development"
     api_max_active_jobs_per_user: int = 10
     api_max_job_payload_bytes: int = 65_536
+    api_max_request_body_bytes: int = 131_072
     api_max_page_size: int = 100
+    api_rate_limit_requests: int = 120
+    api_rate_limit_window_seconds: float = 60.0
     api_sse_poll_seconds: float = 0.25
     api_sse_keepalive_seconds: float = 15.0
     api_sse_batch_size: int = 100
@@ -187,7 +190,10 @@ class HarnessSettings:
             api_auth_mode=os.getenv("API_AUTH_MODE", "development").strip().lower(),
             api_max_active_jobs_per_user=int(os.getenv("API_MAX_ACTIVE_JOBS_PER_USER", "10")),
             api_max_job_payload_bytes=int(os.getenv("API_MAX_JOB_PAYLOAD_BYTES", "65536")),
+            api_max_request_body_bytes=int(os.getenv("API_MAX_REQUEST_BODY_BYTES", "131072")),
             api_max_page_size=int(os.getenv("API_MAX_PAGE_SIZE", "100")),
+            api_rate_limit_requests=int(os.getenv("API_RATE_LIMIT_REQUESTS", "120")),
+            api_rate_limit_window_seconds=float(os.getenv("API_RATE_LIMIT_WINDOW_SECONDS", "60")),
             api_sse_poll_seconds=float(os.getenv("API_SSE_POLL_SECONDS", "0.25")),
             api_sse_keepalive_seconds=float(os.getenv("API_SSE_KEEPALIVE_SECONDS", "15")),
             api_sse_batch_size=int(os.getenv("API_SSE_BATCH_SIZE", "100")),
@@ -335,8 +341,23 @@ class HarnessSettings:
             raise ValueError("API_MAX_ACTIVE_JOBS_PER_USER must be at least 1")
         if self.api_max_job_payload_bytes < 2:
             raise ValueError("API_MAX_JOB_PAYLOAD_BYTES must be at least 2")
+        if (
+            self.api_max_request_body_bytes < self.api_max_job_payload_bytes
+            or self.api_max_request_body_bytes > 16_777_216
+        ):
+            raise ValueError(
+                "API_MAX_REQUEST_BODY_BYTES must cover the job payload and not exceed 16 MiB"
+            )
         if self.api_max_page_size < 1 or self.api_max_page_size > 100:
             raise ValueError("API_MAX_PAGE_SIZE must be between 1 and 100")
+        if self.api_rate_limit_requests < 1 or self.api_rate_limit_requests > 1_000_000:
+            raise ValueError("API_RATE_LIMIT_REQUESTS must be between 1 and 1000000")
+        if (
+            not math.isfinite(self.api_rate_limit_window_seconds)
+            or self.api_rate_limit_window_seconds < 1
+            or self.api_rate_limit_window_seconds > 3_600
+        ):
+            raise ValueError("API_RATE_LIMIT_WINDOW_SECONDS must be between 1 and 3600")
         if self.api_sse_poll_seconds <= 0:
             raise ValueError("API_SSE_POLL_SECONDS must be positive")
         if self.api_sse_keepalive_seconds < self.api_sse_poll_seconds:

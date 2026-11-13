@@ -137,7 +137,9 @@ immutable checksummed revisions, and optimistic working/accepted pointers behind
 the provider-neutral `ProjectRepository` port. It also includes exact one-way
 approvals plus restart-safe tool-call replay and append-only, content-minimal
 audit records. Durable job events use per-job sequences and can be replayed after
-an API restart.
+an API restart. PostgreSQL is also the global request-rate authority across API
+processes; development mode uses a bounded in-memory adapter with the same
+contract.
 
 Production artifact publication is available through the optional locked
 object-storage dependency set:
@@ -312,6 +314,7 @@ The scheduler performs:
 | DELETE | /v1/gpu/jobs/{id} | Request cancellation |
 | GET | /v1/artifacts/{id} | Download one authorized, checksum-verified artifact |
 | GET | /v1/gpu/runner | Runner/session/idle deadline |
+| GET | /v1/operations/metrics | Authenticated, content-free process metrics |
 | GET | /healthz | Process health |
 
 Every GPU endpoint requires an authenticated principal. `API_AUTH_MODE` defaults
@@ -320,9 +323,14 @@ Production deployments set `API_AUTH_MODE=injected` and pass an `Authenticator`
 to the application factory; the included static bearer adapter is suitable for
 bounded deployments and tests without coupling domain logic to an identity SDK.
 The service returns stable error codes, propagates or creates `X-Request-ID`,
-limits payload size and active jobs per tenant, and never exposes lease owners or
-fencing tokens. Cursor values are tenant-scoped and cannot be reused to enumerate
-another user's jobs.
+propagates strict W3C trace correlation, rejects oversized raw bodies before JSON
+parsing, limits request rate, payload size, and active jobs per tenant, and never
+exposes lease owners or fencing tokens. Successful authenticated responses include
+standard `RateLimit-*` headers; rejected requests also include `Retry-After`.
+Cursor values are tenant-scoped and cannot be reused to enumerate another user's
+jobs. Logs and metrics use fixed route classes rather than raw object IDs. See
+[`docs/development/service-quotas-and-observability.md`](docs/development/service-quotas-and-observability.md)
+for operational semantics and configuration bounds.
 
 Job streams use standard server-sent events. Each durable event has a monotonic
 per-job `id`; reconnect with `Last-Event-ID` to receive only later events. A

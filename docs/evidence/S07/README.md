@@ -580,3 +580,39 @@ coverage is 87%, wheel and source distributions build successfully, and the
 dependency audit reports no known vulnerabilities. The two disposable service
 containers, both named volumes, the fresh restore database, and all generated
 archives were removed.
+
+## Fifteenth checkpoint: global request quotas and safe observability
+
+Migration `0009_create_api_rate_limit_counters.sql` adds one bounded counter row
+per opaque principal hash. `PostgresRateLimiter` consumes requests atomically
+against the PostgreSQL clock, so separate API processes share one tenant window.
+An unavailable database fails closed and cannot silently fall back to a local
+counter. SQLite development uses a bounded in-memory adapter with the same typed
+contract.
+
+The pure-ASGI request boundary now rejects oversized raw bodies before JSON
+parsing, returns standard rate-limit/reset headers, and emits one content-free
+structured log record. Strict W3C trace input preserves a valid trace ID and
+flags, rejects zero IDs, creates a new server span, and returns the resulting
+`Traceparent`. Metrics are authenticated and aggregate only allowlisted route
+classes, status classes, counts, and durations; raw paths, tenant IDs, resource
+IDs, creative content, object keys, and credentials are not metric labels or log
+fields. OpenAPI marks every `/v1/` operation, including artifact download and
+operations metrics, with authentication and a 429 response.
+
+A fresh PostgreSQL 17.12 and pinned non-root MinIO service passed all forty-eight
+real migration, job, project, policy, artifact, quota, archive, and fresh-restore
+contracts at 81% combined adapter branch coverage. The dedicated PostgreSQL rate
+limiter reaches 90% branch coverage and proves competing processes cannot both
+consume the final tenant request. Exact settings, schema checksum, headers, and
+safe telemetry claims are recorded in `quota-observability-results.json`; the
+operational contract is documented in
+`docs/development/service-quotas-and-observability.md`.
+
+The complete checkpoint gate discovers 311 tests: 276 pass and thirty-five
+explicit environment/service tests skip without configured infrastructure.
+Strict mypy covers 83 source files, Ruff format/lint pass, critical
+scheduler/job-store branch coverage is 87%, wheel and source distributions build
+with migration 0009, and the dependency audit reports no known vulnerabilities.
+The disposable PostgreSQL and MinIO containers, the anonymous PostgreSQL volume,
+and the named MinIO volume were verified removed after the real contract run.

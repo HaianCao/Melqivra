@@ -24,6 +24,7 @@ Examples:
 0004_create_project_revision_store.sql
 0005_create_approval_audit_authority.sql
 0008_add_artifact_reconciliation_state.sql
+0009_create_api_rate_limit_counters.sql
 ```
 
 The version prefix is required. It provides deterministic ordering and is

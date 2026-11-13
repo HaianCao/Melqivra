@@ -24,6 +24,7 @@ from agent_music.job_store import JobStore
 from agent_music.models import JobState
 from agent_music.postgres_approval_repository import PostgresApprovalRepository
 from agent_music.postgres_job_store import PostgresJobStore
+from agent_music.postgres_migrations import POSTGRES_MIGRATIONS
 from agent_music.postgres_project_repository import PostgresProjectRepository
 from agent_music.postgres_tool_execution_repository import PostgresToolExecutionRepository
 from agent_music.service_backup_factory import build_service_backup_manager
@@ -78,7 +79,7 @@ class ServiceBackupIntegrationTests(unittest.TestCase):
                     target_manager.close()
 
             self.assertEqual(backup.backup_id, restore.backup_id)
-            self.assertEqual(8, restore.database_schema_version)
+            self.assertEqual(len(POSTGRES_MIGRATIONS), restore.database_schema_version)
             self.assertEqual(2, restore.object_count)
             self._verify_restored_authority(
                 target_settings,

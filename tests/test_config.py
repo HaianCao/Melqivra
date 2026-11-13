@@ -76,7 +76,10 @@ class HarnessSettingsTests(unittest.TestCase):
             "API_AUTH_MODE": "INJECTED",
             "API_MAX_ACTIVE_JOBS_PER_USER": "7",
             "API_MAX_JOB_PAYLOAD_BYTES": "12345",
+            "API_MAX_REQUEST_BODY_BYTES": "23456",
             "API_MAX_PAGE_SIZE": "50",
+            "API_RATE_LIMIT_REQUESTS": "75",
+            "API_RATE_LIMIT_WINDOW_SECONDS": "30",
             "API_SSE_POLL_SECONDS": "0.5",
             "API_SSE_KEEPALIVE_SECONDS": "12",
             "API_SSE_BATCH_SIZE": "40",
@@ -128,7 +131,10 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual("injected", settings.api_auth_mode)
         self.assertEqual(7, settings.api_max_active_jobs_per_user)
         self.assertEqual(12_345, settings.api_max_job_payload_bytes)
+        self.assertEqual(23_456, settings.api_max_request_body_bytes)
         self.assertEqual(50, settings.api_max_page_size)
+        self.assertEqual(75, settings.api_rate_limit_requests)
+        self.assertEqual(30.0, settings.api_rate_limit_window_seconds)
         self.assertEqual(0.5, settings.api_sse_poll_seconds)
         self.assertEqual(12.0, settings.api_sse_keepalive_seconds)
         self.assertEqual(40, settings.api_sse_batch_size)
@@ -197,8 +203,14 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(api_auth_mode="unknown"),
             HarnessSettings(api_max_active_jobs_per_user=0),
             HarnessSettings(api_max_job_payload_bytes=1),
+            HarnessSettings(api_max_request_body_bytes=65_535),
+            HarnessSettings(api_max_request_body_bytes=16_777_217),
             HarnessSettings(api_max_page_size=0),
             HarnessSettings(api_max_page_size=101),
+            HarnessSettings(api_rate_limit_requests=0),
+            HarnessSettings(api_rate_limit_requests=1_000_001),
+            HarnessSettings(api_rate_limit_window_seconds=0),
+            HarnessSettings(api_rate_limit_window_seconds=3_601),
             HarnessSettings(api_sse_poll_seconds=0),
             HarnessSettings(api_sse_poll_seconds=2, api_sse_keepalive_seconds=1),
             HarnessSettings(api_sse_batch_size=0),
