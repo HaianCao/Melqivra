@@ -31,11 +31,17 @@ class HarnessSettingsTests(unittest.TestCase):
             settings = HarnessSettings.from_env()
 
         self.assertEqual("modal", settings.runner)
+        self.assertEqual("sqlite", settings.job_store)
         self.assertEqual("melqivra-gpu-runner", settings.modal_app_name)
 
     def test_environment_values_are_parsed_explicitly(self) -> None:
         environment = {
             "GPU_RUNNER": "COLAB",
+            "JOB_STORE": "POSTGRES",
+            "POSTGRES_DSN": "postgresql://database/melqivra",
+            "POSTGRES_POOL_MIN_SIZE": "2",
+            "POSTGRES_POOL_MAX_SIZE": "6",
+            "POSTGRES_CONNECT_TIMEOUT_SECONDS": "12",
             "GPU_MAX_CONCURRENCY": "1",
             "GPU_IDLE_TIMEOUT_SECONDS": "301",
             "MODAL_CLI_VERSION": "1.6.3",
@@ -49,6 +55,11 @@ class HarnessSettingsTests(unittest.TestCase):
             settings = HarnessSettings.from_env()
 
         self.assertEqual("colab", settings.runner)
+        self.assertEqual("postgres", settings.job_store)
+        self.assertEqual("postgresql://database/melqivra", settings.postgres_dsn)
+        self.assertEqual(2, settings.postgres_pool_min_size)
+        self.assertEqual(6, settings.postgres_pool_max_size)
+        self.assertEqual(12.0, settings.postgres_connect_timeout_seconds)
         self.assertEqual(301.0, settings.idle_timeout_seconds)
         self.assertEqual("1.6.3", settings.modal_cli_version)
         self.assertFalse(settings.colab_mount_drive)
@@ -68,6 +79,11 @@ class HarnessSettingsTests(unittest.TestCase):
     def test_invalid_runner_and_non_positive_timeouts_are_rejected(self) -> None:
         invalid_settings = (
             HarnessSettings(runner="unknown"),
+            HarnessSettings(job_store="unknown"),
+            HarnessSettings(job_store="postgres"),
+            HarnessSettings(postgres_pool_min_size=0),
+            HarnessSettings(postgres_pool_min_size=2, postgres_pool_max_size=1),
+            HarnessSettings(postgres_connect_timeout_seconds=0),
             HarnessSettings(idle_timeout_seconds=0),
             HarnessSettings(scheduler_poll_seconds=0),
             HarnessSettings(job_timeout_seconds=0),

@@ -38,6 +38,7 @@ class DoctorTests(unittest.TestCase):
 
             self.assertEqual(0, exit_code)
             self.assertIn("runner=fake", output.getvalue())
+            self.assertIn("job_store=sqlite", output.getvalue())
             self.assertIn("doctor=ok", output.getvalue())
             self.assertTrue((root / "state").is_dir())
             self.assertTrue((root / "artifacts").is_dir())
@@ -77,6 +78,43 @@ class DoctorTests(unittest.TestCase):
 
             self.assertEqual(1, exit_code)
             self.assertIn("Modal CLI executable not found", error.getvalue())
+
+    def test_postgres_doctor_checks_store_without_printing_dsn(self) -> None:
+        settings = HarnessSettings(
+            runner="fake",
+            job_store="postgres",
+            postgres_dsn="postgresql://secret@database/melqivra",
+        )
+        output = io.StringIO()
+
+        with patch("agent_music.cli.build_job_store") as build_store:
+            with contextlib.redirect_stdout(output):
+                exit_code = asyncio.run(_doctor(settings))
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("job_store=postgres", output.getvalue())
+        self.assertIn("postgres_job_store=ok", output.getvalue())
+        self.assertNotIn("secret", output.getvalue())
+        build_store.return_value.close.assert_called_once_with()
+
+    def test_postgres_doctor_sanitizes_connection_failure(self) -> None:
+        settings = HarnessSettings(
+            runner="fake",
+            job_store="postgres",
+            postgres_dsn="postgresql://secret@database/melqivra",
+        )
+        error = io.StringIO()
+
+        with patch(
+            "agent_music.cli.build_job_store",
+            side_effect=RuntimeError("postgresql://secret@database/melqivra"),
+        ):
+            with contextlib.redirect_stderr(error):
+                exit_code = asyncio.run(_doctor(settings))
+
+        self.assertEqual(1, exit_code)
+        self.assertIn("PostgreSQL job store is unavailable", error.getvalue())
+        self.assertNotIn("secret", error.getvalue())
 
     def test_imports_do_not_create_runtime_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

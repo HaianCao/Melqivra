@@ -116,6 +116,21 @@ back automatically:
 | `fake` | Deterministic CPU fake | Development and CI only |
 | `local` | Local CUDA placeholder | Fails until the S11 implementation exists |
 
+SQLite remains the safe development job store. The in-progress S07 PostgreSQL
+adapter is opt-in and never falls back to SQLite:
+
+~~~shell
+uv sync --locked --extra postgres
+~~~
+
+~~~dotenv
+JOB_STORE=postgres
+POSTGRES_DSN=postgresql://user:password@database:5432/melqivra
+~~~
+
+`melqivra doctor` checks the PostgreSQL connection and applies only tracked,
+checksummed migrations. Do not place production credentials in committed files.
+
 Submit a job:
 
 ~~~shell

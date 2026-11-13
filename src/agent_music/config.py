@@ -27,6 +27,11 @@ class HarnessSettings:
     """
 
     database_path: Path = Path("data/harness.db")
+    job_store: str = "sqlite"
+    postgres_dsn: str = ""
+    postgres_pool_min_size: int = 1
+    postgres_pool_max_size: int = 4
+    postgres_connect_timeout_seconds: float = 10.0
     artifact_root: Path = Path("data/artifacts")
     transfer_root: Path = Path("data/transfers")
     runner: str = "modal"
@@ -70,6 +75,13 @@ class HarnessSettings:
         colab_cache_manifest = os.getenv("COLAB_CACHE_MANIFEST_PATH", "").strip()
         settings = cls(
             database_path=Path(os.getenv("HARNESS_DATABASE_PATH", "data/harness.db")),
+            job_store=os.getenv("JOB_STORE", "sqlite").strip().lower(),
+            postgres_dsn=os.getenv("POSTGRES_DSN", "").strip(),
+            postgres_pool_min_size=int(os.getenv("POSTGRES_POOL_MIN_SIZE", "1")),
+            postgres_pool_max_size=int(os.getenv("POSTGRES_POOL_MAX_SIZE", "4")),
+            postgres_connect_timeout_seconds=float(
+                os.getenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", "10")
+            ),
             artifact_root=Path(os.getenv("ARTIFACT_ROOT", "data/artifacts")),
             transfer_root=Path(os.getenv("TRANSFER_ROOT", "data/transfers")),
             runner=os.getenv("GPU_RUNNER", "modal").strip().lower(),
@@ -128,6 +140,16 @@ class HarnessSettings:
 
         if self.runner not in {"modal", "colab", "fake", "local"}:
             raise ValueError("GPU_RUNNER must be modal, colab, fake, or local")
+        if self.job_store not in {"sqlite", "postgres"}:
+            raise ValueError("JOB_STORE must be sqlite or postgres")
+        if self.job_store == "postgres" and not self.postgres_dsn:
+            raise ValueError("POSTGRES_DSN is required when JOB_STORE=postgres")
+        if self.postgres_pool_min_size < 1:
+            raise ValueError("POSTGRES_POOL_MIN_SIZE must be at least 1")
+        if self.postgres_pool_max_size < self.postgres_pool_min_size:
+            raise ValueError("POSTGRES_POOL_MAX_SIZE must be at least the minimum")
+        if self.postgres_connect_timeout_seconds <= 0:
+            raise ValueError("POSTGRES_CONNECT_TIMEOUT_SECONDS must be positive")
         if self.gpu_max_concurrency != 1:
             raise ValueError("This harness intentionally supports GPU_MAX_CONCURRENCY=1 only")
         if self.idle_timeout_seconds <= 0:
@@ -172,7 +194,8 @@ class HarnessSettings:
     def ensure_directories(self) -> None:
         """Create local state directories."""
 
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.job_store == "sqlite":
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.artifact_root.mkdir(parents=True, exist_ok=True)
         self.transfer_root.mkdir(parents=True, exist_ok=True)
         self.colab_cli_config.parent.mkdir(parents=True, exist_ok=True)

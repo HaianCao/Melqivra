@@ -15,7 +15,7 @@ from agent_music.result_processing import (
 )
 from agent_music.runners.base import GpuRunner
 from agent_music.runners.strategy import build_runner
-from agent_music.store import JobStore, SqliteJobStore
+from agent_music.store import JobStore, build_job_store
 
 EventSink = Callable[[str, dict[str, Any]], None]
 
@@ -37,7 +37,7 @@ class GpuHarness:
         settings.validate()
         settings.ensure_directories()
         self.settings = settings
-        self.store: JobStore = store or SqliteJobStore(settings.database_path)
+        self.store: JobStore = store or build_job_store(settings)
         self.runner = runner or build_runner(settings)
         self._event_sink = event_sink or (lambda _job_id, _event: None)
         self._result_processor = result_processor or build_default_result_processor(settings)
