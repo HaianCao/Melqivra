@@ -87,3 +87,9 @@ wheel and source distributions build with the SQL migration included, and the
 dependency audit reports no known vulnerabilities. Expiring heartbeat leases,
 attempt/dead-letter history, PostgreSQL project/revision/approval/audit schemas,
 backup/restore, and multi-process failure recovery remain later S07 work.
+
+Checkpoint `65873e2` contains the adapter, migration, configuration, dependency,
+local-container evidence, and dedicated CI job. Checkpoint `d05a85f` corrects the
+new job's immutable checkout-action SHA. Protected push run `43430479894` and PR
+run `43430486001` each passed the four Windows/Linux Python 3.11/3.13 quality jobs
+plus the real PostgreSQL service contract.
