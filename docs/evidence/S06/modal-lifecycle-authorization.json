@@ -1,0 +1,15 @@
+{
+  "approved_at": "2026-11-13",
+  "approved_max_metered_usd": 0.08,
+  "approved_role": "repository operator",
+  "estimated_max_metered_usd": 0.069271,
+  "gpu_execution_approved": true,
+  "max_function_seconds": 120,
+  "probe_gpu_calls": 3,
+  "provider": "modal",
+  "provider_price_checked_at": "2026-11-13",
+  "provider_price_prechecked": true,
+  "provider_price_source": "https://modal.com/pricing",
+  "run_id": "s06-modal-lifecycle-20261113-a",
+  "schema_version": 1
+}
