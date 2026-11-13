@@ -11,6 +11,11 @@ from types import ModuleType
 
 from agent_music.s05_ace_probe import (
     ACE_FLOAT32_REVISION,
+    MODAL_PRICE_CHECKED_AT,
+    MODAL_PRICING_SOURCE,
+    PROBE_MAX_FUNCTION_SECONDS,
+    decode_exact_utf8,
+    estimated_max_metered_usd,
     validate_probe_authorization,
 )
 
@@ -28,6 +33,15 @@ def load_module(path: Path, name: str) -> ModuleType:
 
 
 class S05AceProbeTests(unittest.TestCase):
+    def test_private_input_decode_preserves_exact_windows_newlines_for_hashing(self) -> None:
+        payload = b'{\r\n  "caption": "private"\r\n}\r\n'
+        decoded, sha256 = decode_exact_utf8(payload)
+        self.assertEqual(payload, decoded.encode("utf-8"))
+        self.assertEqual(
+            "b9d98f322e410daf06afcc1aa7820a7ddee56153dd7a43271013821c8ab80410",
+            sha256,
+        )
+
     def test_reference_command_is_audio_only_small_and_bounded(self) -> None:
         prepare = load_module(PREPARE, "s05_prepare_ace_reference")
         command = prepare.ffmpeg_command(
@@ -48,7 +62,12 @@ class S05AceProbeTests(unittest.TestCase):
             "gpu_execution_approved": True,
             "reference_media_reuse_approved": True,
             "provider_price_prechecked": True,
-            "approved_max_metered_usd": 1.0,
+            "approved_max_metered_usd": 0.2,
+            "provider": "modal",
+            "provider_price_source": MODAL_PRICING_SOURCE,
+            "provider_price_checked_at": MODAL_PRICE_CHECKED_AT,
+            "max_function_seconds": PROBE_MAX_FUNCTION_SECONDS,
+            "estimated_max_metered_usd": estimated_max_metered_usd(),
             "source_revision": ACE_FLOAT32_REVISION,
             "reference_sha256": "a" * 64,
             "private_inputs_sha256": "b" * 64,
@@ -60,6 +79,50 @@ class S05AceProbeTests(unittest.TestCase):
         )
         authorization["reference_media_reuse_approved"] = False
         with self.assertRaisesRegex(ValueError, "approvals are required"):
+            validate_probe_authorization(
+                authorization,
+                reference_sha256="a" * 64,
+                private_inputs_sha256="b" * 64,
+            )
+
+    def test_gpu_authorization_rejects_cost_ceiling_below_worst_case_estimate(self) -> None:
+        authorization = {
+            "gpu_execution_approved": True,
+            "reference_media_reuse_approved": True,
+            "provider_price_prechecked": True,
+            "approved_max_metered_usd": estimated_max_metered_usd() - 0.001,
+            "provider": "modal",
+            "provider_price_source": MODAL_PRICING_SOURCE,
+            "provider_price_checked_at": MODAL_PRICE_CHECKED_AT,
+            "max_function_seconds": PROBE_MAX_FUNCTION_SECONDS,
+            "estimated_max_metered_usd": estimated_max_metered_usd(),
+            "source_revision": ACE_FLOAT32_REVISION,
+            "reference_sha256": "a" * 64,
+            "private_inputs_sha256": "b" * 64,
+        }
+        with self.assertRaisesRegex(ValueError, "below the bounded price estimate"):
+            validate_probe_authorization(
+                authorization,
+                reference_sha256="a" * 64,
+                private_inputs_sha256="b" * 64,
+            )
+
+    def test_gpu_authorization_rejects_stale_price_contract(self) -> None:
+        authorization = {
+            "gpu_execution_approved": True,
+            "reference_media_reuse_approved": True,
+            "provider_price_prechecked": True,
+            "approved_max_metered_usd": 0.2,
+            "provider": "modal",
+            "provider_price_source": MODAL_PRICING_SOURCE,
+            "provider_price_checked_at": "2026-11-12",
+            "max_function_seconds": PROBE_MAX_FUNCTION_SECONDS,
+            "estimated_max_metered_usd": estimated_max_metered_usd(),
+            "source_revision": ACE_FLOAT32_REVISION,
+            "reference_sha256": "a" * 64,
+            "private_inputs_sha256": "b" * 64,
+        }
+        with self.assertRaisesRegex(ValueError, "price-check date"):
             validate_probe_authorization(
                 authorization,
                 reference_sha256="a" * 64,
