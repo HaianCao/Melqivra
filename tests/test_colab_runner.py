@@ -69,9 +69,9 @@ class BlockingColabClient:
 
 
 class ProvisioningColabClient(BlockingColabClient):
-    def __init__(self, *, status_returncode: int = 1) -> None:
+    def __init__(self, *, status_returncodes: tuple[int, ...] = (1,)) -> None:
         super().__init__()
-        self.status_returncode = status_returncode
+        self.status_returncodes = list(status_returncodes)
         self.status_started = asyncio.Event()
         self.release_status = asyncio.Event()
         self.commands: list[str] = []
@@ -88,7 +88,8 @@ class ProvisioningColabClient(BlockingColabClient):
         if argv[0] == "status":
             self.status_started.set()
             await self.release_status.wait()
-            return CommandResult(self.status_returncode, "", "")
+            returncode = self.status_returncodes.pop(0)
+            return CommandResult(returncode, "", "")
         return CommandResult(0, "", "")
 
 
@@ -125,6 +126,31 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(RunnerState.RECLAIMED, runner.state)
             self.assertIsNone(runner.session_name)
             self.assertEqual(["status", "new", "drivemount", "stop"], client.commands)
+
+    async def test_ready_heartbeat_recovers_one_lost_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_mount_drive=False,
+            )
+            client = ProvisioningColabClient(status_returncodes=(0, 1))
+            client.release_status.set()
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+
+            await runner.ensure_ready()
+            self.assertEqual(["status"], client.commands)
+            self.assertEqual(RunnerState.READY, runner.state)
+
+            await asyncio.gather(runner.ensure_ready(), runner.ensure_ready())
+
+            self.assertEqual(["status", "status", "new"], client.commands)
+            self.assertEqual(RunnerState.READY, runner.state)
+            self.assertEqual(settings.colab_session_name, runner.session_name)
 
     async def test_running_cancel_terminates_cli_and_maps_to_cancelled_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
