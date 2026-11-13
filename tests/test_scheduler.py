@@ -59,6 +59,14 @@ class LoseFirstRenewalStore(SqliteJobStore):
     ) -> bool:
         self.renewal_attempts += 1
         if self.renewal_attempts == 1:
+            renewed = super().renew_lease(
+                job_id=job_id,
+                lease_token=lease_token,
+                lease_owner=lease_owner,
+                lease_seconds=1e-9,
+            )
+            if not renewed:
+                raise AssertionError("Test fixture could not expire the first live lease")
             return False
         return super().renew_lease(
             job_id=job_id,
@@ -380,7 +388,7 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                 idle_timeout_seconds=300.0,
                 scheduler_poll_seconds=0.01,
                 job_timeout_seconds=3.0,
-                job_lease_seconds=0.5,
+                job_lease_seconds=10.0,
                 job_heartbeat_seconds=0.1,
             )
             store = LoseFirstRenewalStore(settings.database_path)
@@ -421,6 +429,10 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(1, runner.cancel_count)
                 self.assertEqual([job.id], runner.completed_job_ids)
                 self.assertEqual(1, runner.max_active_jobs)
+                self.assertEqual(
+                    [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.SUCCEEDED],
+                    [attempt.outcome for attempt in harness.store.list_attempts(job.id)],
+                )
             finally:
                 await harness.close()
 
