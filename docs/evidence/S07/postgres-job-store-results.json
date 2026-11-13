@@ -27,6 +27,9 @@
     ]
   },
   "python_311_cancellation_regression": {
+    "ci_pr_run": 43438720682,
+    "ci_push_run": 43438710384,
+    "commit": "d82bf47e0a7859b827b5a98d2c2637c195e036bf",
     "failed_ci_runs": [
       43435110415,
       43435119999
@@ -34,7 +37,7 @@
     "local_coverage_suite_passed": true,
     "owned_provider_timeout_task": true,
     "persistent_scheduler_wake_waiter": true,
-    "status": "fixed_ci_pending"
+    "status": "passed"
   },
   "postgres_contract": {
     "branch_coverage_percent": 81,
