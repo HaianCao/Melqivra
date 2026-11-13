@@ -168,3 +168,18 @@ and checksum drift fail before publication. A corruption regression proves a
 tampered download leaves no partial transfer directory, while a successful retry
 returns the same stable transfer ID and provider metadata. Real Colab transfer
 timing remains part of the final provider evidence.
+
+## Tenth checkpoint: cooperative remote cancellation marker
+
+Every Colab execution now receives a lease-scoped, hashed cancellation-marker
+path under an allowlisted remote control root. After interrupting the active CLI
+command, `cancel()` uploads a minimal job-ID marker. The shared worker checks that
+marker before and after its allowlisted handler, consumes only an exact job match,
+and writes a distinct `cancelled` result instead of publishing success or failure.
+Music plugins also receive the control path in their job contract so long-running
+implementations can poll it cooperatively.
+
+The worker rejects paths outside the control root and mismatched markers. Runner
+tests prove the marker upload follows active-command termination and binds to the
+current job. Modal uses scoped app termination rather than a filesystem marker
+because its scale-to-zero containers have no persistent session filesystem.

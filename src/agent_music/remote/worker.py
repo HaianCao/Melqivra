@@ -16,6 +16,11 @@ from typing import Any, cast
 
 REQUEST_PATH = Path("/content/agent_music_job.json")
 DEFAULT_RESULT_PATH = Path("/content/agent_music_result.json")
+ALLOWED_CANCEL_ROOT = Path("/content/agent_music_control")
+
+
+class RemoteJobCancelled(RuntimeError):
+    """The durable control plane requested cancellation."""
 
 
 def emit(event: dict[str, Any]) -> None:
@@ -78,6 +83,35 @@ def handle_music_generate(job: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def cancellation_path(job: dict[str, Any]) -> Path | None:
+    """Return the allowlisted cancellation marker path from a trusted request."""
+
+    control = job.get("control")
+    if control is None:
+        return None
+    if not isinstance(control, dict) or not isinstance(control.get("cancel_path"), str):
+        raise TypeError("Remote job control must declare a cancel_path string")
+    path = Path(str(control["cancel_path"]))
+    try:
+        path.relative_to(ALLOWED_CANCEL_ROOT)
+    except ValueError:
+        raise ValueError("Remote cancellation path escaped its allowlisted root") from None
+    return path
+
+
+def raise_if_cancelled(job: dict[str, Any]) -> None:
+    """Consume a matching marker and stop before publishing success."""
+
+    path = cancellation_path(job)
+    if path is None or not path.is_file():
+        return
+    marker = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(marker, dict) or marker.get("job_id") != job.get("job_id"):
+        raise ValueError("Remote cancellation marker does not match the job")
+    path.unlink()
+    raise RemoteJobCancelled("Remote job cancellation requested")
+
+
 HANDLERS = {
     "harness.healthcheck": handle_healthcheck,
     "harness.echo": handle_echo,
@@ -110,7 +144,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if handler is None:
             raise ValueError(f"Unsupported remote job kind: {kind}")
         emit({"type": "stage", "stage": "remote_started", "progress": 0.1})
+        raise_if_cancelled(job)
         payload = handler(job)
+        raise_if_cancelled(job)
         result = {
             "status": "succeeded",
             "job_id": job.get("job_id"),
@@ -121,6 +157,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
         emit({"type": "completed", "progress": 1.0})
         exit_code = 0
+    except RemoteJobCancelled as error:
+        result = {
+            "status": "cancelled",
+            "job_id": job.get("job_id"),
+            "error": str(error),
+            "duration_seconds": time.time() - started,
+        }
+        emit({"type": "cancelled", "error": result["error"]})
+        exit_code = 2
     except Exception as error:
         result = {
             "status": "failed",

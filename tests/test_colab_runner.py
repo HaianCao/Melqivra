@@ -35,6 +35,7 @@ class BlockingColabClient:
     def __init__(self) -> None:
         self.exec_started = asyncio.Event()
         self.cancelled = asyncio.Event()
+        self.uploaded_json: list[tuple[str, dict[str, object]]] = []
 
     def status_argv(self, session_name: str) -> list[str]:
         return ["status", session_name]
@@ -70,6 +71,13 @@ class BlockingColabClient:
         del check, on_stdout
         if argv[0] == "version":
             return CommandResult(0, "colab 0.8.0", "")
+        if argv[0] == "upload":
+            local_path = Path(argv[2])
+            remote_path = argv[3]
+            value = json.loads(await asyncio.to_thread(local_path.read_text, encoding="utf-8"))
+            if isinstance(value, dict):
+                self.uploaded_json.append((remote_path, value))
+            return CommandResult(0, "", "")
         if argv[0] == "exec":
             self.exec_started.set()
             await self.cancelled.wait()
@@ -382,6 +390,13 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await task
             self.assertEqual(RunnerState.READY, runner.state)
+            cancel_uploads = [
+                (path, value)
+                for path, value in client.uploaded_json
+                if path.startswith(settings.colab_remote_cancel_root)
+            ]
+            self.assertEqual(1, len(cancel_uploads))
+            self.assertEqual(job.id, cancel_uploads[0][1]["job_id"])
 
     async def test_scheduler_persists_running_colab_cancel_as_cancelled(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
