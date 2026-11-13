@@ -1,0 +1,34 @@
+{
+  "cleanup": {
+    "container_removed": true,
+    "persistent_volume_created": false
+  },
+  "container": {
+    "image": "postgres:17-alpine",
+    "image_digest": "sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065",
+    "postgres_version": "17.12"
+  },
+  "migration": {
+    "canonical_sha256": "9ebe14df2d5bad6dff3cc7cff07f3d93299f68019726d631b6d09e61c1158149",
+    "packaged_in_wheel": true,
+    "versions": [
+      1
+    ]
+  },
+  "postgres_contract": {
+    "branch_coverage_percent": 81,
+    "command": "coverage run --branch --source=agent_music.postgres_store -m unittest tests.test_postgres_store -v",
+    "failed": 0,
+    "passed": 6
+  },
+  "recorded_at": "2026-11-13",
+  "schema_version": 1,
+  "standard_gate": {
+    "critical_branch_coverage_percent": 88,
+    "discovered_tests": 218,
+    "failed": 0,
+    "mypy_source_files": 62,
+    "postgres_skipped_without_dsn": 6
+  },
+  "status": "passed"
+}

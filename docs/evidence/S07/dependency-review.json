@@ -1,0 +1,37 @@
+{
+  "alternatives": [
+    {
+      "decision": "rejected_for_this_boundary",
+      "name": "SQLAlchemy",
+      "reason": "The job authority needs explicit PostgreSQL transaction and locking semantics; an ORM would still require a PostgreSQL driver and add an unused abstraction layer."
+    },
+    {
+      "decision": "unavailable",
+      "name": "Python standard library",
+      "reason": "Python has no standard-library PostgreSQL protocol driver."
+    }
+  ],
+  "packages": [
+    {
+      "license_expression": "LGPL-3.0-only",
+      "name": "psycopg",
+      "purpose": "Official PostgreSQL 3.x driver API",
+      "version": "3.3.9"
+    },
+    {
+      "license_expression": "LGPL-3.0-only",
+      "name": "psycopg-binary",
+      "purpose": "Prebuilt libpq-backed runtime for supported development and CI platforms",
+      "version": "3.3.9"
+    },
+    {
+      "license_expression": "LGPL-3.0-only",
+      "name": "psycopg-pool",
+      "purpose": "Bounded reusable PostgreSQL connection pool",
+      "version": "3.3.3"
+    }
+  ],
+  "schema_version": 1,
+  "selection": "psycopg3_official_driver",
+  "status": "accepted_for_optional_postgres_extra"
+}

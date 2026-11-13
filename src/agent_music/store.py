@@ -8,9 +8,12 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from agent_music.models import GpuJob, JobState
+
+if TYPE_CHECKING:
+    from agent_music.config import HarnessSettings
 
 
 class JobStore(Protocol):
@@ -436,3 +439,22 @@ class SqliteJobStore:
             cancel_requested=bool(row["cancel_requested"]),
             lease_token=(int(row["lease_token"]) if row["lease_token"] is not None else None),
         )
+
+
+def build_job_store(settings: HarnessSettings) -> JobStore:
+    """Build the configured durable job adapter without silent fallback."""
+
+    if settings.job_store == "sqlite":
+        return SqliteJobStore(settings.database_path)
+    try:
+        from agent_music.postgres_store import PostgresJobStore
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "PostgreSQL support is unavailable; install the 'postgres' extra"
+        ) from error
+    return PostgresJobStore(
+        settings.postgres_dsn,
+        min_pool_size=settings.postgres_pool_min_size,
+        max_pool_size=settings.postgres_pool_max_size,
+        connection_timeout_seconds=settings.postgres_connect_timeout_seconds,
+    )

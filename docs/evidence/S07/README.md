@@ -52,3 +52,38 @@ files, Ruff format/lint, 89% critical scheduler/store branch coverage,
 successful wheel and source distribution builds, and no known audited
 vulnerabilities. Development `X-User-Id` remains intentionally explicit; the
 production authentication port and principal binding are subsequent S07 work.
+
+## Second checkpoint: packaged PostgreSQL job adapter
+
+The optional `postgres` installation extra now pins Psycopg 3.3.9 with its binary
+and pool distributions. `dependency-review.json` records their LGPL-3.0-only
+metadata, purpose, and alternatives; the locked dependency audit reports no known
+vulnerabilities.
+
+Migration `0001_job_queue.sql` is packaged inside the wheel and applied under a
+PostgreSQL advisory transaction lock. The migration history stores a canonical,
+line-ending-independent SHA-256 and rejects changed or unknown applied versions.
+The first schema preserves strict FIFO through an identity enqueue order,
+tenant-scoped idempotency, explicit states, cancellation, and a monotonic fencing
+sequence.
+
+`PostgresJobStore` implements the S07 port with pooled connections,
+`FOR UPDATE SKIP LOCKED` claims, fenced completion, tenant-scoped lookup/cancel,
+queue position, and restart requeue parity. `JOB_STORE=postgres` is explicit,
+requires `POSTGRES_DSN`, never falls back to SQLite, and is checked by a sanitized
+`melqivra doctor` probe. SQLite remains the safe default.
+
+A disposable PostgreSQL 17.12 container from the exact CI image digest passed six
+real contracts: idempotent/checksummed migration, changed-migration rejection,
+strict FIFO and stale fencing, cross-tenant cancellation isolation, competing
+worker claims, scheduler completion, and restart retrieval. PostgreSQL adapter
+branch coverage is 81% with an 80% dedicated threshold. The container was removed
+after the run; see `postgres-job-store-results.json`.
+
+The standard local suite discovered 218 tests: 212 passed and the six PostgreSQL
+tests skipped without their explicit DSN. Strict mypy passes on 62 source files,
+Ruff format/lint pass, critical scheduler/SQLite-store branch coverage is 88%,
+wheel and source distributions build with the SQL migration included, and the
+dependency audit reports no known vulnerabilities. Expiring heartbeat leases,
+attempt/dead-letter history, PostgreSQL project/revision/approval/audit schemas,
+backup/restore, and multi-process failure recovery remain later S07 work.

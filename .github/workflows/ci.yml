@@ -52,3 +52,45 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: uv run --frozen pip-audit
 
+  postgres-contract:
+    name: PostgreSQL job-store contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065
+        env:
+          POSTGRES_DB: melqivra_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d melqivra_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MELQIVRA_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/melqivra_test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825a76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev
+      - name: Run PostgreSQL contract suite
+        run: >-
+          uv run --frozen coverage run --branch
+          --source=agent_music.postgres_store
+          -m unittest tests.test_postgres_store -v
+      - name: Enforce PostgreSQL adapter coverage
+        run: uv run --frozen coverage report --fail-under=80
+

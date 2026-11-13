@@ -18,6 +18,7 @@ from agent_music.runners.modal_cli import (
     ModalCliCompatibilityError,
     validate_modal_cli_version,
 )
+from agent_music.store import build_job_store
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -36,6 +37,7 @@ async def _doctor(settings: HarnessSettings) -> int:
     settings.validate()
     settings.ensure_directories()
     print(f"runner={settings.runner}")
+    print(f"job_store={settings.job_store}")
     print(f"idle_timeout_seconds={settings.idle_timeout_seconds}")
     print(f"max_concurrency={settings.gpu_max_concurrency}")
     if settings.runner == "modal":
@@ -110,6 +112,14 @@ async def _doctor(settings: HarnessSettings) -> int:
             print(f"ERROR: {error}", file=sys.stderr)
             return 1
         print(f"colab_cli_version={observed_version}")
+    if settings.job_store == "postgres":
+        try:
+            store = build_job_store(settings)
+        except Exception:
+            print("ERROR: PostgreSQL job store is unavailable", file=sys.stderr)
+            return 1
+        store.close()
+        print("postgres_job_store=ok")
     print("doctor=ok")
     return 0
 
