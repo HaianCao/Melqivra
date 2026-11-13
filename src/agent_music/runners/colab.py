@@ -196,6 +196,8 @@ class ColabRunner(GpuRunner):
                         "runner": "colab",
                         "session_name": self._settings.colab_session_name,
                     }
+                if job.id in self._cancel_requested:
+                    raise asyncio.CancelledError
                 result["_lifecycle_metrics"] = {
                     "provider": "colab",
                     "readiness": dict(self._last_readiness_metrics),
@@ -248,16 +250,20 @@ class ColabRunner(GpuRunner):
 
             if self._state in {RunnerState.ABSENT, RunnerState.RECLAIMED}:
                 return
+            drain_error: TimeoutError | None = None
             if self._state == RunnerState.BUSY:
                 self._state = RunnerState.DRAINING
                 if self._active_job_id is not None:
                     self._cancel_requested.add(self._active_job_id)
                 await self._client.cancel_current()
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(
-                        self._run_finished.wait(),
-                        timeout=self._settings.colab_command_timeout_seconds,
-                    )
+                drain_waiter = asyncio.create_task(self._run_finished.wait())
+                completed, _ = await asyncio.wait(
+                    {drain_waiter},
+                    timeout=self._settings.colab_command_timeout_seconds,
+                )
+                if not completed:
+                    drain_waiter.cancel()
+                    drain_error = TimeoutError("Colab job did not drain before reclaim")
 
             self._state = RunnerState.STOPPING
             try:
@@ -266,10 +272,16 @@ class ColabRunner(GpuRunner):
                         self._client.stop_argv(self._settings.colab_session_name),
                         check=False,
                     )
+            except BaseException:
+                self._state = RunnerState.FAILED
+                raise
             finally:
                 self._session_present = False
                 self._cache_verified = False
-                self._state = RunnerState.RECLAIMED
+            if drain_error is not None:
+                self._state = RunnerState.FAILED
+                raise drain_error
+            self._state = RunnerState.RECLAIMED
 
     async def _provision(self) -> None:
         started = time.monotonic()
@@ -472,6 +484,8 @@ class ColabRunner(GpuRunner):
                         local_path,
                     )
                 )
+                if job.id in self._cancel_requested:
+                    raise asyncio.CancelledError
                 self._verify_artifact(local_path, size_bytes, checksum)
             os.replace(temporary, destination)
         finally:

@@ -117,6 +117,7 @@ class ColabCliClient:
         self._command_lock = asyncio.Lock()
         self._process_lock = asyncio.Lock()
         self._current_process: asyncio.subprocess.Process | None = None
+        self._current_waiter: asyncio.Task[int] | None = None
 
     def _base(self) -> list[str]:
         return [
@@ -203,8 +204,10 @@ class ColabCliClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            process_waiter = asyncio.create_task(process.wait())
             async with self._process_lock:
                 self._current_process = process
+                self._current_waiter = process_waiter
             stdout_lines: list[str] = []
             stderr_lines: list[str] = []
 
@@ -226,23 +229,25 @@ class ColabCliClient:
                 asyncio.create_task(read_stderr()),
             ]
             try:
-                await asyncio.wait_for(
-                    process.wait(),
+                completed, _ = await asyncio.wait(
+                    {process_waiter},
                     timeout=self._timeout_seconds,
                 )
+                if not completed:
+                    await self._terminate(process, process_waiter)
+                    await process_waiter
+                    await self._cancel_readers(readers)
+                    raise TimeoutError(f"Colab CLI timed out: {argv[-1]}")
                 await asyncio.gather(*readers)
-            except TimeoutError:
-                await self._terminate(process)
-                await self._cancel_readers(readers)
-                raise TimeoutError(f"Colab CLI timed out: {argv[-1]}") from None
             except asyncio.CancelledError:
-                await self._terminate(process)
+                await self._terminate(process, process_waiter)
                 await self._cancel_readers(readers)
                 raise
             finally:
                 async with self._process_lock:
                     if self._current_process is process:
                         self._current_process = None
+                        self._current_waiter = None
 
             result = CommandResult(
                 returncode=int(process.returncode or 0),
@@ -258,13 +263,18 @@ class ColabCliClient:
 
         async with self._process_lock:
             process = self._current_process
+            waiter = self._current_waiter
         if process is not None:
-            await self._terminate(process)
+            await self._terminate(process, waiter)
 
     @staticmethod
-    async def _terminate(process: asyncio.subprocess.Process) -> None:
+    async def _terminate(
+        process: asyncio.subprocess.Process,
+        waiter: asyncio.Task[int] | None = None,
+    ) -> None:
         if process.returncode is not None:
             return
+        process_waiter = waiter or asyncio.create_task(process.wait())
         try:
             process.send_signal(signal.SIGINT)
         except ProcessLookupError:
@@ -274,15 +284,16 @@ class ColabCliClient:
                 process.terminate()
             except ProcessLookupError:
                 return
-        try:
-            await asyncio.wait_for(process.wait(), timeout=10.0)
-        except TimeoutError:
+        completed, _ = await asyncio.wait({process_waiter}, timeout=10.0)
+        if not completed:
             try:
                 process.terminate()
-                await asyncio.wait_for(process.wait(), timeout=5.0)
-            except TimeoutError:
+            except ProcessLookupError:
+                return
+            completed, _ = await asyncio.wait({process_waiter}, timeout=5.0)
+            if not completed:
                 process.kill()
-                await process.wait()
+                await process_waiter
 
     @staticmethod
     async def _cancel_readers(readers: Sequence[asyncio.Task[None]]) -> None:

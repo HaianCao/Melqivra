@@ -188,6 +188,8 @@ class ModalRunner(GpuRunner):
                         "runner": "modal",
                         "app_name": self._settings.modal_app_name,
                     }
+                if job.id in self._cancel_requested:
+                    raise asyncio.CancelledError
                 result["_lifecycle_metrics"] = {
                     "provider": "modal",
                     "readiness": dict(self._last_readiness_metrics),
@@ -224,25 +226,34 @@ class ModalRunner(GpuRunner):
                 return
 
             drained_active_command = False
+            drain_error: TimeoutError | None = None
             if self._state == RunnerState.BUSY:
                 self._state = RunnerState.DRAINING
                 if self._active_job_id is not None:
                     self._cancel_requested.add(self._active_job_id)
                 await self._client.cancel_current()
                 drained_active_command = True
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(
-                        self._run_finished.wait(),
-                        timeout=self._settings.modal_command_timeout_seconds,
-                    )
+                drain_waiter = asyncio.create_task(self._run_finished.wait())
+                completed, _ = await asyncio.wait(
+                    {drain_waiter},
+                    timeout=self._settings.modal_command_timeout_seconds,
+                )
+                if not completed:
+                    drain_waiter.cancel()
+                    drain_error = TimeoutError("Modal job did not drain before reclaim")
 
             self._state = RunnerState.STOPPING
             try:
                 if not drained_active_command:
                     await self._client.cancel_current()
                 await self._client.run(self._client.stop_argv(), check=False)
-            finally:
-                self._state = RunnerState.RECLAIMED
+            except BaseException:
+                self._state = RunnerState.FAILED
+                raise
+            if drain_error is not None:
+                self._state = RunnerState.FAILED
+                raise drain_error
+            self._state = RunnerState.RECLAIMED
 
     async def _reconcile_readiness(self) -> None:
         started = time.monotonic()
@@ -327,6 +338,8 @@ class ModalRunner(GpuRunner):
                         local_parent,
                     )
                 )
+                if job.id in self._cancel_requested:
+                    raise asyncio.CancelledError
                 if not (staging.joinpath(*relative.parts)).is_file():
                     raise FileNotFoundError(str(relative))
             os.replace(staging, destination)

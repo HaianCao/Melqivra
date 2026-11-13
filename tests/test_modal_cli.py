@@ -87,6 +87,19 @@ class ModalCliClientTests(unittest.TestCase):
 
 
 class ModalCliCancellationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_hung_process_times_out_and_releases_command_slot(self) -> None:
+        client = ModalCliClient(
+            executable="modal",
+            app_name="melqivra-gpu-runner",
+            timeout_seconds=1.0,
+        )
+
+        with self.assertRaisesRegex(TimeoutError, "Modal CLI timed out"):
+            await client.run([sys.executable, "-c", "import time; time.sleep(30)"])
+
+        result = await client.run([sys.executable, "-c", "print('ready')"])
+        self.assertEqual("ready", result.stdout)
+
     async def test_cancel_current_interrupts_the_active_process(self) -> None:
         client = ModalCliClient(
             executable="modal",
