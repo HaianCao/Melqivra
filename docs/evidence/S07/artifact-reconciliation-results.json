@@ -1,0 +1,43 @@
+{
+  "cleanup": {
+    "minio_container_removed": true,
+    "minio_volume_removed": true,
+    "postgres_container_removed": true,
+    "postgres_volume_removed": true
+  },
+  "contract": {
+    "complete_pending_batch_recovers_to_published": true,
+    "corrupt_batch_is_hidden_and_retained_before_cleanup": true,
+    "deletion_commits_tombstone_before_object_removal": true,
+    "incomplete_pending_batch_is_deleted": true,
+    "interrupted_deletion_resumes_idempotently": true,
+    "operator_output_contains_no_content_or_credentials": true,
+    "orphan_deletion_is_paged_and_grace_bounded": true,
+    "published_retention_is_explicit_and_default_off": true,
+    "state_timestamp_mutation_without_transition_is_rejected": true,
+    "version_7_metadata_backfills_state_change_time": true
+  },
+  "migration": {
+    "canonical_sha256": "0958ca81e09ae250badbf5e23cc392e22dba2e81cba8bcf71becb13ba010ff91",
+    "resource": "0008_add_artifact_reconciliation_state.sql",
+    "version": 8
+  },
+  "real_service_gate": {
+    "combined_postgres_adapter_branch_coverage_percent": 80,
+    "failed": 0,
+    "passed": 30,
+    "postgres_repository_contracts": 29,
+    "s3_postgres_integration_contracts": 1
+  },
+  "recorded_at": "2026-11-14",
+  "schema_version": 1,
+  "standard_gate": {
+    "critical_branch_coverage_percent": 87,
+    "discovered_tests": 282,
+    "failed": 0,
+    "mypy_source_files": 76,
+    "passed": 252,
+    "service_tests_skipped_without_explicit_endpoints": 30
+  },
+  "status": "passed_local_pending_ci"
+}

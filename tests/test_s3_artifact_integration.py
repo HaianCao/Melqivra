@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 import unittest
 
 import boto3
 import psycopg
 from botocore.config import Config
 
-from agent_music.artifact_factory import build_artifact_service
+from agent_music.artifact_factory import (
+    build_artifact_reconciliation_service,
+    build_artifact_service,
+)
+from agent_music.artifact_reconciliation import ArtifactReconciliationPolicy
 from agent_music.artifact_store import ArtifactWrite
 from agent_music.config import HarnessSettings
 from agent_music.domain import (
@@ -152,6 +157,50 @@ class S3ArtifactIntegrationTests(unittest.TestCase):
                 owner_id=self.owner,
                 artifact_id=ArtifactId("art_s3_audio"),
             )
+
+        verification_client = boto3.client(
+            "s3",
+            endpoint_url=S3_ENDPOINT,
+            region_name="us-east-1",
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+        )
+        try:
+            verification_client.put_object(
+                Bucket="melqivra-artifacts",
+                Key="artifacts/orphan/untracked",
+                Body=b"orphan",
+                ContentType="application/octet-stream",
+            )
+            reconciler = build_artifact_reconciliation_service(
+                self.settings,
+                ArtifactReconciliationPolicy(
+                    pending_timeout_seconds=0,
+                    corrupt_retention_seconds=0,
+                    orphan_grace_seconds=0,
+                ),
+            )
+            try:
+                report = reconciler.reconcile(now=time.time() + 1)
+            finally:
+                reconciler.close()
+            self.assertEqual(1, report.deleted_corrupt_batches)
+            self.assertEqual(1, report.deleted_orphan_objects)
+            remaining = verification_client.list_objects_v2(
+                Bucket="melqivra-artifacts",
+                Prefix="artifacts/",
+            ).get("Contents", [])
+            self.assertEqual([], remaining)
+        finally:
+            verification_client.close()
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            state = connection.execute(
+                """
+                SELECT state FROM artifact_batches
+                WHERE owner_id = %s AND batch_id = %s
+                """,
+                (str(self.owner), "batch_s3_contract"),
+            ).fetchone()
+        self.assertEqual("deleted", state[0] if state is not None else None)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,12 @@ class HarnessSettingsTests(unittest.TestCase):
             "S3_CONNECT_TIMEOUT_SECONDS": "8",
             "S3_READ_TIMEOUT_SECONDS": "45",
             "S3_MAX_ATTEMPTS": "4",
+            "ARTIFACT_PENDING_TIMEOUT_SECONDS": "120",
+            "ARTIFACT_CORRUPT_RETENTION_SECONDS": "240",
+            "ARTIFACT_ORPHAN_GRACE_SECONDS": "360",
+            "ARTIFACT_PUBLISHED_RETENTION_SECONDS": "7200",
+            "ARTIFACT_RECONCILE_BATCH_LIMIT": "25",
+            "ARTIFACT_RECONCILE_OBJECT_PAGE_SIZE": "50",
             "GPU_MAX_CONCURRENCY": "1",
             "GPU_IDLE_TIMEOUT_SECONDS": "301",
             "GPU_JOB_LEASE_SECONDS": "90",
@@ -89,6 +95,12 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual(8.0, settings.s3_connect_timeout_seconds)
         self.assertEqual(45.0, settings.s3_read_timeout_seconds)
         self.assertEqual(4, settings.s3_max_attempts)
+        self.assertEqual(120.0, settings.artifact_pending_timeout_seconds)
+        self.assertEqual(240.0, settings.artifact_corrupt_retention_seconds)
+        self.assertEqual(360.0, settings.artifact_orphan_grace_seconds)
+        self.assertEqual(7_200.0, settings.artifact_published_retention_seconds)
+        self.assertEqual(25, settings.artifact_reconcile_batch_limit)
+        self.assertEqual(50, settings.artifact_reconcile_object_page_size)
         self.assertEqual(301.0, settings.idle_timeout_seconds)
         self.assertEqual(90.0, settings.job_lease_seconds)
         self.assertEqual(20.0, settings.job_heartbeat_seconds)
@@ -136,6 +148,12 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(s3_read_timeout_seconds=0),
             HarnessSettings(s3_max_attempts=0),
             HarnessSettings(s3_max_attempts=11),
+            HarnessSettings(artifact_pending_timeout_seconds=-1),
+            HarnessSettings(artifact_corrupt_retention_seconds=float("inf")),
+            HarnessSettings(artifact_orphan_grace_seconds=-1),
+            HarnessSettings(artifact_published_retention_seconds=-1),
+            HarnessSettings(artifact_reconcile_batch_limit=0),
+            HarnessSettings(artifact_reconcile_object_page_size=1_001),
             HarnessSettings(idle_timeout_seconds=0),
             HarnessSettings(scheduler_poll_seconds=0),
             HarnessSettings(job_timeout_seconds=0),

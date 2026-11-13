@@ -6,6 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Protocol
 
+from agent_music.artifact_integrity import read_verified_artifact
 from agent_music.artifact_repository import (
     ArtifactPublicationConflictError,
     ArtifactPublicationState,
@@ -115,7 +116,16 @@ class ArtifactPublicationService:
                     media_type=record.media_type,
                     sha256=record.sha256,
                 )
-            self._read_verified(record)
+            try:
+                read_verified_artifact(self._object_store, record)
+            except ObjectIntegrityError:
+                if batch.state is ArtifactPublicationState.PUBLISHED:
+                    self._repository.mark_batch_corrupt(
+                        owner_id=record.owner_id,
+                        project_id=record.project_id,
+                        batch_id=record.batch_id,
+                    )
+                raise
 
         if batch.state is ArtifactPublicationState.PENDING:
             batch = self._repository.publish_batch(
@@ -137,7 +147,15 @@ class ArtifactPublicationService:
             owner_id=owner_id,
             artifact_id=artifact_id,
         )
-        content = self._read_verified(record)
+        try:
+            content = read_verified_artifact(self._object_store, record)
+        except ObjectIntegrityError:
+            self._repository.mark_batch_corrupt(
+                owner_id=record.owner_id,
+                project_id=record.project_id,
+                batch_id=record.batch_id,
+            )
+            raise
         return ArtifactDownload(
             artifact_id=record.artifact_id,
             project_id=record.project_id,
@@ -146,24 +164,6 @@ class ArtifactPublicationService:
             sha256=record.sha256,
             content=content,
         )
-
-    def _read_verified(self, record: ArtifactRecord) -> bytes:
-        try:
-            content = self._object_store.get(
-                record.object_key,
-                max_bytes=record.size_bytes,
-            )
-        except KeyError as error:
-            raise ObjectIntegrityError("Artifact object is missing") from error
-        self._verify_bytes(record, content)
-        return content
-
-    @staticmethod
-    def _verify_bytes(record: ArtifactRecord, content: bytes) -> None:
-        if len(content) != record.size_bytes:
-            raise ObjectIntegrityError("Artifact object length does not match metadata")
-        if hashlib.sha256(content).hexdigest() != record.sha256:
-            raise ObjectIntegrityError("Artifact object checksum does not match metadata")
 
     @staticmethod
     def _public_artifact(record: ArtifactRecord) -> Artifact:

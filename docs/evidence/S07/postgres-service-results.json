@@ -23,7 +23,8 @@
       "4": "121232d5ae4a6ae554e8081deefb7cc9649002b194c1dfa6aa5e1e08fa37b59d",
       "5": "5ef9b936dd9f91764f60002b3566a24f8f571224e50067df02b9c6d97d2df607",
       "6": "1ca8a72c9d1298e9c52b7a26d879a15777174e8d2c67d0fb65e26b57d1112c45",
-      "7": "e635a48bd148ebcba533d43a866dffa6b93c5d7ed9d5e51c18c65f3203768bb0"
+      "7": "e635a48bd148ebcba533d43a866dffa6b93c5d7ed9d5e51c18c65f3203768bb0",
+      "8": "0958ca81e09ae250badbf5e23cc392e22dba2e81cba8bcf71becb13ba010ff91"
     },
     "packaged_in_wheel": true,
     "versions": [
@@ -33,7 +34,8 @@
       4,
       5,
       6,
-      7
+      7,
+      8
     ]
   },
   "migration_catalog_policy": {
@@ -89,7 +91,7 @@
     "branch_coverage_percent": 80,
     "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository,agent_music.postgres_artifact_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories tests.test_postgres_artifact_repository -v",
     "failed": 0,
-    "passed": 27
+    "passed": 29
   },
   "approval_audit_policy": {
     "append_only_audit_trigger": true,
@@ -149,11 +151,11 @@
   "schema_version": 1,
   "standard_gate": {
     "critical_branch_coverage_percent": 87,
-    "discovered_tests": 276,
+    "discovered_tests": 282,
     "failed": 0,
-    "mypy_source_files": 74,
-    "passed": 248,
-    "service_tests_skipped_without_endpoints": 28
+    "mypy_source_files": 76,
+    "passed": 252,
+    "service_tests_skipped_without_endpoints": 30
   },
   "status": "passed"
 }

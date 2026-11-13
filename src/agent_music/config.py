@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,11 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_optional_float(name: str) -> float | None:
+    value = os.getenv(name, "").strip()
+    return float(value) if value else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +48,12 @@ class HarnessSettings:
     s3_connect_timeout_seconds: float = 10.0
     s3_read_timeout_seconds: float = 60.0
     s3_max_attempts: int = 3
+    artifact_pending_timeout_seconds: float = 3_600.0
+    artifact_corrupt_retention_seconds: float = 86_400.0
+    artifact_orphan_grace_seconds: float = 86_400.0
+    artifact_published_retention_seconds: float | None = None
+    artifact_reconcile_batch_limit: int = 100
+    artifact_reconcile_object_page_size: int = 100
     transfer_root: Path = Path("data/transfers")
     runner: str = "modal"
     gpu_max_concurrency: int = 1
@@ -111,6 +123,22 @@ class HarnessSettings:
             s3_connect_timeout_seconds=float(os.getenv("S3_CONNECT_TIMEOUT_SECONDS", "10")),
             s3_read_timeout_seconds=float(os.getenv("S3_READ_TIMEOUT_SECONDS", "60")),
             s3_max_attempts=int(os.getenv("S3_MAX_ATTEMPTS", "3")),
+            artifact_pending_timeout_seconds=float(
+                os.getenv("ARTIFACT_PENDING_TIMEOUT_SECONDS", "3600")
+            ),
+            artifact_corrupt_retention_seconds=float(
+                os.getenv("ARTIFACT_CORRUPT_RETENTION_SECONDS", "86400")
+            ),
+            artifact_orphan_grace_seconds=float(
+                os.getenv("ARTIFACT_ORPHAN_GRACE_SECONDS", "86400")
+            ),
+            artifact_published_retention_seconds=_env_optional_float(
+                "ARTIFACT_PUBLISHED_RETENTION_SECONDS"
+            ),
+            artifact_reconcile_batch_limit=int(os.getenv("ARTIFACT_RECONCILE_BATCH_LIMIT", "100")),
+            artifact_reconcile_object_page_size=int(
+                os.getenv("ARTIFACT_RECONCILE_OBJECT_PAGE_SIZE", "100")
+            ),
             transfer_root=Path(os.getenv("TRANSFER_ROOT", "data/transfers")),
             runner=os.getenv("GPU_RUNNER", "modal").strip().lower(),
             gpu_max_concurrency=int(os.getenv("GPU_MAX_CONCURRENCY", "1")),
@@ -203,6 +231,25 @@ class HarnessSettings:
             raise ValueError("S3 timeouts must be positive")
         if self.s3_max_attempts < 1 or self.s3_max_attempts > 10:
             raise ValueError("S3_MAX_ATTEMPTS must be between 1 and 10")
+        artifact_durations = (
+            self.artifact_pending_timeout_seconds,
+            self.artifact_corrupt_retention_seconds,
+            self.artifact_orphan_grace_seconds,
+        )
+        if any(not math.isfinite(value) or value < 0 for value in artifact_durations):
+            raise ValueError("Artifact reconciliation durations must be finite and non-negative")
+        if self.artifact_published_retention_seconds is not None and (
+            not math.isfinite(self.artifact_published_retention_seconds)
+            or self.artifact_published_retention_seconds < 0
+        ):
+            raise ValueError("ARTIFACT_PUBLISHED_RETENTION_SECONDS must be non-negative")
+        if self.artifact_reconcile_batch_limit < 1 or self.artifact_reconcile_batch_limit > 1_000:
+            raise ValueError("ARTIFACT_RECONCILE_BATCH_LIMIT must be between 1 and 1000")
+        if (
+            self.artifact_reconcile_object_page_size < 1
+            or self.artifact_reconcile_object_page_size > 1_000
+        ):
+            raise ValueError("ARTIFACT_RECONCILE_OBJECT_PAGE_SIZE must be between 1 and 1000")
         if self.gpu_max_concurrency != 1:
             raise ValueError("This harness intentionally supports GPU_MAX_CONCURRENCY=1 only")
         if self.idle_timeout_seconds <= 0:

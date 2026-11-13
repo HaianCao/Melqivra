@@ -35,6 +35,14 @@ class ObjectInfo:
     last_modified_at: float | None
 
 
+@dataclass(frozen=True, slots=True)
+class ObjectPage:
+    """One bounded page of provider objects and its opaque continuation cursor."""
+
+    items: tuple[ObjectInfo, ...]
+    next_cursor: str | None
+
+
 class ObjectStore(Protocol):
     """Minimal immutable object storage required by artifact publication."""
 
@@ -55,7 +63,13 @@ class ObjectStore(Protocol):
 
     def delete(self, key: str) -> None: ...
 
-    def list(self, prefix: str) -> tuple[ObjectInfo, ...]: ...
+    def list(
+        self,
+        prefix: str,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> ObjectPage: ...
 
 
 class S3Client(Protocol):
@@ -213,42 +227,57 @@ class S3ObjectStore:
         except Exception as error:
             raise ObjectStoreError("S3 object delete failed") from error
 
-    def list(self, prefix: str) -> tuple[ObjectInfo, ...]:
-        """List object keys below one validated service-owned prefix."""
+    def list(
+        self,
+        prefix: str,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> ObjectPage:
+        """List one bounded page below a validated service-owned prefix."""
 
         _validate_object_prefix(prefix)
+        if cursor is not None and not cursor:
+            raise ValueError("Object listing cursor must not be empty")
+        if limit < 1 or limit > 1_000:
+            raise ValueError("Object listing limit must be between 1 and 1000")
+        arguments: dict[str, Any] = {
+            "Bucket": self._bucket,
+            "Prefix": prefix,
+            "MaxKeys": limit,
+        }
+        if cursor is not None:
+            arguments["ContinuationToken"] = cursor
+        try:
+            response = self._client.list_objects_v2(**arguments)
+        except Exception as error:
+            raise ObjectStoreError("S3 object listing failed") from error
+        contents = response.get("Contents", [])
+        if not isinstance(contents, list):
+            raise ObjectStoreError("S3 object listing returned invalid contents")
         items: list[ObjectInfo] = []
-        token: str | None = None
-        while True:
-            arguments: dict[str, Any] = {"Bucket": self._bucket, "Prefix": prefix}
-            if token is not None:
-                arguments["ContinuationToken"] = token
-            try:
-                response = self._client.list_objects_v2(**arguments)
-            except Exception as error:
-                raise ObjectStoreError("S3 object listing failed") from error
-            contents = response.get("Contents", [])
-            if not isinstance(contents, list):
-                raise ObjectStoreError("S3 object listing returned invalid contents")
-            for item in contents:
-                if not isinstance(item, dict) or not isinstance(item.get("Key"), str):
-                    raise ObjectStoreError("S3 object listing returned an invalid item")
-                items.append(
-                    ObjectInfo(
-                        key=item["Key"],
-                        size_bytes=int(item.get("Size", -1)),
-                        sha256=None,
-                        media_type=None,
-                        last_modified_at=_timestamp(item.get("LastModified")),
-                    )
+        for item in contents:
+            if not isinstance(item, dict) or not isinstance(item.get("Key"), str):
+                raise ObjectStoreError("S3 object listing returned an invalid item")
+            key = item["Key"]
+            if not key.startswith(prefix):
+                raise ObjectStoreError("S3 object listing escaped its requested prefix")
+            items.append(
+                ObjectInfo(
+                    key=key,
+                    size_bytes=int(item.get("Size", -1)),
+                    sha256=None,
+                    media_type=None,
+                    last_modified_at=_timestamp(item.get("LastModified")),
                 )
-            if not bool(response.get("IsTruncated")):
-                break
+            )
+        next_cursor: str | None = None
+        if bool(response.get("IsTruncated")):
             next_token = response.get("NextContinuationToken")
             if not isinstance(next_token, str) or not next_token:
                 raise ObjectStoreError("S3 object listing omitted its continuation token")
-            token = next_token
-        return tuple(items)
+            next_cursor = next_token
+        return ObjectPage(tuple(items), next_cursor)
 
     def _ensure_bucket(self, *, create_bucket: bool) -> None:
         try:

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import shutil
 import sys
+from dataclasses import asdict
 
 from agent_music.config import HarnessSettings
 from agent_music.job_store import build_job_store
@@ -30,6 +32,11 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8000)
 
     subparsers.add_parser("doctor", help="Validate harness configuration")
+    reconcile = subparsers.add_parser(
+        "reconcile-artifacts",
+        help="Run one bounded PostgreSQL/S3 artifact lifecycle pass",
+    )
+    reconcile.add_argument("--orphan-cursor")
     return parser
 
 
@@ -50,6 +57,12 @@ async def _doctor(settings: HarnessSettings) -> int:
     print(f"api_sse_poll_seconds={settings.api_sse_poll_seconds}")
     print(f"api_sse_keepalive_seconds={settings.api_sse_keepalive_seconds}")
     print(f"api_sse_batch_size={settings.api_sse_batch_size}")
+    print(f"artifact_pending_timeout_seconds={settings.artifact_pending_timeout_seconds}")
+    print(f"artifact_corrupt_retention_seconds={settings.artifact_corrupt_retention_seconds}")
+    print(f"artifact_orphan_grace_seconds={settings.artifact_orphan_grace_seconds}")
+    print(f"artifact_published_retention_seconds={settings.artifact_published_retention_seconds}")
+    print(f"artifact_reconcile_batch_limit={settings.artifact_reconcile_batch_limit}")
+    print(f"artifact_reconcile_object_page_size={settings.artifact_reconcile_object_page_size}")
     print(f"max_concurrency={settings.gpu_max_concurrency}")
     if settings.runner == "modal":
         if not settings.modal_runner_file.is_file():
@@ -145,6 +158,22 @@ async def _doctor(settings: HarnessSettings) -> int:
     return 0
 
 
+def _reconcile_artifacts(settings: HarnessSettings, *, orphan_cursor: str | None) -> int:
+    try:
+        from agent_music.artifact_factory import build_artifact_reconciliation_service
+
+        service = build_artifact_reconciliation_service(settings)
+        try:
+            report = service.reconcile(orphan_cursor=orphan_cursor)
+        finally:
+            service.close()
+    except Exception:
+        print("ERROR: Artifact reconciliation failed", file=sys.stderr)
+        return 1
+    print(json.dumps(asdict(report), ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def main() -> None:
     """Run CLI."""
 
@@ -161,6 +190,13 @@ def main() -> None:
             factory=True,
         )
         return
+    if args.command == "reconcile-artifacts":
+        raise SystemExit(
+            _reconcile_artifacts(
+                settings,
+                orphan_cursor=args.orphan_cursor,
+            )
+        )
     raise SystemExit(asyncio.run(_doctor(settings)))
 
 

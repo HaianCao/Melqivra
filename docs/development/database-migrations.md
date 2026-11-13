@@ -23,6 +23,7 @@ Examples:
 0003_add_gpu_job_attempt_history.sql
 0004_create_project_revision_store.sql
 0005_create_approval_audit_authority.sql
+0008_add_artifact_reconciliation_state.sql
 ```
 
 The version prefix is required. It provides deterministic ordering and is

@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from agent_music.cli import _build_parser, _doctor
+from agent_music.artifact_reconciliation import ArtifactReconciliationReport
+from agent_music.cli import _build_parser, _doctor, _reconcile_artifacts
 from agent_music.config import HarnessSettings
 
 
@@ -144,6 +145,54 @@ class DoctorTests(unittest.TestCase):
         self.assertNotIn("secret", output.getvalue())
         build_store.return_value.close.assert_called_once_with()
         build_artifacts.return_value.close.assert_called_once_with()
+
+    def test_artifact_reconciliation_cli_is_bounded_and_sanitized(self) -> None:
+        settings = HarnessSettings(
+            runner="fake",
+            job_store="postgres",
+            postgres_dsn="postgresql://secret@database/melqivra",
+            artifact_storage="s3",
+            s3_endpoint_url="https://secret-storage.example.test",
+            s3_bucket="melqivra-artifacts",
+        )
+        report = ArtifactReconciliationReport(
+            recovered_pending_batches=1,
+            deleted_pending_batches=2,
+            deleted_corrupt_batches=3,
+            resumed_deleting_batches=4,
+            expired_published_batches=5,
+            deleted_orphan_objects=6,
+            deferred_orphan_objects=7,
+            next_orphan_cursor="next-page",
+        )
+        output = io.StringIO()
+        with (
+            patch(
+                "agent_music.artifact_factory.build_artifact_reconciliation_service"
+            ) as build_service,
+            contextlib.redirect_stdout(output),
+        ):
+            build_service.return_value.reconcile.return_value = report
+            exit_code = _reconcile_artifacts(settings, orphan_cursor="prior-page")
+
+        self.assertEqual(0, exit_code)
+        self.assertIn('"deleted_orphan_objects": 6', output.getvalue())
+        self.assertIn('"next_orphan_cursor": "next-page"', output.getvalue())
+        self.assertNotIn("secret", output.getvalue())
+        build_service.return_value.reconcile.assert_called_once_with(orphan_cursor="prior-page")
+        build_service.return_value.close.assert_called_once_with()
+
+        error = io.StringIO()
+        with (
+            patch(
+                "agent_music.artifact_factory.build_artifact_reconciliation_service",
+                side_effect=RuntimeError("secret-storage.example.test"),
+            ),
+            contextlib.redirect_stderr(error),
+        ):
+            self.assertEqual(1, _reconcile_artifacts(settings, orphan_cursor=None))
+        self.assertIn("Artifact reconciliation failed", error.getvalue())
+        self.assertNotIn("secret-storage", error.getvalue())
 
     def test_imports_do_not_create_runtime_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -5,6 +5,11 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any, cast
 
+from agent_music.artifact_reconciliation import (
+    ArtifactReconciliationPolicy,
+    ArtifactReconciliationService,
+)
+from agent_music.artifact_repository import ArtifactRepository
 from agent_music.artifact_service import ArtifactPublicationService
 from agent_music.config import HarnessSettings
 from agent_music.object_store import S3Client, S3ObjectStore
@@ -14,6 +19,31 @@ from agent_music.postgres_artifact_repository import PostgresArtifactRepository
 def build_artifact_service(settings: HarnessSettings) -> ArtifactPublicationService:
     """Build the configured production artifact publication service."""
 
+    repository, object_store = _build_artifact_adapters(settings)
+    return ArtifactPublicationService(repository, object_store)
+
+
+def build_artifact_reconciliation_service(
+    settings: HarnessSettings,
+    policy: ArtifactReconciliationPolicy | None = None,
+) -> ArtifactReconciliationService:
+    """Build an independently owned production artifact lifecycle worker."""
+
+    repository, object_store = _build_artifact_adapters(settings)
+    resolved_policy = policy or ArtifactReconciliationPolicy(
+        pending_timeout_seconds=settings.artifact_pending_timeout_seconds,
+        corrupt_retention_seconds=settings.artifact_corrupt_retention_seconds,
+        orphan_grace_seconds=settings.artifact_orphan_grace_seconds,
+        published_retention_seconds=settings.artifact_published_retention_seconds,
+        batch_limit=settings.artifact_reconcile_batch_limit,
+        object_page_size=settings.artifact_reconcile_object_page_size,
+    )
+    return ArtifactReconciliationService(repository, object_store, resolved_policy)
+
+
+def _build_artifact_adapters(
+    settings: HarnessSettings,
+) -> tuple[ArtifactRepository, S3ObjectStore]:
     settings.validate()
     if settings.artifact_storage != "s3":
         raise ValueError("Production artifact service requires ARTIFACT_STORAGE=s3")
@@ -49,4 +79,4 @@ def build_artifact_service(settings: HarnessSettings) -> ArtifactPublicationServ
     except BaseException:
         repository.close()
         raise
-    return ArtifactPublicationService(repository, object_store)
+    return repository, object_store

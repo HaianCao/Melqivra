@@ -65,7 +65,7 @@ class PostgresJobStoreTests(unittest.TestCase):
             rows = connection.execute(
                 "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-        self.assertEqual([1, 2, 3, 4, 5, 6, 7], [row[0] for row in rows])
+        self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8], [row[0] for row in rows])
         self.assertEqual(
             expected,
             {row[0]: (row[1], row[2]) for row in rows},

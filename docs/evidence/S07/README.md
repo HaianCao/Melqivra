@@ -492,3 +492,43 @@ adapter, authorized API read, bounded-download hardening, real-service evidence,
 and dependency/CI updates. Protected push run `43485358189` and pull-request run
 `43485366292` each pass the four Windows/Linux Python 3.11/3.13 jobs plus the
 combined PostgreSQL and S3-compatible service contract on that exact commit.
+
+## Thirteenth checkpoint: artifact retention and reconciliation
+
+Migration `0008_add_artifact_reconciliation_state.sql` adds a durable
+`state_changed_at` timestamp to artifact batches and members, backfills version-7
+rows, and replaces the state triggers with timestamp-aware transition guards. A
+timestamp cannot change without a legal state transition; time cannot move
+backwards; publish/delete timestamps may be introduced only by their matching
+transition. The backfill temporarily disables only the two controlled update
+triggers while PostgreSQL holds the migration transaction and table locks, then
+replaces and re-enables them before commit.
+
+Artifact reconciliation is explicit and bounded. Complete stale pending batches
+are independently downloaded, length/checksum verified, and published. Incomplete
+or corrupt batches transition to `deleting` before any byte removal, so a crash or
+provider error leaves restart-safe work; `deleted` is committed only after every
+object delete returns. Healthy published retention is default-off and requires an
+explicit duration. Orphan scanning is one S3 page per invocation, compares only
+against non-deleted PostgreSQL keys, and removes an untracked object only after
+its last-modified time crosses the configured grace period.
+
+`melqivra reconcile-artifacts` runs one operational pass and prints only counts
+plus an opaque continuation cursor. Configuration bounds pending, corrupt,
+published, and orphan timing plus database batch and object-page sizes. Provider
+failures are sanitized; no DSN, credential, creative content, or internal object
+key appears in the command result.
+
+A real PostgreSQL 17.12 plus non-root MinIO run passes all thirty contracts: 29
+migration/repository/job/project/policy contracts and one end-to-end S3 contract
+covering corruption marking, tombstoned deletion, and orphan cleanup. Combined
+PostgreSQL adapter branch coverage remains 80%. Both containers and named volumes
+were removed. Exact results are in `artifact-reconciliation-results.json`.
+
+The complete local gate discovers 282 tests: 252 pass and thirty explicit
+PostgreSQL/S3 tests skip without configured endpoints. Strict mypy covers 76
+source files, Ruff format/lint pass, critical scheduler/job-store branch coverage
+is 87%, distribution builds contain migration 0008 and both reconciliation
+modules, and the dependency audit reports no known vulnerabilities. Backup and
+restore, broader rate/token quotas and observability, and the final
+multi-process/many-user restart demo remain later S07 work.

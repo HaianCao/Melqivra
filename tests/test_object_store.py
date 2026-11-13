@@ -96,7 +96,7 @@ class FakeS3Client:
         prefix = str(kwargs["Prefix"])
         keys = sorted(key for key in self.objects if key.startswith(prefix))
         start = int(kwargs.get("ContinuationToken", "0"))
-        page = keys[start : start + 1]
+        page = keys[start : start + int(kwargs.get("MaxKeys", 1_000))]
         next_index = start + len(page)
         return {
             "Contents": [
@@ -148,10 +148,21 @@ class S3ObjectStoreTests(unittest.TestCase):
         self.assertEqual(first, store.get(record.key))
         assert client.last_body is not None
         self.assertTrue(client.last_body.closed_by_adapter)
+        first_page = store.list("artifacts/tenant/", limit=1)
         self.assertEqual(
-            ["artifact_one", "artifact_two"],
-            [item.key.rsplit("/", 1)[-1] for item in store.list("artifacts/tenant/")],
+            ["artifact_one"], [item.key.rsplit("/", 1)[-1] for item in first_page.items]
         )
+        self.assertIsNotNone(first_page.next_cursor)
+        second_page = store.list(
+            "artifacts/tenant/",
+            cursor=first_page.next_cursor,
+            limit=1,
+        )
+        self.assertEqual(
+            ["artifact_two"],
+            [item.key.rsplit("/", 1)[-1] for item in second_page.items],
+        )
+        self.assertIsNone(second_page.next_cursor)
         with self.assertRaises(ObjectIntegrityError):
             store.get(record.key, max_bytes=len(first) - 1)
         assert client.last_body is not None
@@ -200,6 +211,10 @@ class S3ObjectStoreTests(unittest.TestCase):
         store = S3ObjectStore(client, bucket="melqivra-artifacts", region="us-east-1")
         with self.assertRaises(ValueError):
             store.get("../private")
+        with self.assertRaises(ValueError):
+            store.list("artifacts/", cursor="")
+        with self.assertRaises(ValueError):
+            store.list("artifacts/", limit=1_001)
         with self.assertRaises(ValueError):
             store.put_immutable(
                 key="artifacts/valid",

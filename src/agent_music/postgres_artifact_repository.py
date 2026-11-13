@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Mapping
 from typing import Any, cast
@@ -18,6 +19,7 @@ from agent_music.artifact_repository import (
     ArtifactSpec,
     CorruptArtifactMetadataError,
     artifact_batch_contract_sha256,
+    validate_artifact_object_key,
     validate_artifact_specs,
 )
 from agent_music.domain import ArtifactId, ProjectId, RevisionId, UserId, validate_identifier
@@ -92,8 +94,8 @@ class PostgresArtifactRepository:
                 """
                 INSERT INTO artifact_batches(
                     owner_id, project_id, batch_id, contract_sha256,
-                    artifact_count, state, created_at
-                ) VALUES (%s, %s, %s, %s, %s, 'pending', %s)
+                    artifact_count, state, created_at, state_changed_at
+                ) VALUES (%s, %s, %s, %s, %s, 'pending', %s, %s)
                 ON CONFLICT(owner_id, project_id, batch_id) DO NOTHING
                 """,
                 (
@@ -102,6 +104,7 @@ class PostgresArtifactRepository:
                     batch_id,
                     contract_sha256,
                     len(artifacts),
+                    timestamp,
                     timestamp,
                 ),
             )
@@ -128,8 +131,11 @@ class PostgresArtifactRepository:
                     INSERT INTO artifacts(
                         owner_id, project_id, batch_id, ordinal, id, object_key,
                         media_type, size_bytes, sha256, source_revision_ids,
-                        state, created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s)
+                        state, created_at, state_changed_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        'pending', %s, %s
+                    )
                     ON CONFLICT(owner_id, id) DO NOTHING
                     """,
                     (
@@ -143,6 +149,7 @@ class PostgresArtifactRepository:
                         artifact.size_bytes,
                         artifact.sha256,
                         Jsonb([str(item) for item in artifact.source_revision_ids]),
+                        timestamp,
                         timestamp,
                     ),
                 )
@@ -199,20 +206,20 @@ class PostgresArtifactRepository:
                 connection.execute(
                     """
                     UPDATE artifacts
-                    SET state = 'published', published_at = %s
+                    SET state = 'published', published_at = %s, state_changed_at = %s
                     WHERE owner_id = %s AND project_id = %s AND batch_id = %s
                       AND state = 'pending'
                     """,
-                    (timestamp, str(owner_id), str(project_id), batch_id),
+                    (timestamp, timestamp, str(owner_id), str(project_id), batch_id),
                 )
                 connection.execute(
                     """
                     UPDATE artifact_batches
-                    SET state = 'published', published_at = %s
+                    SET state = 'published', published_at = %s, state_changed_at = %s
                     WHERE owner_id = %s AND project_id = %s AND batch_id = %s
                       AND state = 'pending'
                     """,
-                    (timestamp, str(owner_id), str(project_id), batch_id),
+                    (timestamp, timestamp, str(owner_id), str(project_id), batch_id),
                 )
             elif state is not ArtifactPublicationState.PUBLISHED:
                 raise ArtifactPublicationConflictError(
@@ -303,6 +310,256 @@ class PostgresArtifactRepository:
             raise KeyError(str(artifact_id))
         return self._row_to_artifact(row)
 
+    def mark_batch_corrupt(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        changed_at: float | None = None,
+    ) -> ArtifactBatchRecord:
+        """Atomically hide a pending or published batch after integrity failure."""
+
+        return self._transition_batch(
+            owner_id=owner_id,
+            project_id=project_id,
+            batch_id=batch_id,
+            target=ArtifactPublicationState.CORRUPT,
+            allowed={
+                ArtifactPublicationState.PENDING,
+                ArtifactPublicationState.PUBLISHED,
+            },
+            changed_at=time.time() if changed_at is None else changed_at,
+        )
+
+    def start_batch_deletion(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        changed_at: float | None = None,
+    ) -> ArtifactBatchRecord:
+        """Hide a batch before idempotent object deletion begins."""
+
+        return self._transition_batch(
+            owner_id=owner_id,
+            project_id=project_id,
+            batch_id=batch_id,
+            target=ArtifactPublicationState.DELETING,
+            allowed={
+                ArtifactPublicationState.PENDING,
+                ArtifactPublicationState.PUBLISHED,
+                ArtifactPublicationState.CORRUPT,
+            },
+            idempotent={
+                ArtifactPublicationState.DELETING,
+                ArtifactPublicationState.DELETED,
+            },
+            changed_at=time.time() if changed_at is None else changed_at,
+        )
+
+    def finish_batch_deletion(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        deleted_at: float | None = None,
+    ) -> ArtifactBatchRecord:
+        """Commit the tombstone only after every immutable object was removed."""
+
+        timestamp = time.time() if deleted_at is None else deleted_at
+        return self._transition_batch(
+            owner_id=owner_id,
+            project_id=project_id,
+            batch_id=batch_id,
+            target=ArtifactPublicationState.DELETED,
+            allowed={ArtifactPublicationState.DELETING},
+            idempotent={ArtifactPublicationState.DELETED},
+            changed_at=timestamp,
+            deleted_at=timestamp,
+        )
+
+    def list_batches_for_reconciliation(
+        self,
+        *,
+        states: tuple[ArtifactPublicationState, ...],
+        changed_before: float,
+        limit: int,
+    ) -> tuple[ArtifactBatchRecord, ...]:
+        """Return a bounded oldest-first internal lifecycle work set."""
+
+        if not states or len(set(states)) != len(states):
+            raise ValueError("Reconciliation states must be non-empty and unique")
+        if not math.isfinite(changed_before):
+            raise ValueError("Reconciliation cutoff must be finite")
+        if limit < 1 or limit > 1_000:
+            raise ValueError("Reconciliation limit must be between 1 and 1000")
+        with self._pool.connection() as connection:
+            batches = connection.execute(
+                """
+                SELECT * FROM artifact_batches
+                WHERE state = ANY(%s) AND state_changed_at <= %s
+                ORDER BY state_changed_at, owner_id, project_id, batch_id
+                LIMIT %s
+                """,
+                ([state.value for state in states], changed_before, limit),
+            ).fetchall()
+            records: list[ArtifactBatchRecord] = []
+            for batch in batches:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM artifacts
+                    WHERE owner_id = %s AND project_id = %s AND batch_id = %s
+                    ORDER BY ordinal
+                    """,
+                    (batch["owner_id"], batch["project_id"], batch["batch_id"]),
+                ).fetchall()
+                artifacts = tuple(self._row_to_artifact(row) for row in rows)
+                state = ArtifactPublicationState(str(batch["state"]))
+                if len(artifacts) != int(batch["artifact_count"]) or any(
+                    artifact.state is not state for artifact in artifacts
+                ):
+                    raise CorruptArtifactMetadataError(
+                        "Artifact reconciliation metadata is inconsistent"
+                    )
+                records.append(self._row_to_batch(batch, artifacts))
+        return tuple(records)
+
+    def known_live_object_keys(self, keys: tuple[str, ...]) -> frozenset[str]:
+        """Return only service metadata keys that have not reached a tombstone."""
+
+        if not keys:
+            return frozenset()
+        if len(keys) > 1_000 or len(set(keys)) != len(keys):
+            raise ValueError("Object-key lookup must contain 1-1000 unique keys")
+        for key in keys:
+            validate_artifact_object_key(key)
+        with self._pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT object_key FROM artifacts
+                WHERE object_key = ANY(%s) AND state <> 'deleted'
+                """,
+                (list(keys),),
+            ).fetchall()
+        return frozenset(str(row["object_key"]) for row in rows)
+
+    def _transition_batch(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        target: ArtifactPublicationState,
+        allowed: set[ArtifactPublicationState],
+        changed_at: float,
+        idempotent: set[ArtifactPublicationState] | None = None,
+        deleted_at: float | None = None,
+    ) -> ArtifactBatchRecord:
+        if not math.isfinite(changed_at):
+            raise ValueError("Artifact state-change time must be finite")
+        idempotent_states = idempotent or {target}
+        with self._pool.connection() as connection, connection.transaction():
+            batch, artifacts = self._load_locked_batch(
+                connection,
+                owner_id=owner_id,
+                project_id=project_id,
+                batch_id=batch_id,
+            )
+            current = ArtifactPublicationState(str(batch["state"]))
+            if current in idempotent_states:
+                return self._row_to_batch(batch, artifacts)
+            if current not in allowed:
+                raise ArtifactPublicationConflictError(
+                    f"Artifact batch cannot transition from {current.value} to {target.value}"
+                )
+            if changed_at < float(batch["state_changed_at"]):
+                raise ValueError("Artifact state-change time must not move backwards")
+            connection.execute(
+                """
+                UPDATE artifacts
+                SET state = %s, state_changed_at = %s,
+                    deleted_at = COALESCE(%s, deleted_at)
+                WHERE owner_id = %s AND project_id = %s AND batch_id = %s
+                  AND state = %s
+                """,
+                (
+                    target.value,
+                    changed_at,
+                    deleted_at,
+                    str(owner_id),
+                    str(project_id),
+                    batch_id,
+                    current.value,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE artifact_batches
+                SET state = %s, state_changed_at = %s,
+                    deleted_at = COALESCE(%s, deleted_at)
+                WHERE owner_id = %s AND project_id = %s AND batch_id = %s
+                  AND state = %s
+                """,
+                (
+                    target.value,
+                    changed_at,
+                    deleted_at,
+                    str(owner_id),
+                    str(project_id),
+                    batch_id,
+                    current.value,
+                ),
+            )
+            refreshed, refreshed_artifacts = self._load_locked_batch(
+                connection,
+                owner_id=owner_id,
+                project_id=project_id,
+                batch_id=batch_id,
+            )
+            if ArtifactPublicationState(str(refreshed["state"])) is not target or any(
+                artifact.state is not target for artifact in refreshed_artifacts
+            ):
+                raise CorruptArtifactMetadataError("Artifact batch transition was incomplete")
+            return self._row_to_batch(refreshed, refreshed_artifacts)
+
+    def _load_locked_batch(
+        self,
+        connection: PostgresConnection,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+    ) -> tuple[Mapping[str, Any], tuple[ArtifactRecord, ...]]:
+        batch = connection.execute(
+            """
+            SELECT * FROM artifact_batches
+            WHERE owner_id = %s AND project_id = %s AND batch_id = %s
+            FOR UPDATE
+            """,
+            (str(owner_id), str(project_id), batch_id),
+        ).fetchone()
+        if batch is None:
+            raise KeyError(batch_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM artifacts
+            WHERE owner_id = %s AND project_id = %s AND batch_id = %s
+            ORDER BY ordinal
+            FOR UPDATE
+            """,
+            (str(owner_id), str(project_id), batch_id),
+        ).fetchall()
+        artifacts = tuple(self._row_to_artifact(row) for row in rows)
+        state = ArtifactPublicationState(str(batch["state"]))
+        if len(artifacts) != int(batch["artifact_count"]) or any(
+            artifact.state is not state for artifact in artifacts
+        ):
+            raise CorruptArtifactMetadataError("Artifact batch state is inconsistent")
+        return batch, artifacts
+
     @staticmethod
     def _require_owned_project(
         connection: PostgresConnection,
@@ -382,7 +639,9 @@ class PostgresArtifactRepository:
             source_revision_ids=tuple(RevisionId(item) for item in cast(list[str], source)),
             state=ArtifactPublicationState(str(row["state"])),
             created_at=float(row["created_at"]),
+            state_changed_at=float(row["state_changed_at"]),
             published_at=(float(row["published_at"]) if row["published_at"] is not None else None),
+            deleted_at=(float(row["deleted_at"]) if row["deleted_at"] is not None else None),
         )
 
     @staticmethod
@@ -397,6 +656,8 @@ class PostgresArtifactRepository:
             contract_sha256=str(row["contract_sha256"]),
             state=ArtifactPublicationState(str(row["state"])),
             created_at=float(row["created_at"]),
+            state_changed_at=float(row["state_changed_at"]),
             published_at=(float(row["published_at"]) if row["published_at"] is not None else None),
+            deleted_at=(float(row["deleted_at"]) if row["deleted_at"] is not None else None),
             artifacts=artifacts,
         )
