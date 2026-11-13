@@ -419,3 +419,17 @@ format/lint pass, critical scheduler/job-store branch coverage is 87%, migration
 audit reports no known vulnerabilities. S3/MinIO publication, backup/restore,
 retention/orphan reconciliation, broader quotas/observability, and the final
 multi-process restart demo remain later S07 work.
+
+Both protected Python 3.11 jobs then exposed a finite-stream compatibility defect
+while the PostgreSQL contract and all Python 3.13 jobs passed. A terminal replay
+still used Starlette's live `StreamingResponse`; its disconnect-listener task
+group could cancel the normally completing response task under Python 3.11 and
+surface `CancelledError` or AnyIO `InvalidStateError` after the complete event
+payload had been produced.
+
+Terminal jobs now return the same authenticated SSE representation as a finite
+`Response`, without starting a disconnect-listener task. Active jobs retain the
+polling `StreamingResponse`, keepalive, disconnect, and reconnect behavior. The
+API suite passes on Python 3.11 and 3.13, and the complete 262-test gate passes on
+both runtimes with Ruff, strict mypy, the 87% critical-path coverage gate,
+distribution builds, and the dependency audit.

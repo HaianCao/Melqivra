@@ -12,7 +12,7 @@ from typing import Annotated, Any, cast
 from fastapi import Depends, FastAPI, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHttpException
@@ -358,12 +358,12 @@ def create_app(
         job_id: str,
         request: Request,
         principal: PrincipalDependency,
-    ) -> StreamingResponse:
+    ) -> Response:
         active = get_harness(request)
         user_id = str(principal.user_id)
         after_sequence = _parse_event_cursor(request.headers.get("last-event-id"))
         try:
-            active.get_job_for_user(user_id=user_id, job_id=job_id)
+            initial_job = active.get_job_for_user(user_id=user_id, job_id=job_id)
             initial_events = active.store.list_events_for_user(
                 user_id=user_id,
                 job_id=job_id,
@@ -382,6 +382,14 @@ def create_app(
                 "invalid_event_cursor",
                 "Job event cursor is invalid",
             ) from error
+
+        response_headers = {"X-Accel-Buffering": "no"}
+        if initial_job.state in _TERMINAL_JOB_STATES:
+            return Response(
+                content="".join(_serialize_sse_event(event) for event in initial_events),
+                media_type="text/event-stream",
+                headers=response_headers,
+            )
 
         async def event_stream() -> AsyncIterator[str]:
             cursor = after_sequence
@@ -420,7 +428,7 @@ def create_app(
         return StreamingResponse(
             event_stream(),
             media_type="text/event-stream",
-            headers={"X-Accel-Buffering": "no"},
+            headers=response_headers,
         )
 
     @app.get(
