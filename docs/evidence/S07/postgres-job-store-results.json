@@ -18,13 +18,22 @@
   "migration": {
     "canonical_sha256_by_version": {
       "1": "9ebe14df2d5bad6dff3cc7cff07f3d93299f68019726d631b6d09e61c1158149",
-      "2": "f234f2ff8ad1af4881ebf4a937076e61ca969536339cfe6277fd57527cf65876"
+      "2": "f234f2ff8ad1af4881ebf4a937076e61ca969536339cfe6277fd57527cf65876",
+      "3": "ff2a956f2d2b635f9df7854a766a6cc65f3993e77e5961b4a309cc79c22cf70e"
     },
     "packaged_in_wheel": true,
     "versions": [
       1,
-      2
+      2,
+      3
     ]
+  },
+  "attempt_policy": {
+    "configuration": "GPU_JOB_MAX_ATTEMPTS",
+    "default_max_attempts": 3,
+    "exhausted_state": "dead_lettered",
+    "job_snapshots_limit_at_enqueue": true,
+    "live_v2_attempt_backfilled": true
   },
   "python_311_cancellation_regression": {
     "ci_pr_run": 43438720682,
@@ -40,20 +49,20 @@
     "status": "passed"
   },
   "postgres_contract": {
-    "branch_coverage_percent": 81,
+    "branch_coverage_percent": 80,
     "command": "coverage run --branch --source=agent_music.postgres_store -m unittest tests.test_postgres_store -v",
     "failed": 0,
-    "passed": 8
+    "passed": 10
   },
   "recorded_at": "2026-11-13",
   "schema_version": 1,
   "standard_gate": {
     "critical_branch_coverage_percent": 84,
-    "discovered_tests": 225,
+    "discovered_tests": 229,
     "failed": 0,
     "mypy_source_files": 62,
-    "passed": 217,
-    "postgres_skipped_without_dsn": 8
+    "passed": 219,
+    "postgres_skipped_without_dsn": 10
   },
   "status": "passed"
 }

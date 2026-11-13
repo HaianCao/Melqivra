@@ -15,6 +15,18 @@ class JobState(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    DEAD_LETTERED = "dead_lettered"
+
+
+class JobAttemptOutcome(StrEnum):
+    """Durable outcome of one fenced worker attempt."""
+
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    LEASE_EXPIRED = "lease_expired"
+    INTERRUPTED = "interrupted"
 
 
 class RunnerState(StrEnum):
@@ -52,6 +64,22 @@ class GpuJob:
     lease_owner: str | None = None
     lease_expires_at: float | None = None
     attempt_count: int = 0
+    max_attempts: int = 3
+
+
+@dataclass(frozen=True, slots=True)
+class JobAttempt:
+    """One durable, fenced execution attempt for a GPU job."""
+
+    job_id: str
+    attempt_number: int
+    lease_token: int
+    lease_owner: str
+    started_at: float
+    lease_expires_at: float
+    finished_at: float | None
+    outcome: JobAttemptOutcome
+    error: str | None
 
 
 @dataclass(frozen=True, slots=True)

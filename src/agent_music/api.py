@@ -40,6 +40,8 @@ class JobResponse(BaseModel):
     result: dict[str, Any] | None
     error: str | None
     cancel_requested: bool
+    attempt_count: int
+    max_attempts: int
     queue_position: int | None
 
 
@@ -57,6 +59,8 @@ def _serialize_job(harness: GpuHarness, job: GpuJob) -> JobResponse:
         result=job.result,
         error=job.error,
         cancel_requested=job.cancel_requested,
+        attempt_count=job.attempt_count,
+        max_attempts=job.max_attempts,
         queue_position=harness.store.queue_position(job.id),
     )
 

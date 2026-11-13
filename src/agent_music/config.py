@@ -41,6 +41,7 @@ class HarnessSettings:
     job_timeout_seconds: float = 1_800.0
     job_lease_seconds: float = 60.0
     job_heartbeat_seconds: float = 15.0
+    job_max_attempts: int = 3
 
     modal_executable: str = "modal"
     modal_cli_version: str = "1.6.3"
@@ -93,6 +94,7 @@ class HarnessSettings:
             job_timeout_seconds=float(os.getenv("GPU_JOB_TIMEOUT_SECONDS", "1800")),
             job_lease_seconds=float(os.getenv("GPU_JOB_LEASE_SECONDS", "60")),
             job_heartbeat_seconds=float(os.getenv("GPU_JOB_HEARTBEAT_SECONDS", "15")),
+            job_max_attempts=int(os.getenv("GPU_JOB_MAX_ATTEMPTS", "3")),
             modal_executable=os.getenv("MODAL_EXECUTABLE", "modal"),
             modal_cli_version=os.getenv("MODAL_CLI_VERSION", "1.6.3").strip(),
             modal_app_name=os.getenv("MODAL_APP_NAME", "melqivra-gpu-runner"),
@@ -168,6 +170,8 @@ class HarnessSettings:
             raise ValueError("GPU_JOB_HEARTBEAT_SECONDS must be positive")
         if self.job_heartbeat_seconds >= self.job_lease_seconds:
             raise ValueError("GPU_JOB_HEARTBEAT_SECONDS must be shorter than the lease")
+        if self.job_max_attempts < 1:
+            raise ValueError("GPU_JOB_MAX_ATTEMPTS must be at least 1")
         if self.modal_command_timeout_seconds <= 0:
             raise ValueError("MODAL_COMMAND_TIMEOUT_SECONDS must be positive")
         if not self.modal_cli_version:

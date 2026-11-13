@@ -11,7 +11,7 @@ from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from agent_music.models import JobState
+from agent_music.models import JobAttemptOutcome, JobState
 from agent_music.store import LostJobLeaseError, SqliteJobStore
 
 
@@ -125,8 +125,17 @@ class SqliteJobStoreTests(unittest.TestCase):
             with self.assertRaises(LostJobLeaseError):
                 self.store.complete(job.id, first.lease_token, {"stale": True})
             self.store.complete(job.id, second.lease_token, {"ok": True})
+        self.assertEqual(
+            [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.SUCCEEDED],
+            [attempt.outcome for attempt in self.store.list_attempts(job.id)],
+        )
 
     def test_expired_cancel_request_converges_to_cancelled(self) -> None:
+        self.store.close()
+        self.store = SqliteJobStore(
+            Path(self.temp_dir.name) / "jobs.db",
+            max_attempts=1,
+        )
         with patch("agent_music.store.time.time", return_value=2_000.0):
             job = self.store.enqueue(user_id="alice", kind="generate", payload={})
             claimed = self.store.claim_next(
@@ -141,8 +150,52 @@ class SqliteJobStoreTests(unittest.TestCase):
 
         cancelled = self.store.get(job.id)
         self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertEqual(1, cancelled.max_attempts)
         self.assertIsNotNone(cancelled.finished_at)
         self.assertIn("cancelled", (cancelled.error or "").lower())
+
+    def test_attempt_history_and_dead_letter_limit_survive_reopen(self) -> None:
+        database_path = Path(self.temp_dir.name) / "jobs.db"
+        self.store.close()
+        self.store = SqliteJobStore(database_path, max_attempts=2)
+
+        with patch("agent_music.store.time.time", return_value=3_000.0):
+            job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+            first = self.store.claim_next(lease_owner="worker-a", lease_seconds=10.0)
+        assert first is not None
+
+        with patch("agent_music.store.time.time", return_value=3_011.0):
+            self.assertEqual(1, self.store.recover_expired())
+        requeued = self.store.get(job.id)
+        self.assertEqual(JobState.QUEUED, requeued.state)
+        self.assertEqual(2, requeued.max_attempts)
+        first_attempt = self.store.list_attempts(job.id)
+        self.assertEqual(1, len(first_attempt))
+        self.assertEqual(JobAttemptOutcome.LEASE_EXPIRED, first_attempt[0].outcome)
+        self.assertEqual(3_011.0, first_attempt[0].finished_at)
+
+        self.store.close()
+        self.store = SqliteJobStore(database_path, max_attempts=9)
+        self.assertEqual(2, self.store.get(job.id).max_attempts)
+
+        with patch("agent_music.store.time.time", return_value=3_020.0):
+            second = self.store.claim_next(lease_owner="worker-b", lease_seconds=10.0)
+        assert second is not None
+        with patch("agent_music.store.time.time", return_value=3_031.0):
+            self.assertEqual(1, self.store.recover_expired())
+
+        dead_lettered = self.store.get(job.id)
+        self.assertEqual(JobState.DEAD_LETTERED, dead_lettered.state)
+        self.assertEqual(2, dead_lettered.attempt_count)
+        self.assertIsNotNone(dead_lettered.finished_at)
+        self.assertIn("dead-lettered", dead_lettered.error or "")
+        self.assertIsNone(self.store.claim_next())
+        attempts = self.store.list_attempts(job.id)
+        self.assertEqual([1, 2], [attempt.attempt_number for attempt in attempts])
+        self.assertEqual(
+            [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.LEASE_EXPIRED],
+            [attempt.outcome for attempt in attempts],
+        )
 
     def test_queue_position_and_queued_cancellation(self) -> None:
         first = self.store.enqueue(user_id="alice", kind="one", payload={})
@@ -170,6 +223,10 @@ class SqliteJobStoreTests(unittest.TestCase):
         cancelled = self.store.get(job.id)
         self.assertEqual(JobState.CANCELLED, cancelled.state)
         self.assertEqual("Job cancelled", cancelled.error)
+        self.assertEqual(
+            JobAttemptOutcome.CANCELLED,
+            self.store.list_attempts(job.id)[0].outcome,
+        )
 
     def test_failed_and_interrupted_jobs_have_explicit_states(self) -> None:
         failed_job = self.store.enqueue(user_id="alice", kind="fail", payload={})
@@ -179,6 +236,10 @@ class SqliteJobStoreTests(unittest.TestCase):
         failed = self.store.get(failed_job.id)
         self.assertEqual(JobState.FAILED, failed.state)
         self.assertEqual("model failed", failed.error)
+        self.assertEqual(
+            JobAttemptOutcome.FAILED,
+            self.store.list_attempts(failed_job.id)[0].outcome,
+        )
 
         interrupted_job = self.store.enqueue(user_id="bob", kind="recover", payload={})
         interrupted_claim = self.store.claim_next()

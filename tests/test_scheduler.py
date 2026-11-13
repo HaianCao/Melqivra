@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from agent_music.config import HarnessSettings
-from agent_music.models import JobState, RunnerState
+from agent_music.models import JobAttemptOutcome, JobState, RunnerState
 from agent_music.runners.fake import FakeRunner
 from agent_music.scheduler import GpuHarness
 from agent_music.store import SqliteJobStore
@@ -66,6 +66,20 @@ class LoseFirstRenewalStore(SqliteJobStore):
             lease_owner=lease_owner,
             lease_seconds=lease_seconds,
         )
+
+
+class LoseEveryRenewalStore(SqliteJobStore):
+    """Inject authoritative lease loss for every claimed attempt."""
+
+    def renew_lease(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        lease_owner: str,
+        lease_seconds: float,
+    ) -> bool:
+        return False
 
 
 class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
@@ -436,6 +450,45 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("TimeoutError", failed.error or "")
                 self.assertEqual(1, runner.cancel_count)
                 self.assertEqual([], runner.completed_job_ids)
+            finally:
+                await harness.close()
+
+    async def test_repeated_lease_loss_dead_letters_at_snapshot_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                idle_timeout_seconds=300.0,
+                scheduler_poll_seconds=0.01,
+                job_timeout_seconds=3.0,
+                job_lease_seconds=0.15,
+                job_heartbeat_seconds=0.05,
+                job_max_attempts=2,
+            )
+            store = LoseEveryRenewalStore(
+                settings.database_path,
+                max_attempts=settings.job_max_attempts,
+            )
+            runner = FakeRunner(job_seconds=1.0)
+            harness = GpuHarness(settings, store=store, runner=runner)
+            await harness.start()
+            try:
+                job = harness.enqueue(
+                    user_id="alice",
+                    kind="harness.echo",
+                    payload={"dead_letter": True},
+                )
+                await wait_until(lambda: harness.store.get(job.id).state == JobState.DEAD_LETTERED)
+                dead_lettered = harness.store.get(job.id)
+                self.assertEqual(2, dead_lettered.attempt_count)
+                self.assertEqual(2, dead_lettered.max_attempts)
+                self.assertEqual(2, runner.cancel_count)
+                self.assertEqual([], runner.completed_job_ids)
+                self.assertEqual(
+                    [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.LEASE_EXPIRED],
+                    [attempt.outcome for attempt in harness.store.list_attempts(job.id)],
+                )
             finally:
                 await harness.close()
 

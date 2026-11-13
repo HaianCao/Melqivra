@@ -47,6 +47,8 @@ class ApiTenantIsolationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(202, created.status_code, created.text)
         job_id = str(created.json()["id"])
+        self.assertEqual(0, created.json()["attempt_count"])
+        self.assertEqual(3, created.json()["max_attempts"])
 
         missing_get = await self.client.get(
             "/v1/gpu/jobs/missing",
