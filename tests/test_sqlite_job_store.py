@@ -11,7 +11,12 @@ from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from agent_music.job_store import LostJobLeaseError, SqliteJobStore
+from agent_music.job_store import (
+    InvalidJobCursorError,
+    LostJobLeaseError,
+    SqliteJobStore,
+    UserJobQuotaExceededError,
+)
 from agent_music.models import JobAttemptOutcome, JobState
 
 
@@ -80,6 +85,57 @@ class SqliteJobStoreTests(unittest.TestCase):
         self.assertEqual(first.id, duplicate.id)
         self.assertNotEqual(first.id, other_user.id)
         self.assertEqual({"seed": 1}, duplicate.payload)
+
+    def test_tenant_pagination_and_active_quota_are_atomic(self) -> None:
+        first = self.store.enqueue(
+            user_id="alice",
+            kind="generate",
+            payload={"index": 1},
+            idempotency_key="one",
+            max_active_jobs=2,
+        )
+        second = self.store.enqueue(
+            user_id="alice",
+            kind="generate",
+            payload={"index": 2},
+            idempotency_key="two",
+            max_active_jobs=2,
+        )
+        replay = self.store.enqueue(
+            user_id="alice",
+            kind="generate",
+            payload={"index": 999},
+            idempotency_key="one",
+            max_active_jobs=2,
+        )
+        self.assertEqual(first.id, replay.id)
+        with self.assertRaises(UserJobQuotaExceededError):
+            self.store.enqueue(
+                user_id="alice",
+                kind="generate",
+                payload={"index": 3},
+                idempotency_key="three",
+                max_active_jobs=2,
+            )
+        other = self.store.enqueue(
+            user_id="bob",
+            kind="generate",
+            payload={"index": 1},
+            max_active_jobs=2,
+        )
+        first_page = self.store.list_for_user(user_id="alice", limit=1)
+        second_page = self.store.list_for_user(
+            user_id="alice",
+            limit=1,
+            cursor=first_page.next_cursor,
+        )
+        self.assertEqual((first,), first_page.items)
+        self.assertEqual(first.id, first_page.next_cursor)
+        self.assertEqual((second,), second_page.items)
+        self.assertIsNone(second_page.next_cursor)
+        self.assertEqual((other,), self.store.list_for_user(user_id="bob", limit=10).items)
+        with self.assertRaises(InvalidJobCursorError):
+            self.store.list_for_user(user_id="bob", limit=1, cursor=first.id)
 
     def test_stale_fencing_token_cannot_commit(self) -> None:
         job = self.store.enqueue(user_id="alice", kind="generate", payload={})

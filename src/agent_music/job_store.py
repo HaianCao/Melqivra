@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobState
+from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobPage, JobState
 
 if TYPE_CHECKING:
     from agent_music.config import HarnessSettings
@@ -19,6 +19,14 @@ if TYPE_CHECKING:
 
 class LostJobLeaseError(RuntimeError):
     """A worker no longer owns a live fencing lease for a running job."""
+
+
+class UserJobQuotaExceededError(RuntimeError):
+    """A tenant already owns the configured number of active jobs."""
+
+
+class InvalidJobCursorError(ValueError):
+    """A pagination cursor is missing or does not belong to the tenant."""
 
 
 class JobStore(Protocol):
@@ -33,11 +41,20 @@ class JobStore(Protocol):
         kind: str,
         payload: dict[str, Any],
         idempotency_key: str | None = None,
+        max_active_jobs: int | None = None,
     ) -> GpuJob: ...
 
     def get(self, job_id: str) -> GpuJob: ...
 
     def get_for_user(self, *, user_id: str, job_id: str) -> GpuJob: ...
+
+    def list_for_user(
+        self,
+        *,
+        user_id: str,
+        limit: int,
+        cursor: str | None = None,
+    ) -> JobPage: ...
 
     def claim_next(
         self,
@@ -200,14 +217,39 @@ class SqliteJobStore:
         kind: str,
         payload: dict[str, Any],
         idempotency_key: str | None = None,
+        max_active_jobs: int | None = None,
     ) -> GpuJob:
         """Append a job or return the prior idempotent job."""
 
+        if max_active_jobs is not None and max_active_jobs < 1:
+            raise ValueError("Active job quota must be at least 1")
         now = self._now()
         job_id = str(uuid.uuid4())
         payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
             try:
+                if idempotency_key is not None:
+                    prior = self._connection.execute(
+                        """
+                        SELECT * FROM gpu_jobs
+                        WHERE user_id = ? AND idempotency_key = ?
+                        """,
+                        (user_id, idempotency_key),
+                    ).fetchone()
+                    if prior is not None:
+                        self._connection.execute("COMMIT")
+                        return self._row_to_job(prior)
+                if max_active_jobs is not None:
+                    active = self._connection.execute(
+                        """
+                        SELECT COUNT(*) AS active_count FROM gpu_jobs
+                        WHERE user_id = ? AND state IN (?, ?)
+                        """,
+                        (user_id, JobState.QUEUED.value, JobState.RUNNING.value),
+                    ).fetchone()
+                    if int(active["active_count"]) >= max_active_jobs:
+                        raise UserJobQuotaExceededError("Active GPU job quota exceeded")
                 self._connection.execute(
                     """
                     INSERT INTO gpu_jobs(
@@ -227,19 +269,10 @@ class SqliteJobStore:
                         idempotency_key,
                     ),
                 )
-            except sqlite3.IntegrityError:
-                if idempotency_key is None:
-                    raise
-                row = self._connection.execute(
-                    """
-                    SELECT * FROM gpu_jobs
-                    WHERE user_id = ? AND idempotency_key = ?
-                    """,
-                    (user_id, idempotency_key),
-                ).fetchone()
-                if row is None:
-                    raise
-                return self._row_to_job(row)
+                self._connection.execute("COMMIT")
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
         return self.get(job_id)
 
     def get(self, job_id: str) -> GpuJob:
@@ -265,6 +298,40 @@ class SqliteJobStore:
         if row is None:
             raise KeyError(job_id)
         return self._row_to_job(row)
+
+    def list_for_user(
+        self,
+        *,
+        user_id: str,
+        limit: int,
+        cursor: str | None = None,
+    ) -> JobPage:
+        """List one stable FIFO page without accepting another tenant's cursor."""
+
+        if limit < 1 or limit > 100:
+            raise ValueError("Job page limit must be between 1 and 100")
+        with self._lock:
+            after_rowid = 0
+            if cursor is not None:
+                cursor_row = self._connection.execute(
+                    "SELECT rowid FROM gpu_jobs WHERE id = ? AND user_id = ?",
+                    (cursor, user_id),
+                ).fetchone()
+                if cursor_row is None:
+                    raise InvalidJobCursorError("Job cursor is invalid")
+                after_rowid = int(cursor_row["rowid"])
+            rows = self._connection.execute(
+                """
+                SELECT * FROM gpu_jobs
+                WHERE user_id = ? AND rowid > ?
+                ORDER BY rowid ASC
+                LIMIT ?
+                """,
+                (user_id, after_rowid, limit + 1),
+            ).fetchall()
+        page_rows = rows[:limit]
+        next_cursor = str(page_rows[-1]["id"]) if len(rows) > limit else None
+        return JobPage(tuple(self._row_to_job(row) for row in page_rows), next_cursor)
 
     def claim_next(
         self,

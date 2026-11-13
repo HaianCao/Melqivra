@@ -93,6 +93,7 @@ class GpuHarness:
         kind: str,
         payload: dict[str, Any],
         idempotency_key: str | None = None,
+        max_active_jobs: int | None = None,
     ) -> GpuJob:
         """Enqueue work and wake the scheduler immediately."""
 
@@ -101,6 +102,7 @@ class GpuHarness:
             kind=kind,
             payload=payload,
             idempotency_key=idempotency_key,
+            max_active_jobs=max_active_jobs,
         )
         self._wake.set()
         return job

@@ -47,6 +47,10 @@ class HarnessSettingsTests(unittest.TestCase):
             "GPU_JOB_LEASE_SECONDS": "90",
             "GPU_JOB_HEARTBEAT_SECONDS": "20",
             "GPU_JOB_MAX_ATTEMPTS": "5",
+            "API_AUTH_MODE": "INJECTED",
+            "API_MAX_ACTIVE_JOBS_PER_USER": "7",
+            "API_MAX_JOB_PAYLOAD_BYTES": "12345",
+            "API_MAX_PAGE_SIZE": "50",
             "MODAL_CLI_VERSION": "1.6.3",
             "COLAB_CLI_VERSION": "0.8.0",
             "COLAB_REMOTE_CANCEL_ROOT": "/content/agent_music_control",
@@ -67,6 +71,10 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual(90.0, settings.job_lease_seconds)
         self.assertEqual(20.0, settings.job_heartbeat_seconds)
         self.assertEqual(5, settings.job_max_attempts)
+        self.assertEqual("injected", settings.api_auth_mode)
+        self.assertEqual(7, settings.api_max_active_jobs_per_user)
+        self.assertEqual(12_345, settings.api_max_job_payload_bytes)
+        self.assertEqual(50, settings.api_max_page_size)
         self.assertEqual("1.6.3", settings.modal_cli_version)
         self.assertFalse(settings.colab_mount_drive)
         self.assertEqual("0.8.0", settings.colab_cli_version)
@@ -97,6 +105,11 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(job_heartbeat_seconds=0),
             HarnessSettings(job_lease_seconds=10, job_heartbeat_seconds=10),
             HarnessSettings(job_max_attempts=0),
+            HarnessSettings(api_auth_mode="unknown"),
+            HarnessSettings(api_max_active_jobs_per_user=0),
+            HarnessSettings(api_max_job_payload_bytes=1),
+            HarnessSettings(api_max_page_size=0),
+            HarnessSettings(api_max_page_size=101),
             HarnessSettings(modal_command_timeout_seconds=0),
             HarnessSettings(modal_cli_version=""),
             HarnessSettings(modal_app_name="Invalid_Name"),

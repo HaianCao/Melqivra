@@ -42,6 +42,10 @@ class HarnessSettings:
     job_lease_seconds: float = 60.0
     job_heartbeat_seconds: float = 15.0
     job_max_attempts: int = 3
+    api_auth_mode: str = "development"
+    api_max_active_jobs_per_user: int = 10
+    api_max_job_payload_bytes: int = 65_536
+    api_max_page_size: int = 100
 
     modal_executable: str = "modal"
     modal_cli_version: str = "1.6.3"
@@ -95,6 +99,10 @@ class HarnessSettings:
             job_lease_seconds=float(os.getenv("GPU_JOB_LEASE_SECONDS", "60")),
             job_heartbeat_seconds=float(os.getenv("GPU_JOB_HEARTBEAT_SECONDS", "15")),
             job_max_attempts=int(os.getenv("GPU_JOB_MAX_ATTEMPTS", "3")),
+            api_auth_mode=os.getenv("API_AUTH_MODE", "development").strip().lower(),
+            api_max_active_jobs_per_user=int(os.getenv("API_MAX_ACTIVE_JOBS_PER_USER", "10")),
+            api_max_job_payload_bytes=int(os.getenv("API_MAX_JOB_PAYLOAD_BYTES", "65536")),
+            api_max_page_size=int(os.getenv("API_MAX_PAGE_SIZE", "100")),
             modal_executable=os.getenv("MODAL_EXECUTABLE", "modal"),
             modal_cli_version=os.getenv("MODAL_CLI_VERSION", "1.6.3").strip(),
             modal_app_name=os.getenv("MODAL_APP_NAME", "melqivra-gpu-runner"),
@@ -172,6 +180,14 @@ class HarnessSettings:
             raise ValueError("GPU_JOB_HEARTBEAT_SECONDS must be shorter than the lease")
         if self.job_max_attempts < 1:
             raise ValueError("GPU_JOB_MAX_ATTEMPTS must be at least 1")
+        if self.api_auth_mode not in {"development", "injected"}:
+            raise ValueError("API_AUTH_MODE must be development or injected")
+        if self.api_max_active_jobs_per_user < 1:
+            raise ValueError("API_MAX_ACTIVE_JOBS_PER_USER must be at least 1")
+        if self.api_max_job_payload_bytes < 2:
+            raise ValueError("API_MAX_JOB_PAYLOAD_BYTES must be at least 2")
+        if self.api_max_page_size < 1 or self.api_max_page_size > 100:
+            raise ValueError("API_MAX_PAGE_SIZE must be between 1 and 100")
         if self.modal_command_timeout_seconds <= 0:
             raise ValueError("MODAL_COMMAND_TIMEOUT_SECONDS must be positive")
         if not self.modal_cli_version:

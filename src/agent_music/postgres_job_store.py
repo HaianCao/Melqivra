@@ -10,8 +10,12 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
-from agent_music.job_store import LostJobLeaseError
-from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobState
+from agent_music.job_store import (
+    InvalidJobCursorError,
+    LostJobLeaseError,
+    UserJobQuotaExceededError,
+)
+from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobPage, JobState
 from agent_music.postgres_migrations import (
     PostgresConnection,
     PostgresMigrator,
@@ -175,21 +179,47 @@ class PostgresJobStore:
         kind: str,
         payload: dict[str, Any],
         idempotency_key: str | None = None,
+        max_active_jobs: int | None = None,
     ) -> GpuJob:
         """Append one job or return the prior tenant-scoped idempotent job."""
 
+        if max_active_jobs is not None and max_active_jobs < 1:
+            raise ValueError("Active job quota must be at least 1")
         now = time.time()
         job_id = str(uuid.uuid4())
         with self._pool.connection() as connection, connection.transaction():
+            connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (user_id,),
+            )
+            if idempotency_key is not None:
+                prior = connection.execute(
+                    """
+                    SELECT * FROM gpu_jobs
+                    WHERE user_id = %s AND idempotency_key = %s
+                    """,
+                    (user_id, idempotency_key),
+                ).fetchone()
+                if prior is not None:
+                    return self._row_to_job(prior)
+            if max_active_jobs is not None:
+                active = connection.execute(
+                    """
+                    SELECT COUNT(*) AS active_count FROM gpu_jobs
+                    WHERE user_id = %s AND state IN (%s, %s)
+                    """,
+                    (user_id, JobState.QUEUED.value, JobState.RUNNING.value),
+                ).fetchone()
+                if active is None:
+                    raise RuntimeError("PostgreSQL active job count returned no row")
+                if int(active["active_count"]) >= max_active_jobs:
+                    raise UserJobQuotaExceededError("Active GPU job quota exceeded")
             row = connection.execute(
                 """
                 INSERT INTO gpu_jobs(
                     id, user_id, kind, payload_json, state,
                     created_at, updated_at, max_attempts, idempotency_key
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (user_id, idempotency_key)
-                    WHERE idempotency_key IS NOT NULL
-                DO NOTHING
                 RETURNING *
                 """,
                 (
@@ -205,15 +235,7 @@ class PostgresJobStore:
                 ),
             ).fetchone()
             if row is None:
-                row = connection.execute(
-                    """
-                    SELECT * FROM gpu_jobs
-                    WHERE user_id = %s AND idempotency_key = %s
-                    """,
-                    (user_id, idempotency_key),
-                ).fetchone()
-            if row is None:
-                raise RuntimeError("Idempotent PostgreSQL insert returned no job")
+                raise RuntimeError("PostgreSQL insert returned no job")
             return self._row_to_job(row)
 
     def get(self, job_id: str) -> GpuJob:
@@ -225,6 +247,43 @@ class PostgresJobStore:
         """Load one tenant-owned job without revealing cross-tenant existence."""
 
         return self._get(job_id=job_id, user_id=user_id)
+
+    def list_for_user(
+        self,
+        *,
+        user_id: str,
+        limit: int,
+        cursor: str | None = None,
+    ) -> JobPage:
+        """List one stable FIFO page without accepting another tenant's cursor."""
+
+        if limit < 1 or limit > 100:
+            raise ValueError("Job page limit must be between 1 and 100")
+        with self._pool.connection() as connection:
+            after_order = 0
+            if cursor is not None:
+                cursor_row = connection.execute(
+                    """
+                    SELECT enqueue_order FROM gpu_jobs
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    (cursor, user_id),
+                ).fetchone()
+                if cursor_row is None:
+                    raise InvalidJobCursorError("Job cursor is invalid")
+                after_order = int(cursor_row["enqueue_order"])
+            rows = connection.execute(
+                """
+                SELECT * FROM gpu_jobs
+                WHERE user_id = %s AND enqueue_order > %s
+                ORDER BY enqueue_order ASC
+                LIMIT %s
+                """,
+                (user_id, after_order, limit + 1),
+            ).fetchall()
+        page_rows = rows[:limit]
+        next_cursor = str(page_rows[-1]["id"]) if len(rows) > limit else None
+        return JobPage(tuple(self._row_to_job(row) for row in page_rows), next_cursor)
 
     def _get(self, *, job_id: str, user_id: str | None) -> GpuJob:
         if user_id is None:

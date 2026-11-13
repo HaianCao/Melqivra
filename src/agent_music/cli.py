@@ -42,6 +42,10 @@ async def _doctor(settings: HarnessSettings) -> int:
     print(f"job_lease_seconds={settings.job_lease_seconds}")
     print(f"job_heartbeat_seconds={settings.job_heartbeat_seconds}")
     print(f"job_max_attempts={settings.job_max_attempts}")
+    print(f"api_auth_mode={settings.api_auth_mode}")
+    print(f"api_max_active_jobs_per_user={settings.api_max_active_jobs_per_user}")
+    print(f"api_max_job_payload_bytes={settings.api_max_job_payload_bytes}")
+    print(f"api_max_page_size={settings.api_max_page_size}")
     print(f"max_concurrency={settings.gpu_max_concurrency}")
     if settings.runner == "modal":
         if not settings.modal_runner_file.is_file():
