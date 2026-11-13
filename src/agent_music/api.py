@@ -131,11 +131,9 @@ def create_app(
     ) -> JobResponse:
         active = get_harness(request)
         try:
-            job = active.store.get(job_id)
+            job = active.get_job_for_user(user_id=x_user_id, job_id=job_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Job not found") from None
-        if job.user_id != x_user_id:
-            raise HTTPException(status_code=404, detail="Job not found")
         return _serialize_job(active, job)
 
     @app.delete("/v1/gpu/jobs/{job_id}", response_model=JobResponse)
@@ -146,11 +144,9 @@ def create_app(
     ) -> JobResponse:
         active = get_harness(request)
         try:
-            job = active.store.get(job_id)
+            job = await active.cancel_for_user(user_id=x_user_id, job_id=job_id)
         except KeyError:
             raise HTTPException(status_code=404, detail="Job not found") from None
-        if job.user_id != x_user_id:
-            raise HTTPException(status_code=404, detail="Job not found")
-        return _serialize_job(active, await active.cancel(job_id))
+        return _serialize_job(active, job)
 
     return app

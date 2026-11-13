@@ -139,6 +139,22 @@ class SqliteJobStoreTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.store.get("missing")
 
+    def test_tenant_scoped_lookup_and_cancel_hide_cross_tenant_jobs(self) -> None:
+        job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+
+        with self.assertRaises(KeyError):
+            self.store.get_for_user(user_id="bob", job_id=job.id)
+        with self.assertRaises(KeyError):
+            self.store.request_cancel_for_user(user_id="bob", job_id=job.id)
+
+        unchanged = self.store.get_for_user(user_id="alice", job_id=job.id)
+        self.assertEqual(JobState.QUEUED, unchanged.state)
+        self.assertFalse(unchanged.cancel_requested)
+
+        cancelled = self.store.request_cancel_for_user(user_id="alice", job_id=job.id)
+        self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertTrue(cancelled.cancel_requested)
+
 
 if __name__ == "__main__":
     unittest.main()
