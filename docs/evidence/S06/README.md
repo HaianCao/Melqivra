@@ -45,3 +45,20 @@ that active command and maps the expected nonzero CLI exit back to
 This checkpoint allocates no provider session or GPU and does not claim remote
 worker cooperation after the local CLI process has exited; that later cleanup and
 reconciliation behavior remains part of S06.
+
+## Second checkpoint: lifecycle identity and provisioning single-flight
+
+The Colab runner now distinguishes a session that has never existed (`ABSENT`),
+an in-flight allocation (`PROVISIONING`), an available session (`READY`), and a
+session that was deliberately released (`RECLAIMED`). The public session name is
+present only after the official CLI has confirmed an existing session or created
+one successfully.
+
+All concurrent `ensure_ready()` callers share one shielded provisioning task.
+The regression test blocks the status probe, observes the public provisioning
+state, adds a second caller, and proves the CLI receives exactly one status,
+create, and Drive-mount sequence. Both callers observe the same completion, and
+explicit stop transitions the runner to reclaimed with no published session ID.
+
+This is a CPU-only contract test. It does not yet prove broker-restart recovery,
+expired-auth handling, remote heartbeat, or a real concurrent T4 allocation.
