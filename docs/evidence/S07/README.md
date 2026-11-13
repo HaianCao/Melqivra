@@ -532,3 +532,9 @@ is 87%, distribution builds contain migration 0008 and both reconciliation
 modules, and the dependency audit reports no known vulnerabilities. Backup and
 restore, broader rate/token quotas and observability, and the final
 multi-process/many-user restart demo remain later S07 work.
+
+Checkpoint `bd3f8b6` contains the reconciliation migration, lifecycle services,
+operator command, configuration, real-service tests, and evidence. Protected
+push run `43489880691` and pull-request run `43489890422` each pass the four
+Windows/Linux Python 3.11/3.13 jobs plus the combined PostgreSQL and
+S3-compatible service contract on that exact commit.

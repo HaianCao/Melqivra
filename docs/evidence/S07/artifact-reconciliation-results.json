@@ -5,6 +5,13 @@
     "postgres_container_removed": true,
     "postgres_volume_removed": true
   },
+  "continuous_integration": {
+    "commit": "bd3f8b6e0e0817fac0d4d07867e55a36923100e1",
+    "jobs_per_run": 5,
+    "pr_run": 43489890422,
+    "push_run": 43489880691,
+    "status": "passed"
+  },
   "contract": {
     "complete_pending_batch_recovers_to_published": true,
     "corrupt_batch_is_hidden_and_retained_before_cleanup": true,
@@ -39,5 +46,5 @@
     "passed": 252,
     "service_tests_skipped_without_explicit_endpoints": 30
   },
-  "status": "passed_local_pending_ci"
+  "status": "passed"
 }
