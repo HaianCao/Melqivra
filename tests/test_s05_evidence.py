@@ -142,6 +142,8 @@ class S05EvidenceTests(unittest.TestCase):
         self.assertFalse(probe["probe"]["automatic_retry"])
         self.assertFalse(probe["probe"]["provider_fallback"])
         self.assertFalse(probe["probe"]["initialize_lm_for_probe"])
+        self.assertEqual(700, probe["probe"]["hard_job_timeout_seconds"])
+        self.assertLess(probe["cost_control"]["estimated_max_metered_usd"], 0.2)
         self.assertEqual("private_preflight_ready_gpu_blocked", reference["status"])
         self.assertFalse(reference["gpu_allocated"])
         self.assertFalse(reference["authorization"]["allowed_for_gpu"])

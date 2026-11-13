@@ -21,6 +21,11 @@ from agent_music.s05_ace_probe import (  # noqa: E402
     ACE_FLOAT32_REPOSITORY,
     ACE_FLOAT32_REVISION,
     ACE_UPSTREAM_BASE_REVISION,
+    PROBE_CPU_CORES,
+    PROBE_MAX_FUNCTION_SECONDS,
+    PROBE_MAX_TRANSFER_BYTES,
+    PROBE_MEMORY_GIB,
+    decode_exact_utf8,
     validate_probe_authorization,
 )
 
@@ -33,7 +38,7 @@ CACHE_ROOT = Path("/cache")
 REMOTE_ROOT = Path("/opt/melqivra")
 REMOTE_SOURCE = Path("/opt/ACE-Step-1.5-float32-fix")
 RUNTIME_PYTHON = REMOTE_SOURCE / ".venv" / "bin" / "python"
-MAX_PRIVATE_FILE_BYTES = 10_000_000
+MAX_PRIVATE_FILE_BYTES = PROBE_MAX_TRANSFER_BYTES
 
 app = modal.App("melqivra-s05-ace-reference-probe")
 volume = modal.Volume.from_name(VOLUME_NAME)
@@ -138,11 +143,11 @@ def _assert_t4() -> str:
     image=image,
     volumes={str(CACHE_ROOT): volume},
     gpu="T4",
-    cpu=4,
-    memory=24_576,
+    cpu=PROBE_CPU_CORES,
+    memory=PROBE_MEMORY_GIB * 1024,
     max_containers=1,
     scaledown_window=2,
-    timeout=900,
+    timeout=PROBE_MAX_FUNCTION_SECONDS,
 )
 def run_probe(
     run_id: str,
@@ -251,7 +256,7 @@ def main(
     inputs_path = Path(private_inputs)
     authorization_path = Path(authorization)
     reference_bytes = reference_path.read_bytes()
-    private_json = inputs_path.read_text(encoding="utf-8")
+    private_json, private_inputs_sha256 = decode_exact_utf8(inputs_path.read_bytes())
     authorization_json = authorization_path.read_text(encoding="utf-8")
     authorization_value = json.loads(authorization_json)
     if not isinstance(authorization_value, dict):
@@ -259,7 +264,7 @@ def main(
     validate_probe_authorization(
         cast(dict[str, Any], authorization_value),
         reference_sha256=hashlib.sha256(reference_bytes).hexdigest(),
-        private_inputs_sha256=hashlib.sha256(private_json.encode("utf-8")).hexdigest(),
+        private_inputs_sha256=private_inputs_sha256,
     )
     print(
         run_probe.remote(run_id, reference_bytes, private_json, authorization_json),

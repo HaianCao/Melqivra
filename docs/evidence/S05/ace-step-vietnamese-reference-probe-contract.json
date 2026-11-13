@@ -41,7 +41,7 @@
     "language": "vi",
     "operation": "reference_conditioned_text2music",
     "max_gpu_execution_seconds": 600,
-    "hard_job_timeout_seconds": 900,
+    "hard_job_timeout_seconds": 700,
     "scale_down_window_seconds": 2
   },
   "reference_media": {
@@ -74,6 +74,22 @@
   ],
   "cost_control": {
     "provider_price_precheck_required": true,
+    "provider": "modal",
+    "provider_price_source": "https://modal.com/pricing",
+    "provider_price_checked_at": "2026-11-13",
+    "provider_prices_usd": {
+      "t4_per_second": 0.000164,
+      "cpu_per_core_second": 0.0000131,
+      "memory_per_gib_second": 0.00000222,
+      "egress_per_gib": 0.04
+    },
+    "resource_contract": {
+      "cpu_cores": 4,
+      "memory_gib": 24,
+      "max_function_seconds": 700,
+      "max_transfer_bytes": 10000000
+    },
+    "estimated_max_metered_usd": 0.189149,
     "approved_max_metered_usd": null,
     "execution_must_remain_blocked_while_null": true
   }
