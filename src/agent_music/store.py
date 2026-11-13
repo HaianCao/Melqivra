@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
-from agent_music.models import GpuJob, JobState
+from agent_music.models import GpuJob, JobAttempt, JobAttemptOutcome, JobState
 
 if TYPE_CHECKING:
     from agent_music.config import HarnessSettings
@@ -68,6 +68,8 @@ class JobStore(Protocol):
 
     def queue_position(self, job_id: str) -> int | None: ...
 
+    def list_attempts(self, job_id: str) -> tuple[JobAttempt, ...]: ...
+
     def recover_interrupted(self) -> int: ...
 
     def recover_expired(self) -> int: ...
@@ -80,8 +82,11 @@ class SqliteJobStore:
     store keeps the concurrency invariant durable across API restarts.
     """
 
-    def __init__(self, database_path: Path) -> None:
+    def __init__(self, database_path: Path, *, max_attempts: int = 3) -> None:
+        if max_attempts < 1:
+            raise ValueError("GPU job max attempts must be at least 1")
         self._database_path = database_path
+        self._max_attempts = max_attempts
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(
             database_path,
@@ -114,6 +119,7 @@ class SqliteJobStore:
                     lease_owner TEXT,
                     lease_expires_at REAL,
                     attempt_count INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 3,
                     idempotency_key TEXT,
                     UNIQUE(user_id, idempotency_key)
                 );
@@ -125,6 +131,20 @@ class SqliteJobStore:
                 );
                 INSERT OR IGNORE INTO harness_meta(key, value_integer)
                     VALUES ('next_fencing_token', 1);
+                CREATE TABLE IF NOT EXISTS gpu_job_attempts (
+                    job_id TEXT NOT NULL REFERENCES gpu_jobs(id) ON DELETE CASCADE,
+                    attempt_number INTEGER NOT NULL,
+                    lease_token INTEGER NOT NULL UNIQUE,
+                    lease_owner TEXT NOT NULL,
+                    started_at REAL NOT NULL,
+                    lease_expires_at REAL NOT NULL,
+                    finished_at REAL,
+                    outcome TEXT NOT NULL,
+                    error TEXT,
+                    PRIMARY KEY(job_id, attempt_number)
+                );
+                CREATE INDEX IF NOT EXISTS ix_gpu_job_attempts_job_started
+                    ON gpu_job_attempts(job_id, started_at);
                 """
             )
             columns = {
@@ -135,12 +155,29 @@ class SqliteJobStore:
                 "lease_owner": "TEXT",
                 "lease_expires_at": "REAL",
                 "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+                "max_attempts": "INTEGER NOT NULL DEFAULT 3",
             }
             for name, declaration in additions.items():
                 if name not in columns:
                     self._connection.execute(
                         f"ALTER TABLE gpu_jobs ADD COLUMN {name} {declaration}"
                     )
+            self._connection.execute(
+                """
+                INSERT OR IGNORE INTO gpu_job_attempts(
+                    job_id, attempt_number, lease_token, lease_owner,
+                    started_at, lease_expires_at, outcome
+                )
+                SELECT id, attempt_count, lease_token,
+                    COALESCE(lease_owner, 'legacy-worker'),
+                    COALESCE(started_at, created_at),
+                    COALESCE(lease_expires_at, updated_at),
+                    ?
+                FROM gpu_jobs
+                WHERE state = ? AND attempt_count > 0 AND lease_token IS NOT NULL
+                """,
+                (JobAttemptOutcome.RUNNING.value, JobState.RUNNING.value),
+            )
 
     def close(self) -> None:
         """Close the underlying connection."""
@@ -167,8 +204,8 @@ class SqliteJobStore:
                     """
                     INSERT INTO gpu_jobs(
                         id, user_id, kind, payload_json, state,
-                        created_at, updated_at, idempotency_key
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        created_at, updated_at, max_attempts, idempotency_key
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job_id,
@@ -178,6 +215,7 @@ class SqliteJobStore:
                         JobState.QUEUED.value,
                         now,
                         now,
+                        self._max_attempts,
                         idempotency_key,
                     ),
                 )
@@ -251,7 +289,7 @@ class SqliteJobStore:
                     return None
                 row = self._connection.execute(
                     """
-                    SELECT id FROM gpu_jobs
+                    SELECT id, attempt_count FROM gpu_jobs
                     WHERE state = ? AND cancel_requested = 0
                     ORDER BY rowid ASC
                     LIMIT 1
@@ -268,7 +306,8 @@ class SqliteJobStore:
                     """
                 ).fetchone()
                 token = int(token_row["value_integer"])
-                self._connection.execute(
+                attempt_number = int(row["attempt_count"]) + 1
+                claimed = self._connection.execute(
                     """
                     UPDATE harness_meta
                     SET value_integer = value_integer + 1
@@ -292,6 +331,25 @@ class SqliteJobStore:
                         lease_expires_at,
                         row["id"],
                         JobState.QUEUED.value,
+                    ),
+                )
+                if claimed.rowcount != 1:
+                    raise RuntimeError("SQLite job claim lost its write lock")
+                self._connection.execute(
+                    """
+                    INSERT INTO gpu_job_attempts(
+                        job_id, attempt_number, lease_token, lease_owner,
+                        started_at, lease_expires_at, outcome
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        row["id"],
+                        attempt_number,
+                        token,
+                        lease_owner,
+                        now,
+                        lease_expires_at,
+                        JobAttemptOutcome.RUNNING.value,
                     ),
                 )
                 self._connection.execute("COMMIT")
@@ -335,6 +393,22 @@ class SqliteJobStore:
                         now,
                     ),
                 )
+                if cursor.rowcount == 1:
+                    attempt = self._connection.execute(
+                        """
+                        UPDATE gpu_job_attempts
+                        SET lease_expires_at = ?
+                        WHERE job_id = ? AND lease_token = ? AND outcome = ?
+                        """,
+                        (
+                            now + lease_seconds,
+                            job_id,
+                            lease_token,
+                            JobAttemptOutcome.RUNNING.value,
+                        ),
+                    )
+                    if attempt.rowcount != 1:
+                        raise RuntimeError("SQLite job and attempt lease history diverged")
                 self._connection.execute("COMMIT")
             except BaseException:
                 self._connection.execute("ROLLBACK")
@@ -416,12 +490,29 @@ class SqliteJobStore:
                         now,
                     ),
                 )
+                if cursor.rowcount != 1:
+                    raise LostJobLeaseError("Lost GPU job lease; refusing stale commit")
+                attempt = self._connection.execute(
+                    """
+                    UPDATE gpu_job_attempts
+                    SET finished_at = ?, outcome = ?, error = ?
+                    WHERE job_id = ? AND lease_token = ? AND outcome = ?
+                    """,
+                    (
+                        now,
+                        JobAttemptOutcome(state.value).value,
+                        error,
+                        job_id,
+                        lease_token,
+                        JobAttemptOutcome.RUNNING.value,
+                    ),
+                )
+                if attempt.rowcount != 1:
+                    raise RuntimeError("SQLite terminal job and attempt history diverged")
                 self._connection.execute("COMMIT")
             except BaseException:
                 self._connection.execute("ROLLBACK")
                 raise
-        if cursor.rowcount != 1:
-            raise LostJobLeaseError("Lost GPU job lease; refusing stale commit")
 
     def request_cancel(self, job_id: str) -> GpuJob:
         """Cancel a queued job or flag a running job for cooperative cancellation."""
@@ -510,36 +601,42 @@ class SqliteJobStore:
             ).fetchone()
         return int(row["count"])
 
-    def recover_interrupted(self) -> int:
-        """Force-requeue running work for explicit single-node recovery tooling."""
+    def list_attempts(self, job_id: str) -> tuple[JobAttempt, ...]:
+        """Return durable attempts in execution order."""
 
-        now = time.time()
+        self.get(job_id)
         with self._lock:
-            cursor = self._connection.execute(
+            rows = self._connection.execute(
                 """
-                UPDATE gpu_jobs
-                SET state = CASE WHEN cancel_requested = 1 THEN ? ELSE ? END,
-                    started_at = NULL, lease_token = NULL,
-                    lease_owner = NULL, lease_expires_at = NULL,
-                    finished_at = CASE WHEN cancel_requested = 1 THEN ? ELSE NULL END,
-                    updated_at = ?,
-                    error = CASE
-                        WHEN cancel_requested = 1 THEN ?
-                        ELSE ?
-                    END
-                WHERE state = ?
+                SELECT * FROM gpu_job_attempts
+                WHERE job_id = ?
+                ORDER BY attempt_number ASC
                 """,
-                (
-                    JobState.CANCELLED.value,
-                    JobState.QUEUED.value,
-                    now,
-                    now,
-                    "Job cancelled after control-plane interruption",
-                    "Control plane restarted; job safely requeued",
-                    JobState.RUNNING.value,
-                ),
-            )
-        return int(cursor.rowcount)
+                (job_id,),
+            ).fetchall()
+        return tuple(self._row_to_attempt(row) for row in rows)
+
+    def recover_interrupted(self) -> int:
+        """Reconcile running work after explicit single-node interruption."""
+
+        with self._lock:
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                recovered = self._recover_running_locked(
+                    now=time.time(),
+                    expired_only=False,
+                    attempt_outcome=JobAttemptOutcome.INTERRUPTED,
+                    retry_error="Control plane restarted; job safely requeued",
+                    cancel_error="Job cancelled after control-plane interruption",
+                    dead_letter_error=(
+                        "Control plane restarted after the maximum attempts; job dead-lettered"
+                    ),
+                )
+                self._connection.execute("COMMIT")
+            except BaseException:
+                self._connection.execute("ROLLBACK")
+                raise
+        return recovered
 
     def recover_expired(self) -> int:
         """Reconcile only jobs whose heartbeat lease is absent or expired."""
@@ -556,33 +653,92 @@ class SqliteJobStore:
         return recovered
 
     def _recover_expired_locked(self, now: float) -> int:
-        cursor = self._connection.execute(
-            """
-            UPDATE gpu_jobs
-            SET state = CASE WHEN cancel_requested = 1 THEN ? ELSE ? END,
-                started_at = NULL, lease_token = NULL,
-                lease_owner = NULL, lease_expires_at = NULL,
-                finished_at = CASE WHEN cancel_requested = 1 THEN ? ELSE NULL END,
-                updated_at = ?,
-                error = CASE
-                    WHEN cancel_requested = 1 THEN ?
-                    ELSE ?
-                END
-            WHERE state = ?
-              AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
-            """,
-            (
-                JobState.CANCELLED.value,
-                JobState.QUEUED.value,
-                now,
-                now,
-                "Job cancelled after worker lease expired",
-                "Worker lease expired; job safely requeued",
-                JobState.RUNNING.value,
-                now,
-            ),
+        return self._recover_running_locked(
+            now=now,
+            expired_only=True,
+            attempt_outcome=JobAttemptOutcome.LEASE_EXPIRED,
+            retry_error="Worker lease expired; job safely requeued",
+            cancel_error="Job cancelled after worker lease expired",
+            dead_letter_error="Worker lease expired after the maximum attempts; job dead-lettered",
         )
-        return int(cursor.rowcount)
+
+    def _recover_running_locked(
+        self,
+        *,
+        now: float,
+        expired_only: bool,
+        attempt_outcome: JobAttemptOutcome,
+        retry_error: str,
+        cancel_error: str,
+        dead_letter_error: str,
+    ) -> int:
+        query = """
+            SELECT id, lease_token, cancel_requested, attempt_count, max_attempts
+            FROM gpu_jobs
+            WHERE state = ?
+        """
+        parameters: tuple[object, ...] = (JobState.RUNNING.value,)
+        if expired_only:
+            query += " AND (lease_expires_at IS NULL OR lease_expires_at <= ?)"
+            parameters = (*parameters, now)
+        rows = self._connection.execute(query, parameters).fetchall()
+        for row in rows:
+            cancel_requested = bool(row["cancel_requested"])
+            exhausted = int(row["attempt_count"]) >= int(row["max_attempts"])
+            if cancel_requested:
+                state = JobState.CANCELLED
+                error = cancel_error
+                finished_at: float | None = now
+                outcome = JobAttemptOutcome.CANCELLED
+            elif exhausted:
+                state = JobState.DEAD_LETTERED
+                error = dead_letter_error
+                finished_at = now
+                outcome = attempt_outcome
+            else:
+                state = JobState.QUEUED
+                error = retry_error
+                finished_at = None
+                outcome = attempt_outcome
+            cursor = self._connection.execute(
+                """
+                UPDATE gpu_jobs
+                SET state = ?, started_at = NULL, lease_token = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL,
+                    finished_at = ?, updated_at = ?, error = ?
+                WHERE id = ? AND state = ?
+                """,
+                (
+                    state.value,
+                    finished_at,
+                    now,
+                    error,
+                    row["id"],
+                    JobState.RUNNING.value,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError("SQLite recovery lost its running job")
+            lease_token = row["lease_token"]
+            if lease_token is not None:
+                attempt = self._connection.execute(
+                    """
+                    UPDATE gpu_job_attempts
+                    SET finished_at = ?, outcome = ?, error = ?
+                    WHERE job_id = ? AND lease_token = ? AND outcome = ?
+                    """,
+                    (
+                        now,
+                        outcome.value,
+                        error,
+                        row["id"],
+                        lease_token,
+                        JobAttemptOutcome.RUNNING.value,
+                    ),
+                )
+                if attempt.rowcount != 1:
+                    raise RuntimeError("SQLite recovery and attempt history diverged")
+        return len(rows)
 
     @staticmethod
     def _row_to_job(row: sqlite3.Row) -> GpuJob:
@@ -606,6 +762,21 @@ class SqliteJobStore:
                 float(row["lease_expires_at"]) if row["lease_expires_at"] is not None else None
             ),
             attempt_count=int(row["attempt_count"]),
+            max_attempts=int(row["max_attempts"]),
+        )
+
+    @staticmethod
+    def _row_to_attempt(row: sqlite3.Row) -> JobAttempt:
+        return JobAttempt(
+            job_id=str(row["job_id"]),
+            attempt_number=int(row["attempt_number"]),
+            lease_token=int(row["lease_token"]),
+            lease_owner=str(row["lease_owner"]),
+            started_at=float(row["started_at"]),
+            lease_expires_at=float(row["lease_expires_at"]),
+            finished_at=(float(row["finished_at"]) if row["finished_at"] is not None else None),
+            outcome=JobAttemptOutcome(str(row["outcome"])),
+            error=str(row["error"]) if row["error"] is not None else None,
         )
 
 
@@ -613,7 +784,10 @@ def build_job_store(settings: HarnessSettings) -> JobStore:
     """Build the configured durable job adapter without silent fallback."""
 
     if settings.job_store == "sqlite":
-        return SqliteJobStore(settings.database_path)
+        return SqliteJobStore(
+            settings.database_path,
+            max_attempts=settings.job_max_attempts,
+        )
     try:
         from agent_music.postgres_store import PostgresJobStore
     except ModuleNotFoundError as error:
@@ -625,4 +799,5 @@ def build_job_store(settings: HarnessSettings) -> JobStore:
         min_pool_size=settings.postgres_pool_min_size,
         max_pool_size=settings.postgres_pool_max_size,
         connection_timeout_seconds=settings.postgres_connect_timeout_seconds,
+        max_attempts=settings.job_max_attempts,
     )

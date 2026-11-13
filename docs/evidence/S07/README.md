@@ -155,3 +155,28 @@ Checkpoint `d82bf47` contains the compatibility fix and regression coverage.
 Protected push run `43438710384` and pull-request run `43438720682` each passed
 the four Windows/Linux Python 3.11/3.13 quality jobs plus the PostgreSQL service
 contract on that exact commit.
+
+## Fifth checkpoint: durable attempts and bounded dead-letter policy
+
+Migration `0003_job_attempt_history.sql` expands the job state constraint with
+`dead_lettered`, snapshots a positive `max_attempts` value on every accepted job,
+and adds ordered fenced attempt rows. A live version-2 running attempt is
+backfilled without changing ownership. Claim, heartbeat renewal, success,
+failure, cancellation, lease expiry, and explicit interruption now update the
+job and its attempt history in the same transaction.
+
+Lease expiry requeues only while `attempt_count < max_attempts`. Cancellation
+still converges to `CANCELLED`; the exhausted non-cancelled job converges to
+`DEAD_LETTERED` with a finished timestamp and cannot be claimed again. Changing
+the process default after enqueue does not alter a stored job's retry budget.
+The HTTP job response exposes only attempt count and limit, not worker IDs,
+fencing tokens, or lease timing.
+
+The local suite discovers 229 tests: 219 pass and ten PostgreSQL tests skip
+without their explicit DSN. Critical scheduler/SQLite-store branch coverage
+remains 84%; strict mypy covers 62 source files, Ruff format/lint pass, the wheel
+and source distribution build with migration 0003, and the dependency audit
+reports no known vulnerabilities. A fresh PostgreSQL 17.12 database passes all
+ten migration, parity, contention, attempt-history, dead-letter, and scheduler
+contracts with 80% adapter branch coverage. The disposable container and its
+anonymous volume were removed.

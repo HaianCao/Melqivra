@@ -14,7 +14,7 @@ from uuid import UUID
 import psycopg
 
 from agent_music.config import HarnessSettings
-from agent_music.models import JobState
+from agent_music.models import JobAttemptOutcome, JobState
 from agent_music.postgres_store import (
     POSTGRES_MIGRATIONS,
     PostgresJobStore,
@@ -31,7 +31,12 @@ class PostgresJobStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = PostgresJobStore(POSTGRES_DSN)
         with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
-            connection.execute("TRUNCATE TABLE gpu_capacity_slots, gpu_jobs RESTART IDENTITY")
+            connection.execute(
+                """
+                TRUNCATE TABLE gpu_capacity_slots, gpu_job_attempts, gpu_jobs
+                RESTART IDENTITY
+                """
+            )
             connection.execute("INSERT INTO gpu_capacity_slots(slot_id) VALUES (1)")
             connection.execute("ALTER SEQUENCE gpu_fencing_token_seq RESTART WITH 1")
 
@@ -49,7 +54,7 @@ class PostgresJobStoreTests(unittest.TestCase):
             rows = connection.execute(
                 "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-        self.assertEqual([1, 2], [row[0] for row in rows])
+        self.assertEqual([1, 2, 3], [row[0] for row in rows])
         self.assertEqual(
             expected,
             {row[0]: (row[1], row[2]) for row in rows},
@@ -75,16 +80,18 @@ class PostgresJobStoreTests(unittest.TestCase):
     def test_lease_migration_reconciles_v1_running_jobs(self) -> None:
         self.store.close()
         with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
+            connection.execute("DROP TABLE gpu_job_attempts")
             connection.execute("DROP TABLE gpu_capacity_slots")
             connection.execute(
                 """
                 ALTER TABLE gpu_jobs
                     DROP COLUMN lease_owner,
                     DROP COLUMN lease_expires_at,
-                    DROP COLUMN attempt_count
+                    DROP COLUMN attempt_count,
+                    DROP COLUMN max_attempts
                 """
             )
-            connection.execute("DELETE FROM schema_migrations WHERE version = 2")
+            connection.execute("DELETE FROM schema_migrations WHERE version IN (2, 3)")
             connection.execute(
                 """
                 INSERT INTO gpu_jobs(
@@ -102,7 +109,46 @@ class PostgresJobStoreTests(unittest.TestCase):
         self.assertEqual(JobState.QUEUED, migrated.state)
         self.assertIsNone(migrated.lease_token)
         self.assertEqual(0, migrated.attempt_count)
+        self.assertEqual(3, migrated.max_attempts)
         self.assertIn("Lease migration", migrated.error or "")
+
+    def test_attempt_history_migration_backfills_live_v2_attempt(self) -> None:
+        self.store.close()
+        with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
+            connection.execute("DROP TABLE gpu_job_attempts")
+            connection.execute(
+                "ALTER TABLE gpu_jobs DROP CONSTRAINT gpu_jobs_max_attempts_positive"
+            )
+            connection.execute("ALTER TABLE gpu_jobs DROP COLUMN max_attempts")
+            connection.execute("DELETE FROM schema_migrations WHERE version = 3")
+            connection.execute(
+                """
+                INSERT INTO gpu_jobs(
+                    id, user_id, kind, payload_json, state,
+                    created_at, updated_at, started_at,
+                    lease_token, lease_owner, lease_expires_at, attempt_count
+                ) VALUES (
+                    'v2-running', 'alice', 'generate', '{}'::jsonb, 'running',
+                    1000, 1000, 1000, 7, 'worker-a', 1010, 1
+                )
+                """
+            )
+            connection.execute(
+                """
+                UPDATE gpu_capacity_slots
+                SET active_job_id = 'v2-running', lease_token = 7,
+                    lease_owner = 'worker-a', lease_expires_at = 1010
+                WHERE slot_id = 1
+                """
+            )
+
+        self.store = PostgresJobStore(POSTGRES_DSN)
+        migrated = self.store.get("v2-running")
+        attempts = self.store.list_attempts(migrated.id)
+        self.assertEqual(3, migrated.max_attempts)
+        self.assertEqual(1, len(attempts))
+        self.assertEqual(JobAttemptOutcome.RUNNING, attempts[0].outcome)
+        self.assertEqual(7, attempts[0].lease_token)
 
     def test_fifo_idempotency_and_stale_fencing_match_sqlite(self) -> None:
         ids_in_reverse_sort_order = [
@@ -249,7 +295,13 @@ class PostgresJobStoreTests(unittest.TestCase):
             with self.assertRaises(LostJobLeaseError):
                 self.store.complete(job.id, first.lease_token, {"stale": True})
             self.store.complete(job.id, second.lease_token, {"ok": True})
+        self.assertEqual(
+            [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.SUCCEEDED],
+            [attempt.outcome for attempt in self.store.list_attempts(job.id)],
+        )
 
+        self.store.close()
+        self.store = PostgresJobStore(POSTGRES_DSN, max_attempts=1)
         with (
             patch("agent_music.postgres_store.time.time", return_value=2_000.0),
             patch.object(self.store, "_database_time", return_value=2_000.0),
@@ -269,7 +321,48 @@ class PostgresJobStoreTests(unittest.TestCase):
             self.assertEqual(1, self.store.recover_expired())
         cancelled = self.store.get(cancelled_job.id)
         self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertEqual(1, cancelled.max_attempts)
         self.assertIsNotNone(cancelled.finished_at)
+        self.assertEqual(
+            JobAttemptOutcome.CANCELLED,
+            self.store.list_attempts(cancelled_job.id)[0].outcome,
+        )
+
+    def test_attempt_history_and_dead_letter_limit_match_sqlite(self) -> None:
+        self.store.close()
+        self.store = PostgresJobStore(POSTGRES_DSN, max_attempts=2)
+        with (
+            patch("agent_music.postgres_store.time.time", return_value=3_000.0),
+            patch.object(self.store, "_database_time", return_value=3_000.0),
+        ):
+            job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+            first = self.store.claim_next(lease_owner="worker-a", lease_seconds=10.0)
+        assert first is not None
+
+        with patch.object(self.store, "_database_time", return_value=3_011.0):
+            self.assertEqual(1, self.store.recover_expired())
+        self.assertEqual(JobState.QUEUED, self.store.get(job.id).state)
+
+        self.store.close()
+        self.store = PostgresJobStore(POSTGRES_DSN, max_attempts=9)
+        self.assertEqual(2, self.store.get(job.id).max_attempts)
+        with patch.object(self.store, "_database_time", return_value=3_020.0):
+            second = self.store.claim_next(lease_owner="worker-b", lease_seconds=10.0)
+        assert second is not None
+        with patch.object(self.store, "_database_time", return_value=3_031.0):
+            self.assertEqual(1, self.store.recover_expired())
+
+        dead_lettered = self.store.get(job.id)
+        self.assertEqual(JobState.DEAD_LETTERED, dead_lettered.state)
+        self.assertEqual(2, dead_lettered.attempt_count)
+        self.assertEqual(2, dead_lettered.max_attempts)
+        self.assertIsNone(self.store.claim_next())
+        attempts = self.store.list_attempts(job.id)
+        self.assertEqual([1, 2], [attempt.attempt_number for attempt in attempts])
+        self.assertEqual(
+            [JobAttemptOutcome.LEASE_EXPIRED, JobAttemptOutcome.LEASE_EXPIRED],
+            [attempt.outcome for attempt in attempts],
+        )
 
     def test_scheduler_completes_and_reopens_postgres_job(self) -> None:
         async def exercise() -> str:

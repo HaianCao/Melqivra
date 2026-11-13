@@ -126,10 +126,13 @@ uv sync --locked --extra postgres
 ~~~dotenv
 JOB_STORE=postgres
 POSTGRES_DSN=postgresql://user:password@database:5432/melqivra
+GPU_JOB_MAX_ATTEMPTS=3
 ~~~
 
 `melqivra doctor` checks the PostgreSQL connection and applies only tracked,
-checksummed migrations. Do not place production credentials in committed files.
+checksummed migrations. Each accepted job snapshots the configured positive
+attempt limit; an expired final attempt becomes `dead_lettered` instead of being
+retried forever. Do not place production credentials in committed files.
 
 Submit a job:
 
