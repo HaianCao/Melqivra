@@ -106,13 +106,24 @@ class ModalCliCancellationTests(unittest.IsolatedAsyncioTestCase):
             app_name="melqivra-gpu-runner",
             timeout_seconds=30,
         )
+        process_started = asyncio.Event()
+
+        async def observe_stdout(line: str) -> None:
+            if line == "started":
+                process_started.set()
+
         task = asyncio.create_task(
             client.run(
-                [sys.executable, "-c", "import time; time.sleep(30)"],
+                [
+                    sys.executable,
+                    "-c",
+                    "import time; print('started', flush=True); time.sleep(30)",
+                ],
                 check=False,
+                on_stdout=observe_stdout,
             )
         )
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(process_started.wait(), timeout=5.0)
 
         await client.cancel_current()
         result = await asyncio.wait_for(task, timeout=5.0)
