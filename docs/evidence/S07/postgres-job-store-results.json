@@ -3,6 +3,12 @@
     "container_removed": true,
     "persistent_volume_created": false
   },
+  "continuous_integration": {
+    "jobs_per_run": 5,
+    "pr_run": 43430486001,
+    "push_run": 43430479894,
+    "status": "passed"
+  },
   "container": {
     "image": "postgres:17-alpine",
     "image_digest": "sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065",
