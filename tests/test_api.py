@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import tempfile
@@ -315,6 +316,39 @@ class ApiServiceBoundaryTests(unittest.IsolatedAsyncioTestCase):
                     )
                     self.assertIn("429", operation["responses"])
         self.assertNotIn("security", schema["paths"]["/healthz"]["get"])
+
+    async def test_api_only_mode_queues_without_claiming_worker_execution(self) -> None:
+        api_settings = replace(
+            self.settings,
+            database_path=Path(self.temporary.name) / "api-only.db",
+            api_embedded_worker=False,
+            fake_job_seconds=0.01,
+        )
+        harness = GpuHarness(api_settings)
+        app = create_app(api_settings, harness)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as client:
+                created = await client.post(
+                    "/v1/gpu/jobs",
+                    headers=self._headers("alice"),
+                    json={"kind": "harness.healthcheck", "payload": {}},
+                )
+                self.assertEqual(202, created.status_code, created.text)
+                await asyncio.sleep(0.05)
+                observed = await client.get(
+                    f"/v1/gpu/jobs/{created.json()['id']}",
+                    headers=self._headers("alice"),
+                )
+                runner = await client.get(
+                    "/v1/gpu/runner",
+                    headers=self._headers("alice"),
+                )
+
+        self.assertEqual("queued", observed.json()["state"])
+        self.assertEqual("external", runner.json()["worker_mode"])
 
     async def test_payload_active_job_and_idempotency_quotas(self) -> None:
         too_large = await self._submit("alice", payload={"text": "x" * 100})

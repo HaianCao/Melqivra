@@ -616,3 +616,41 @@ scheduler/job-store branch coverage is 87%, wheel and source distributions build
 with migration 0009, and the dependency audit reports no known vulnerabilities.
 The disposable PostgreSQL and MinIO containers, the anonymous PostgreSQL volume,
 and the named MinIO volume were verified removed after the real contract run.
+
+## Sixteenth checkpoint: separate API/worker recovery demo
+
+`API_EMBEDDED_WORKER=false` now makes `melqivra serve` an API-only process, while
+`melqivra worker` owns one durable scheduler. The combined default remains for
+the credential-free local quickstart. PostgreSQL continues to own FIFO ordering,
+leases, fencing, attempts, events, and the single global capacity slot, so adding
+API or worker processes does not create a second authority. Uvicorn access logs
+are disabled; the application emits only its bounded structured request record.
+
+The clean service demo started two independent API processes and two worker
+processes against PostgreSQL 17.12 and pinned non-root MinIO. Three tenants first
+queued work while no worker existed. After the first worker claimed the oldest
+job and published durable progress, the API process was stopped and replaced. A
+client retained SSE cursor 3. The active worker was then hard-killed; its lease
+expired, a replacement worker fenced and retried the same oldest job, and the
+resumed SSE stream returned contiguous `job.requeued` through `job.succeeded`
+events.
+
+The recovered job has exactly two attempts—`lease_expired`, then `succeeded`.
+Each of the three jobs has exactly one successful attempt, completion preserves
+FIFO order, and measured maximum simultaneous attempt count is one. Cross-tenant
+job and artifact reads remain indistinguishable from missing objects; the owner
+download matches the independently recorded SHA-256. Final authoritative state
+has no active capacity slot and no queued/running job. Both API processes, both
+worker processes, both service containers, and all disposable volumes were
+verified stopped or removed.
+
+The expanded real PostgreSQL/S3 contract passes 49/49 tests at 81% combined
+adapter branch coverage. The exact content-free result is recorded in
+`service-recovery-demo-results.json`; the same executable demo is protected by
+`tests.test_s07_service_recovery` in the hosted service-contract job.
+
+The complete post-demo gate discovers 315 tests: 279 pass and thirty-six
+explicit environment/service tests skip without configured infrastructure.
+Strict mypy covers 84 source files, Ruff format/lint pass, critical
+scheduler/job-store branch coverage is 87%, wheel and source distributions build
+successfully, and the dependency audit reports no known vulnerabilities.

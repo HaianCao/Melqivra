@@ -115,7 +115,7 @@ jobs:
         run: >-
           uv run --frozen coverage run --branch
           --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository,agent_music.postgres_artifact_repository,agent_music.postgres_rate_limit,agent_music.service_backup
-          -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories tests.test_postgres_artifact_repository tests.test_postgres_rate_limit tests.test_s3_artifact_integration tests.test_service_backup tests.test_service_backup_integration -v
+          -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories tests.test_postgres_artifact_repository tests.test_postgres_rate_limit tests.test_s3_artifact_integration tests.test_service_backup tests.test_service_backup_integration tests.test_s07_service_recovery -v
       - name: Enforce PostgreSQL adapter coverage
         run: uv run --frozen coverage report --fail-under=80
       - name: Remove MinIO contract service

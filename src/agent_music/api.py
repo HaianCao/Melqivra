@@ -348,12 +348,15 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.harness = resolved_harness
-        await resolved_harness.start()
+        if resolved_settings.api_embedded_worker:
+            await resolved_harness.start()
         try:
             yield
         finally:
             try:
-                await resolved_harness.close()
+                await resolved_harness.close(
+                    stop_runner=resolved_settings.api_embedded_worker,
+                )
             finally:
                 resolved_rate_limiter.close()
 
@@ -471,6 +474,7 @@ def create_app(
             "strategy": active.settings.runner,
             "idle_timeout_seconds": active.settings.idle_timeout_seconds,
             "max_concurrency": active.settings.gpu_max_concurrency,
+            "worker_mode": ("embedded" if resolved_settings.api_embedded_worker else "external"),
         }
 
     @app.post(

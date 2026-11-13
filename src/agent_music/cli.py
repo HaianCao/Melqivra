@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import shutil
+import signal
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -22,6 +23,7 @@ from agent_music.runners.modal_cli import (
     ModalCliCompatibilityError,
     validate_modal_cli_version,
 )
+from agent_music.scheduler import GpuHarness
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -31,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve", help="Run the harness API")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    subparsers.add_parser("worker", help="Run one durable GPU scheduling worker")
 
     subparsers.add_parser("doctor", help="Validate harness configuration")
     reconcile = subparsers.add_parser(
@@ -62,6 +65,7 @@ async def _doctor(settings: HarnessSettings) -> int:
     print(f"job_heartbeat_seconds={settings.job_heartbeat_seconds}")
     print(f"job_max_attempts={settings.job_max_attempts}")
     print(f"api_auth_mode={settings.api_auth_mode}")
+    print(f"api_embedded_worker={settings.api_embedded_worker}")
     print(f"api_max_active_jobs_per_user={settings.api_max_active_jobs_per_user}")
     print(f"api_max_job_payload_bytes={settings.api_max_job_payload_bytes}")
     print(f"api_max_request_body_bytes={settings.api_max_request_body_bytes}")
@@ -180,6 +184,36 @@ async def _doctor(settings: HarnessSettings) -> int:
     return 0
 
 
+async def _run_worker(
+    settings: HarnessSettings,
+    *,
+    shutdown_event: asyncio.Event | None = None,
+) -> int:
+    """Run one scheduler process until a signal or injected shutdown request."""
+
+    harness = GpuHarness(settings)
+    stop = shutdown_event or asyncio.Event()
+    installed_signals: list[signal.Signals] = []
+    loop = asyncio.get_running_loop()
+    if shutdown_event is None:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(signum, stop.set)
+            except (NotImplementedError, RuntimeError):
+                continue
+            installed_signals.append(signum)
+
+    try:
+        await harness.start()
+        print("worker=ready", flush=True)
+        await stop.wait()
+    finally:
+        await harness.close()
+        for signum in installed_signals:
+            loop.remove_signal_handler(signum)
+    return 0
+
+
 def _reconcile_artifacts(settings: HarnessSettings, *, orphan_cursor: str | None) -> int:
     try:
         from agent_music.artifact_factory import build_artifact_reconciliation_service
@@ -242,8 +276,15 @@ def main() -> None:
             port=args.port,
             reload=False,
             factory=True,
+            access_log=False,
         )
         return
+    if args.command == "worker":
+        try:
+            exit_code = asyncio.run(_run_worker(settings))
+        except KeyboardInterrupt:
+            exit_code = 0
+        raise SystemExit(exit_code)
     if args.command == "reconcile-artifacts":
         raise SystemExit(
             _reconcile_artifacts(

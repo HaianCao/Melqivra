@@ -74,6 +74,7 @@ class HarnessSettingsTests(unittest.TestCase):
             "GPU_JOB_HEARTBEAT_SECONDS": "20",
             "GPU_JOB_MAX_ATTEMPTS": "5",
             "API_AUTH_MODE": "INJECTED",
+            "API_EMBEDDED_WORKER": "false",
             "API_MAX_ACTIVE_JOBS_PER_USER": "7",
             "API_MAX_JOB_PAYLOAD_BYTES": "12345",
             "API_MAX_REQUEST_BODY_BYTES": "23456",
@@ -129,6 +130,7 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual(20.0, settings.job_heartbeat_seconds)
         self.assertEqual(5, settings.job_max_attempts)
         self.assertEqual("injected", settings.api_auth_mode)
+        self.assertFalse(settings.api_embedded_worker)
         self.assertEqual(7, settings.api_max_active_jobs_per_user)
         self.assertEqual(12_345, settings.api_max_job_payload_bytes)
         self.assertEqual(23_456, settings.api_max_request_body_bytes)
