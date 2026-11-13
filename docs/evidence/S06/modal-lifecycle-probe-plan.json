@@ -1,7 +1,7 @@
 {
   "authorization": {
-    "approved_max_metered_usd": null,
-    "gpu_execution_approved": false,
+    "approved_max_metered_usd": 0.08,
+    "gpu_execution_approved": true,
     "provider_price_prechecked": true,
     "required_minimum_ceiling_usd": 0.069271
   },
@@ -18,5 +18,5 @@
   "provider_price_source": "https://modal.com/pricing",
   "run_id": "s06-modal-lifecycle-20261113-a",
   "schema_version": 1,
-  "status": "prepared_not_run"
+  "status": "executed_passed"
 }
