@@ -486,3 +486,9 @@ contain migration 0007 and every artifact module, and the dependency audit
 reports no known vulnerabilities. Retention/deletion recovery, orphan
 reconciliation, backup/restore, broader quotas/observability, and the final
 multi-process restart demo remain later S07 work.
+
+Checkpoint `0c17a32` contains the artifact metadata authority, object-store
+adapter, authorized API read, bounded-download hardening, real-service evidence,
+and dependency/CI updates. Protected push run `43485358189` and pull-request run
+`43485366292` each pass the four Windows/Linux Python 3.11/3.13 jobs plus the
+combined PostgreSQL and S3-compatible service contract on that exact commit.
