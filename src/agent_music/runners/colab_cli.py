@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import signal
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,8 @@ class ColabCliClient:
         self._config_path = config_path
         self._timeout_seconds = timeout_seconds
         self._command_lock = asyncio.Lock()
+        self._process_lock = asyncio.Lock()
+        self._current_process: asyncio.subprocess.Process | None = None
 
     def _base(self) -> list[str]:
         return [
@@ -132,6 +135,8 @@ class ColabCliClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+            async with self._process_lock:
+                self._current_process = process
             stdout_lines: list[str] = []
             stderr_lines: list[str] = []
 
@@ -159,13 +164,17 @@ class ColabCliClient:
                 )
                 await asyncio.gather(*readers)
             except TimeoutError:
-                process.kill()
-                await process.wait()
-                for reader in readers:
-                    reader.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await reader
+                await self._terminate(process)
+                await self._cancel_readers(readers)
                 raise TimeoutError(f"Colab CLI timed out: {argv[-1]}") from None
+            except asyncio.CancelledError:
+                await self._terminate(process)
+                await self._cancel_readers(readers)
+                raise
+            finally:
+                async with self._process_lock:
+                    if self._current_process is process:
+                        self._current_process = None
 
             result = CommandResult(
                 returncode=int(process.returncode or 0),
@@ -175,3 +184,41 @@ class ColabCliClient:
             if check and result.returncode != 0:
                 raise ColabCliError(argv, result)
             return result
+
+    async def cancel_current(self) -> None:
+        """Terminate the active local Colab command, if any."""
+
+        async with self._process_lock:
+            process = self._current_process
+        if process is not None:
+            await self._terminate(process)
+
+    @staticmethod
+    async def _terminate(process: asyncio.subprocess.Process) -> None:
+        if process.returncode is not None:
+            return
+        try:
+            process.send_signal(signal.SIGINT)
+        except ProcessLookupError:
+            return
+        except ValueError:
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=10.0)
+        except TimeoutError:
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+
+    @staticmethod
+    async def _cancel_readers(readers: Sequence[asyncio.Task[None]]) -> None:
+        for reader in readers:
+            reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reader
