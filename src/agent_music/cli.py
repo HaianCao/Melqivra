@@ -8,6 +8,7 @@ import json
 import shutil
 import sys
 from dataclasses import asdict
+from pathlib import Path
 
 from agent_music.config import HarnessSettings
 from agent_music.job_store import build_job_store
@@ -37,6 +38,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run one bounded PostgreSQL/S3 artifact lifecycle pass",
     )
     reconcile.add_argument("--orphan-cursor")
+    backup = subparsers.add_parser(
+        "backup-service",
+        help="Create one checksummed PostgreSQL/S3 service archive",
+    )
+    backup.add_argument("--output", required=True, type=Path)
+    restore = subparsers.add_parser(
+        "restore-service",
+        help="Restore one service archive into empty PostgreSQL/S3 targets",
+    )
+    restore.add_argument("--input", required=True, type=Path)
     return parser
 
 
@@ -63,6 +74,14 @@ async def _doctor(settings: HarnessSettings) -> int:
     print(f"artifact_published_retention_seconds={settings.artifact_published_retention_seconds}")
     print(f"artifact_reconcile_batch_limit={settings.artifact_reconcile_batch_limit}")
     print(f"artifact_reconcile_object_page_size={settings.artifact_reconcile_object_page_size}")
+    print(f"service_archive_mode={settings.service_archive_mode}")
+    print(f"service_archive_timeout_seconds={settings.service_archive_timeout_seconds}")
+    print(f"service_archive_max_database_bytes={settings.service_archive_max_database_bytes}")
+    print(f"service_archive_max_objects={settings.service_archive_max_objects}")
+    print(
+        f"service_archive_max_total_object_bytes={settings.service_archive_max_total_object_bytes}"
+    )
+    print(f"service_archive_object_page_size={settings.service_archive_object_page_size}")
     print(f"max_concurrency={settings.gpu_max_concurrency}")
     if settings.runner == "modal":
         if not settings.modal_runner_file.is_file():
@@ -174,6 +193,38 @@ def _reconcile_artifacts(settings: HarnessSettings, *, orphan_cursor: str | None
     return 0
 
 
+def _backup_service(settings: HarnessSettings, *, output: Path) -> int:
+    try:
+        from agent_music.service_backup_factory import build_service_backup_manager
+
+        manager = build_service_backup_manager(settings)
+        try:
+            report = manager.create_backup(output)
+        finally:
+            manager.close()
+    except Exception:
+        print("ERROR: Service backup failed", file=sys.stderr)
+        return 1
+    print(json.dumps(asdict(report), ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+def _restore_service(settings: HarnessSettings, *, input_directory: Path) -> int:
+    try:
+        from agent_music.service_backup_factory import build_service_backup_manager
+
+        manager = build_service_backup_manager(settings)
+        try:
+            report = manager.restore_backup(input_directory)
+        finally:
+            manager.close()
+    except Exception:
+        print("ERROR: Service restore failed", file=sys.stderr)
+        return 1
+    print(json.dumps(asdict(report), ensure_ascii=False, sort_keys=True))
+    return 0
+
+
 def main() -> None:
     """Run CLI."""
 
@@ -197,6 +248,10 @@ def main() -> None:
                 orphan_cursor=args.orphan_cursor,
             )
         )
+    if args.command == "backup-service":
+        raise SystemExit(_backup_service(settings, output=args.output))
+    if args.command == "restore-service":
+        raise SystemExit(_restore_service(settings, input_directory=args.input))
     raise SystemExit(asyncio.run(_doctor(settings)))
 
 

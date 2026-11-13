@@ -58,6 +58,16 @@ class HarnessSettingsTests(unittest.TestCase):
             "ARTIFACT_PUBLISHED_RETENTION_SECONDS": "7200",
             "ARTIFACT_RECONCILE_BATCH_LIMIT": "25",
             "ARTIFACT_RECONCILE_OBJECT_PAGE_SIZE": "50",
+            "SERVICE_ARCHIVE_MODE": "DOCKER",
+            "SERVICE_ARCHIVE_TIMEOUT_SECONDS": "1800",
+            "SERVICE_ARCHIVE_MAX_DATABASE_BYTES": "1000000",
+            "SERVICE_ARCHIVE_MAX_OBJECTS": "900",
+            "SERVICE_ARCHIVE_MAX_TOTAL_OBJECT_BYTES": "2000000",
+            "SERVICE_ARCHIVE_OBJECT_PAGE_SIZE": "75",
+            "POSTGRES_DUMP_EXECUTABLE": "pg_dump-custom",
+            "POSTGRES_RESTORE_EXECUTABLE": "pg_restore-custom",
+            "DOCKER_EXECUTABLE": "docker-custom",
+            "POSTGRES_ARCHIVE_DOCKER_IMAGE": "postgres:17@sha256:abc123",
             "GPU_MAX_CONCURRENCY": "1",
             "GPU_IDLE_TIMEOUT_SECONDS": "301",
             "GPU_JOB_LEASE_SECONDS": "90",
@@ -101,6 +111,16 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual(7_200.0, settings.artifact_published_retention_seconds)
         self.assertEqual(25, settings.artifact_reconcile_batch_limit)
         self.assertEqual(50, settings.artifact_reconcile_object_page_size)
+        self.assertEqual("docker", settings.service_archive_mode)
+        self.assertEqual(1_800.0, settings.service_archive_timeout_seconds)
+        self.assertEqual(1_000_000, settings.service_archive_max_database_bytes)
+        self.assertEqual(900, settings.service_archive_max_objects)
+        self.assertEqual(2_000_000, settings.service_archive_max_total_object_bytes)
+        self.assertEqual(75, settings.service_archive_object_page_size)
+        self.assertEqual("pg_dump-custom", settings.postgres_dump_executable)
+        self.assertEqual("pg_restore-custom", settings.postgres_restore_executable)
+        self.assertEqual("docker-custom", settings.docker_executable)
+        self.assertEqual("postgres:17@sha256:abc123", settings.postgres_archive_docker_image)
         self.assertEqual(301.0, settings.idle_timeout_seconds)
         self.assertEqual(90.0, settings.job_lease_seconds)
         self.assertEqual(20.0, settings.job_heartbeat_seconds)
@@ -154,6 +174,19 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(artifact_published_retention_seconds=-1),
             HarnessSettings(artifact_reconcile_batch_limit=0),
             HarnessSettings(artifact_reconcile_object_page_size=1_001),
+            HarnessSettings(service_archive_mode="unknown"),
+            HarnessSettings(service_archive_timeout_seconds=0),
+            HarnessSettings(service_archive_max_database_bytes=0),
+            HarnessSettings(service_archive_max_objects=0),
+            HarnessSettings(service_archive_max_total_object_bytes=0),
+            HarnessSettings(service_archive_object_page_size=1_001),
+            HarnessSettings(postgres_dump_executable=""),
+            HarnessSettings(postgres_restore_executable=""),
+            HarnessSettings(docker_executable=""),
+            HarnessSettings(
+                service_archive_mode="docker",
+                postgres_archive_docker_image="postgres:17",
+            ),
             HarnessSettings(idle_timeout_seconds=0),
             HarnessSettings(scheduler_poll_seconds=0),
             HarnessSettings(job_timeout_seconds=0),

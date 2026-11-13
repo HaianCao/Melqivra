@@ -538,3 +538,45 @@ operator command, configuration, real-service tests, and evidence. Protected
 push run `43489880691` and pull-request run `43489890422` each pass the four
 Windows/Linux Python 3.11/3.13 jobs plus the combined PostgreSQL and
 S3-compatible service contract on that exact commit.
+
+## Fourteenth checkpoint: disaster backup and fresh-infrastructure restore
+
+The service now creates one atomic, checksummed archive containing a native
+PostgreSQL custom-format dump, content-addressed immutable object bytes, a
+canonical manifest, and a separate manifest checksum. PostgreSQL artifact state
+changes take a shared advisory lock; backup takes the matching exclusive lock so
+published metadata cannot race retention or final publication while the dump and
+object inventory are captured. Other database activity retains PostgreSQL's
+normal transactionally consistent dump semantics.
+
+Restore treats the archive as untrusted input: it enforces safe paths, exact
+fields, canonical JSON, byte/object/database limits, and every recorded SHA-256.
+It refuses a non-empty PostgreSQL target or unrelated S3 prefix. Verified bytes
+are uploaded before `pg_restore --single-transaction`, and existing exact bytes
+permit restart after an interrupted restore. PostgreSQL schema version,
+published metadata, object metadata, length, and content checksum are verified
+again before success is reported.
+
+The local and digest-pinned Docker PostgreSQL client modes keep the DSN and
+password out of process arguments. Operator commands print only an opaque backup
+ID, schema version, byte/count totals, skipped-incomplete count, and manifest
+checksum. The archive itself is explicitly documented as confidential because
+it contains database content and internal object keys.
+
+A fresh PostgreSQL 17.12 database plus a separate fresh MinIO bucket restored
+the complete synthetic contract. Projects/revisions, final approvals, tool
+replay and append-only audit, jobs, idempotency, attempt history, durable events,
+tenant non-disclosure, artifact metadata, and both immutable objects survived.
+The real combined gate passes 44 contracts at 81% branch coverage, including
+the advisory-lock exclusion test and CPU-safe archive corruption/failure paths.
+No archive, object key, DSN, credential, or synthetic database is committed.
+Exact versions, bounds, contract assertions, and cleanup are recorded in
+`backup-restore-results.json`.
+
+The complete local gate discovers 297 tests: 265 pass and thirty-two explicit
+PostgreSQL/S3 tests skip without configured endpoints. Strict mypy covers 79
+source files, Ruff format/lint pass, critical scheduler/job-store branch
+coverage is 87%, wheel and source distributions build successfully, and the
+dependency audit reports no known vulnerabilities. The two disposable service
+containers, both named volumes, the fresh restore database, and all generated
+archives were removed.

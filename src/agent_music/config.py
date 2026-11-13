@@ -54,6 +54,18 @@ class HarnessSettings:
     artifact_published_retention_seconds: float | None = None
     artifact_reconcile_batch_limit: int = 100
     artifact_reconcile_object_page_size: int = 100
+    service_archive_mode: str = "local"
+    service_archive_timeout_seconds: float = 3_600.0
+    service_archive_max_database_bytes: int = 1_099_511_627_776
+    service_archive_max_objects: int = 100_000
+    service_archive_max_total_object_bytes: int = 1_099_511_627_776
+    service_archive_object_page_size: int = 1_000
+    postgres_dump_executable: str = "pg_dump"
+    postgres_restore_executable: str = "pg_restore"
+    docker_executable: str = "docker"
+    postgres_archive_docker_image: str = (
+        "postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065"
+    )
     transfer_root: Path = Path("data/transfers")
     runner: str = "modal"
     gpu_max_concurrency: int = 1
@@ -139,6 +151,30 @@ class HarnessSettings:
             artifact_reconcile_object_page_size=int(
                 os.getenv("ARTIFACT_RECONCILE_OBJECT_PAGE_SIZE", "100")
             ),
+            service_archive_mode=os.getenv("SERVICE_ARCHIVE_MODE", "local").strip().lower(),
+            service_archive_timeout_seconds=float(
+                os.getenv("SERVICE_ARCHIVE_TIMEOUT_SECONDS", "3600")
+            ),
+            service_archive_max_database_bytes=int(
+                os.getenv("SERVICE_ARCHIVE_MAX_DATABASE_BYTES", "1099511627776")
+            ),
+            service_archive_max_objects=int(os.getenv("SERVICE_ARCHIVE_MAX_OBJECTS", "100000")),
+            service_archive_max_total_object_bytes=int(
+                os.getenv("SERVICE_ARCHIVE_MAX_TOTAL_OBJECT_BYTES", "1099511627776")
+            ),
+            service_archive_object_page_size=int(
+                os.getenv("SERVICE_ARCHIVE_OBJECT_PAGE_SIZE", "1000")
+            ),
+            postgres_dump_executable=os.getenv("POSTGRES_DUMP_EXECUTABLE", "pg_dump"),
+            postgres_restore_executable=os.getenv("POSTGRES_RESTORE_EXECUTABLE", "pg_restore"),
+            docker_executable=os.getenv("DOCKER_EXECUTABLE", "docker"),
+            postgres_archive_docker_image=os.getenv(
+                "POSTGRES_ARCHIVE_DOCKER_IMAGE",
+                (
+                    "postgres:17-alpine@sha256:"
+                    "d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065"
+                ),
+            ).strip(),
             transfer_root=Path(os.getenv("TRANSFER_ROOT", "data/transfers")),
             runner=os.getenv("GPU_RUNNER", "modal").strip().lower(),
             gpu_max_concurrency=int(os.getenv("GPU_MAX_CONCURRENCY", "1")),
@@ -250,6 +286,33 @@ class HarnessSettings:
             or self.artifact_reconcile_object_page_size > 1_000
         ):
             raise ValueError("ARTIFACT_RECONCILE_OBJECT_PAGE_SIZE must be between 1 and 1000")
+        if self.service_archive_mode not in {"local", "docker"}:
+            raise ValueError("SERVICE_ARCHIVE_MODE must be local or docker")
+        if (
+            not math.isfinite(self.service_archive_timeout_seconds)
+            or self.service_archive_timeout_seconds <= 0
+        ):
+            raise ValueError("SERVICE_ARCHIVE_TIMEOUT_SECONDS must be positive")
+        if self.service_archive_max_database_bytes < 1:
+            raise ValueError("SERVICE_ARCHIVE_MAX_DATABASE_BYTES must be at least 1")
+        if self.service_archive_max_objects < 1:
+            raise ValueError("SERVICE_ARCHIVE_MAX_OBJECTS must be at least 1")
+        if self.service_archive_max_total_object_bytes < 1:
+            raise ValueError("SERVICE_ARCHIVE_MAX_TOTAL_OBJECT_BYTES must be at least 1")
+        if (
+            self.service_archive_object_page_size < 1
+            or self.service_archive_object_page_size > 1_000
+        ):
+            raise ValueError("SERVICE_ARCHIVE_OBJECT_PAGE_SIZE must be between 1 and 1000")
+        if not self.postgres_dump_executable or not self.postgres_restore_executable:
+            raise ValueError("PostgreSQL archive executables must not be empty")
+        if not self.docker_executable:
+            raise ValueError("DOCKER_EXECUTABLE must not be empty")
+        if self.service_archive_mode == "docker" and (
+            "@sha256:" not in self.postgres_archive_docker_image
+            or self.postgres_archive_docker_image.endswith("@sha256:")
+        ):
+            raise ValueError("POSTGRES_ARCHIVE_DOCKER_IMAGE must be digest-pinned")
         if self.gpu_max_concurrency != 1:
             raise ValueError("This harness intentionally supports GPU_MAX_CONCURRENCY=1 only")
         if self.idle_timeout_seconds <= 0:

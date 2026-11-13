@@ -21,7 +21,10 @@ from agent_music.domain import (
     UserId,
 )
 from agent_music.postgres_artifact_repository import PostgresArtifactRepository
+from agent_music.postgres_locks import acquire_artifact_lifecycle_shared_lock
+from agent_music.postgres_migrations import PostgresConnection
 from agent_music.postgres_project_repository import PostgresProjectRepository
+from agent_music.service_backup import PostgresServiceBackupCatalog
 
 POSTGRES_DSN = os.getenv("MELQIVRA_TEST_POSTGRES_DSN", "")
 
@@ -86,6 +89,18 @@ class PostgresArtifactRepositoryTests(unittest.TestCase):
                 (revision.id,),
             ),
         )
+
+    def test_backup_snapshot_excludes_artifact_state_transitions(self) -> None:
+        catalog = PostgresServiceBackupCatalog(POSTGRES_DSN)
+        with catalog.snapshot():
+            with self.assertRaises(psycopg.errors.LockNotAvailable):
+                with psycopg.connect(POSTGRES_DSN) as connection, connection.transaction():
+                    connection.execute("SET LOCAL lock_timeout = '100ms'")
+                    protocol_connection: PostgresConnection = connection
+                    acquire_artifact_lifecycle_shared_lock(protocol_connection)
+        with psycopg.connect(POSTGRES_DSN) as connection, connection.transaction():
+            protocol_connection = connection
+            acquire_artifact_lifecycle_shared_lock(protocol_connection)
 
     def test_pending_is_invisible_then_atomic_publish_survives_restart(self) -> None:
         pending = self.repository.reserve_batch(

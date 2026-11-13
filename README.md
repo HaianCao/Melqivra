@@ -187,7 +187,21 @@ The command prints content-free counters. If `next_orphan_cursor` is non-null,
 run another bounded page with `--orphan-cursor '<cursor>'`. Deletion first commits
 a PostgreSQL `deleting` tombstone, removes every immutable object idempotently,
 and only then commits `deleted`; a crash at any point is safe to retry.
-Backup/restore and the full multi-process restart demo remain in-progress S07
+
+Create a checksummed PostgreSQL/S3 disaster-recovery archive and restore it only
+into fresh targets:
+
+~~~shell
+uv run melqivra backup-service --output /secure/backups/melqivra-YYYYMMDD
+uv run melqivra restore-service --input /secure/backups/melqivra-YYYYMMDD
+~~~
+
+The archive is confidential and must be encrypted outside the application. The
+restore verifies all checksums, uploads immutable bytes before metadata, refuses
+non-empty targets, and supports an exact retry after interruption. See
+[`docs/development/service-backup-and-restore.md`](docs/development/service-backup-and-restore.md)
+for the archive contract, bounds, Docker client mode, recovery procedure, and
+post-restore checks. The full multi-process restart demo remains in-progress S07
 work.
 
 Submit a job:
