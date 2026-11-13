@@ -136,3 +136,7 @@ execution, so interruption after generation cannot be misreported as an ordinary
 failure. The CPU regression pauses cancellation and app stop independently to
 observe the complete state order. Real hung-container cleanup remains part of the
 bounded provider evidence rather than this no-network checkpoint.
+
+A scheduler integration regression also cancels a running Modal job through the
+public harness boundary and verifies the durable record reaches `CANCELLED` with
+the explicit `Job cancelled` reason rather than `FAILED`.
