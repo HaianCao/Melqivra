@@ -141,6 +141,79 @@ class FakeModalClient:
         self.cancelled = True
 
 
+class DrainingModalClient(FakeModalClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.run_started = asyncio.Event()
+        self.cancel_started = asyncio.Event()
+        self.release_cancel = asyncio.Event()
+        self.command_cancelled = asyncio.Event()
+        self.stop_started = asyncio.Event()
+        self.release_stop = asyncio.Event()
+
+    async def run(
+        self,
+        argv: Sequence[str],
+        *,
+        check: bool = True,
+        on_stdout: LineCallback | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        if len(argv) > 1 and argv[1] == "run":
+            self.commands.append(tuple(argv))
+            self.run_started.set()
+            await self.command_cancelled.wait()
+            raise ModalCliError(argv, CommandResult(130, "", "cancelled"))
+        if len(argv) > 2 and argv[1:3] == ["app", "stop"]:
+            self.commands.append(tuple(argv))
+            self.stop_started.set()
+            await self.release_stop.wait()
+            return CommandResult(0, "", "")
+        return await super().run(
+            argv,
+            check=check,
+            on_stdout=on_stdout,
+            environment=environment,
+        )
+
+    async def cancel_current(self) -> None:
+        self.cancel_started.set()
+        await self.release_cancel.wait()
+        self.cancelled = True
+        self.command_cancelled.set()
+
+
+class BlockingTransferModalClient(FakeModalClient):
+    def __init__(self) -> None:
+        super().__init__(remote_artifacts={"runs/request/take.wav": b"RIFF-private"})
+        self.transfer_started = asyncio.Event()
+        self.command_cancelled = asyncio.Event()
+
+    async def run(
+        self,
+        argv: Sequence[str],
+        *,
+        check: bool = True,
+        on_stdout: LineCallback | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> CommandResult:
+        if len(argv) > 2 and argv[1:3] == ["volume", "get"]:
+            self.commands.append(tuple(argv))
+            self.transfer_started.set()
+            await self.command_cancelled.wait()
+            raise ModalCliError(argv, CommandResult(130, "", "cancelled"))
+        return await super().run(
+            argv,
+            check=check,
+            on_stdout=on_stdout,
+            environment=environment,
+        )
+
+    async def cancel_current(self) -> None:
+        self.cancelled = True
+        self.command_cancelled.set()
+
+
 class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
     def _job(self) -> GpuJob:
         return GpuJob(
@@ -285,6 +358,69 @@ class ModalRunnerTests(unittest.IsolatedAsyncioTestCase):
                 await version_runner.ensure_ready()
             self.assertEqual([("modal", "--version")], version_client.commands)
             self.assertEqual(RunnerState.FAILED, version_runner.state)
+
+    async def test_stop_drains_active_job_before_reclaiming_app(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runner_file = Path(temporary) / "remote_worker.py"
+            runner_file.write_text("# fixture\n", encoding="utf-8")
+            client = DrainingModalClient()
+            runner = ModalRunner(
+                HarnessSettings(modal_runner_file=runner_file),
+                client=client,
+            )
+            await runner.ensure_ready()
+
+            run_task = asyncio.create_task(runner.run(self._job(), lambda _event: _completed()))
+            await asyncio.wait_for(client.run_started.wait(), timeout=1.0)
+            stop_task = asyncio.create_task(runner.stop())
+            await asyncio.wait_for(client.cancel_started.wait(), timeout=1.0)
+            self.assertEqual(RunnerState.DRAINING, runner.state)
+
+            client.release_cancel.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await run_task
+            await asyncio.wait_for(client.stop_started.wait(), timeout=1.0)
+            self.assertEqual(RunnerState.STOPPING, runner.state)
+
+            client.release_stop.set()
+            await stop_task
+            self.assertEqual(RunnerState.RECLAIMED, runner.state)
+            self.assertIsNone(runner.session_name)
+
+    async def test_cancel_during_artifact_transfer_maps_to_cancelled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner_file = root / "remote_worker.py"
+            runner_file.write_text("# fixture\n", encoding="utf-8")
+            client = BlockingTransferModalClient()
+            runner = ModalRunner(
+                HarnessSettings(
+                    modal_runner_file=runner_file,
+                    modal_artifact_volume="melqivra-cache",
+                    transfer_root=root / "transfers",
+                ),
+                client=client,
+            )
+            job = GpuJob(
+                id="job-transfer-cancel",
+                user_id="user-1",
+                kind="music.generate",
+                payload={"generation_request": {}},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+            await runner.ensure_ready()
+            run_task = asyncio.create_task(runner.run(job, lambda _event: _completed()))
+            await asyncio.wait_for(client.transfer_started.wait(), timeout=1.0)
+
+            await runner.cancel(job.id)
+            with self.assertRaises(asyncio.CancelledError):
+                await run_task
+
+            self.assertEqual(RunnerState.READY, runner.state)
+            self.assertTrue(client.cancelled)
 
 
 async def _completed() -> None:

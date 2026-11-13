@@ -121,3 +121,18 @@ the local CLI and account rather than preserving a warm named GPU session. CPU
 failure injection proves exact-version acceptance, mismatch rejection, expired
 token rejection before submission, single-flight startup, and repeated heartbeat
 behavior. No Modal app, container, or GPU is created by this checkpoint.
+
+## Seventh checkpoint: ordered Modal drain and reclaim
+
+Modal shutdown now follows the same authoritative lifecycle ordering as Colab.
+A busy runner records its active job, enters `DRAINING`, marks that job cancelled,
+terminates the tracked CLI process, and waits under the configured command bound
+for run cleanup. It then enters `STOPPING`, stops only the scoped application, and
+settles in `RECLAIMED`. Run cleanup clears active ownership and cannot overwrite
+draining or stopping with stale `READY`.
+
+The cancellation mapping now surrounds artifact transfer as well as remote
+execution, so interruption after generation cannot be misreported as an ordinary
+failure. The CPU regression pauses cancellation and app stop independently to
+observe the complete state order. Real hung-container cleanup remains part of the
+bounded provider evidence rather than this no-network checkpoint.
