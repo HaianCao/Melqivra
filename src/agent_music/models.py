@@ -68,6 +68,14 @@ class GpuJob:
 
 
 @dataclass(frozen=True, slots=True)
+class JobPage:
+    """Stable tenant-scoped page of jobs and its opaque continuation cursor."""
+
+    items: tuple[GpuJob, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class JobAttempt:
     """One durable, fenced execution attempt for a GPU job."""
 

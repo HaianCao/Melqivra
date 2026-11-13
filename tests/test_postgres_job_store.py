@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -14,7 +15,11 @@ from uuid import UUID
 import psycopg
 
 from agent_music.config import HarnessSettings
-from agent_music.job_store import LostJobLeaseError
+from agent_music.job_store import (
+    InvalidJobCursorError,
+    LostJobLeaseError,
+    UserJobQuotaExceededError,
+)
 from agent_music.models import JobAttemptOutcome, JobState
 from agent_music.postgres_job_store import PostgresJobStore
 from agent_music.postgres_migrations import (
@@ -30,6 +35,7 @@ POSTGRES_DSN = os.getenv("MELQIVRA_TEST_POSTGRES_DSN", "")
 class PostgresJobStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = PostgresJobStore(POSTGRES_DSN)
+        self.addCleanup(self._close_store)
         with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
             connection.execute(
                 """
@@ -40,7 +46,7 @@ class PostgresJobStoreTests(unittest.TestCase):
             connection.execute("INSERT INTO gpu_capacity_slots(slot_id) VALUES (1)")
             connection.execute("ALTER SEQUENCE gpu_fencing_token_seq RESTART WITH 1")
 
-    def tearDown(self) -> None:
+    def _close_store(self) -> None:
         self.store.close()
 
     def test_migration_is_idempotent_and_checksummed(self) -> None:
@@ -200,6 +206,89 @@ class PostgresJobStoreTests(unittest.TestCase):
         assert claimed_second is not None and claimed_second.lease_token is not None
         self.assertEqual(second.id, claimed_second.id)
         self.assertGreater(claimed_second.lease_token, claimed_first.lease_token)
+
+    def test_tenant_pagination_and_active_quota_match_sqlite(self) -> None:
+        first = self.store.enqueue(
+            user_id="alice",
+            kind="generate",
+            payload={"index": 1},
+            idempotency_key="quota-one",
+            max_active_jobs=2,
+        )
+        second = self.store.enqueue(
+            user_id="alice",
+            kind="generate",
+            payload={"index": 2},
+            idempotency_key="quota-two",
+            max_active_jobs=2,
+        )
+        replay = self.store.enqueue(
+            user_id="alice",
+            kind="generate",
+            payload={"index": 999},
+            idempotency_key="quota-one",
+            max_active_jobs=2,
+        )
+        self.assertEqual(first.id, replay.id)
+        with self.assertRaises(UserJobQuotaExceededError):
+            self.store.enqueue(
+                user_id="alice",
+                kind="generate",
+                payload={"index": 3},
+                idempotency_key="quota-three",
+                max_active_jobs=2,
+            )
+        other = self.store.enqueue(
+            user_id="bob",
+            kind="generate",
+            payload={"index": 1},
+            max_active_jobs=2,
+        )
+        first_page = self.store.list_for_user(user_id="alice", limit=1)
+        second_page = self.store.list_for_user(
+            user_id="alice",
+            limit=1,
+            cursor=first_page.next_cursor,
+        )
+        self.assertEqual((first,), first_page.items)
+        self.assertEqual(first.id, first_page.next_cursor)
+        self.assertEqual((second,), second_page.items)
+        self.assertEqual((other,), self.store.list_for_user(user_id="bob", limit=10).items)
+        with self.assertRaises(InvalidJobCursorError):
+            self.store.list_for_user(user_id="bob", limit=1, cursor=first.id)
+
+    def test_competing_same_tenant_enqueues_share_one_quota_lock(self) -> None:
+        peer = PostgresJobStore(POSTGRES_DSN)
+        barrier = threading.Barrier(2)
+
+        def enqueue(
+            store_and_key: tuple[PostgresJobStore, str],
+        ) -> str:
+            store, key = store_and_key
+            barrier.wait()
+            try:
+                return store.enqueue(
+                    user_id="alice",
+                    kind="generate",
+                    payload={"key": key},
+                    idempotency_key=key,
+                    max_active_jobs=1,
+                ).id
+            except UserJobQuotaExceededError:
+                return "quota_exceeded"
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                outcomes = tuple(
+                    executor.map(
+                        enqueue,
+                        ((self.store, "concurrent-one"), (peer, "concurrent-two")),
+                    )
+                )
+        finally:
+            peer.close()
+        self.assertEqual(1, outcomes.count("quota_exceeded"))
+        self.assertEqual(1, len([outcome for outcome in outcomes if outcome != "quota_exceeded"]))
 
     def test_tenant_cancel_and_restart_recovery_match_sqlite(self) -> None:
         queued = self.store.enqueue(user_id="alice", kind="queued", payload={})

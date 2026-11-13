@@ -85,17 +85,34 @@
     "branch_coverage_percent": 81,
     "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories -v",
     "failed": 0,
-    "passed": 20
+    "passed": 22
   },
   "approval_audit_policy": {
     "append_only_audit_trigger": true,
     "approval_adapter": "PostgresApprovalRepository",
     "approval_decisions_are_final": true,
     "arguments_or_result_content_in_audit": false,
+    "ci_pr_run": 43459144565,
+    "ci_push_run": 43459137014,
+    "commit": "b4ef4b7146a0c368a4136d0012f24f1a128fc909",
     "competing_tool_execution_winners": 1,
     "exact_user_project_action_risk_binding": true,
     "restart_safe_tool_replay": true,
     "tool_execution_adapter": "PostgresToolExecutionRepository"
+  },
+  "api_service_policy": {
+    "active_job_quota_is_transactional": true,
+    "authentication_modes": [
+      "development_header",
+      "injected"
+    ],
+    "bearer_adapter_available": true,
+    "cross_tenant_cursor_rejected": true,
+    "idempotent_replay_bypasses_quota": true,
+    "openapi_auth_scheme_matches_mode": true,
+    "payload_size_limit": true,
+    "request_id_error_contract": true,
+    "tenant_cursor_pagination": true
   },
   "project_revision_policy": {
     "adapter": "PostgresProjectRepository",
@@ -111,12 +128,12 @@
   "recorded_at": "2026-11-13",
   "schema_version": 1,
   "standard_gate": {
-    "critical_branch_coverage_percent": 84,
-    "discovered_tests": 245,
+    "critical_branch_coverage_percent": 86,
+    "discovered_tests": 255,
     "failed": 0,
-    "mypy_source_files": 68,
-    "passed": 225,
-    "postgres_skipped_without_dsn": 20
+    "mypy_source_files": 69,
+    "passed": 233,
+    "postgres_skipped_without_dsn": 22
   },
   "status": "passed"
 }

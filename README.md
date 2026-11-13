@@ -134,9 +134,10 @@ checksummed migrations. Each accepted job snapshots the configured positive
 attempt limit; an expired final attempt becomes `dead_lettered` instead of being
 retried forever. The same migration set now includes tenant-owned projects,
 immutable checksummed revisions, and optimistic working/accepted pointers behind
-the provider-neutral `ProjectRepository` port. Production project/API wiring,
-durable approvals, and audit records remain in-progress S07 work. Do not place
-production credentials in committed files.
+the provider-neutral `ProjectRepository` port. It also includes exact one-way
+approvals plus restart-safe tool-call replay and append-only, content-minimal
+audit records. Production object storage and backup/restore remain in-progress
+S07 work. Do not place production credentials in committed files.
 
 Submit a job:
 
@@ -150,7 +151,8 @@ curl -X POST http://127.0.0.1:8000/v1/gpu/jobs \
 Inspect runner state:
 
 ~~~shell
-curl http://127.0.0.1:8000/v1/gpu/runner
+curl http://127.0.0.1:8000/v1/gpu/runner \
+  -H "X-User-Id: demo-user"
 ~~~
 
 ## Modal T4 mode (default)
@@ -239,14 +241,21 @@ The scheduler performs:
 | Method | Path | Purpose |
 |---|---|---|
 | POST | /v1/gpu/jobs | Enqueue one job |
+| GET | /v1/gpu/jobs | List own jobs with cursor pagination |
 | GET | /v1/gpu/jobs/{id} | Inspect own job |
 | DELETE | /v1/gpu/jobs/{id} | Request cancellation |
 | GET | /v1/gpu/runner | Runner/session/idle deadline |
 | GET | /healthz | Process health |
 
-Every job endpoint requires X-User-Id. This is a development identity
-boundary; the application authentication system will replace it in a later
-stage.
+Every GPU endpoint requires an authenticated principal. `API_AUTH_MODE` defaults
+to `development`, where `X-User-Id` is an explicit local-only identity adapter.
+Production deployments set `API_AUTH_MODE=injected` and pass an `Authenticator`
+to the application factory; the included static bearer adapter is suitable for
+bounded deployments and tests without coupling domain logic to an identity SDK.
+The service returns stable error codes, propagates or creates `X-Request-ID`,
+limits payload size and active jobs per tenant, and never exposes lease owners or
+fencing tokens. Cursor values are tenant-scoped and cannot be reused to enumerate
+another user's jobs.
 
 ## Docker
 

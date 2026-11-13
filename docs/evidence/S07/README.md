@@ -325,3 +325,43 @@ new migration and adapters are present in the wheel, distribution builds
 succeed, and the dependency audit reports no known vulnerabilities. Production
 principal authentication, request/error contracts, SSE reconnect, quotas,
 S3-compatible artifacts, and backup/restore remain later S07 work.
+
+Checkpoint `b4ef4b7` contains the durable approval, tool replay, and append-only
+audit authority. Protected push run `43459137014` and pull-request run
+`43459144565` each passed all five jobs on that exact commit.
+
+## Tenth checkpoint: authenticated, bounded API contract
+
+The HTTP boundary now resolves a typed `Principal` through an injected
+`Authenticator`; endpoints no longer read identity headers directly.
+`DevelopmentHeaderAuthenticator` keeps the credential-free local workflow
+explicit, while `API_AUTH_MODE=injected` refuses application construction unless
+the deployment supplies an authenticator. The included static bearer adapter
+uses constant-time credential comparison and ignores caller-supplied identity
+headers. Generated OpenAPI declares the active development-header or bearer
+security scheme.
+
+Every public error now uses a stable code/message/request-ID envelope. Safe
+client request IDs are propagated; unsafe values are replaced. Responses include
+the request ID, `nosniff`, and `no-store` headers. Validation, authentication,
+unknown-route, missing-job, payload-limit, quota, cursor, and page-size failures
+have deterministic contracts without lease owners, fencing tokens, credentials,
+or framework exception text.
+
+Tenant job listing uses stable FIFO cursor pagination in both SQLite and
+PostgreSQL. A missing or cross-tenant cursor has the same invalid-cursor result.
+Payload and page sizes are bounded. Active-job quotas are enforced inside the
+enqueue transaction: SQLite uses its immediate writer lock and PostgreSQL uses a
+tenant-keyed advisory transaction lock. An idempotent replay is resolved before
+the quota count, so a network retry returns the original job even at the limit.
+A real PostgreSQL contention test proves two concurrent same-tenant enqueues for
+one remaining slot produce exactly one accepted job and one quota rejection.
+
+The complete local gate discovers 255 tests: 233 pass and twenty-two PostgreSQL
+tests skip without an explicit DSN. Strict mypy covers 69 source files, Ruff
+format/lint pass, critical scheduler/job-store branch coverage is 86%,
+distribution builds succeed, and the dependency audit reports no known
+vulnerabilities. A fresh PostgreSQL 17.12 database passes all twenty-two real
+contracts at 81% combined adapter coverage; the disposable container and volume
+were removed. Durable SSE reconnect, production artifact storage,
+backup/restore, retention, and broader rate/token quotas remain later S07 work.
