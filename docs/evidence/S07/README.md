@@ -194,3 +194,33 @@ Checkpoint `680a179` makes the injected first lease expire atomically, gives the
 non-injected retry a ten-second margin, and asserts the exact durable outcomes
 `lease_expired` then `succeeded`. Protected push run `43445175514` and
 pull-request run `43445185089` each passed all five jobs on that exact fix.
+
+## Sixth checkpoint: PostgreSQL project and revision authority
+
+Project, archive, and creative-tool consumers now depend on the typed
+`ProjectRepository` port instead of the SQLite implementation. SQLite remains the
+development adapter. The new `PostgresProjectRepository` uses the same tracked
+migrator and preserves tenant-scoped non-disclosure, immutable revision payloads,
+checksum validation, stable lineage ordering, optimistic working pointers, and
+accepted-pointer semantics.
+
+Migration `0004_project_revisions.sql` adds tenant-owned projects, immutable
+checksummed revisions, same-project/document parent constraints, and working and
+accepted pointers whose foreign keys cannot target another lineage. Project-row
+locking serializes competing writers even when the first revision has no index
+row yet; exactly one writer with a shared expected parent can commit.
+
+A fresh PostgreSQL 17.12 database passed all fifteen job and project contracts.
+The five project-specific tests cover matching SQLite ancestry/acceptance,
+cross-tenant reads and mutation attempts, concurrent optimistic writers,
+database-level immutability, and checksum corruption detection. Combined
+PostgreSQL adapter branch coverage is 80% against the dedicated 80% gate. The
+container and its anonymous volume were verified removed.
+
+The complete local gate discovers 234 tests: 219 pass and fifteen PostgreSQL
+tests skip without their explicit DSN. Strict mypy covers 63 source files, Ruff
+format/lint pass, critical scheduler/SQLite-store branch coverage remains 84%,
+the adapter and migration are present in the wheel, distribution builds succeed,
+and the dependency audit reports no known vulnerabilities. Durable approvals,
+tool audit records, authentication principals, request IDs, and service wiring
+remain subsequent S07 work.

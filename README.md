@@ -132,7 +132,11 @@ GPU_JOB_MAX_ATTEMPTS=3
 `melqivra doctor` checks the PostgreSQL connection and applies only tracked,
 checksummed migrations. Each accepted job snapshots the configured positive
 attempt limit; an expired final attempt becomes `dead_lettered` instead of being
-retried forever. Do not place production credentials in committed files.
+retried forever. The same migration set now includes tenant-owned projects,
+immutable checksummed revisions, and optimistic working/accepted pointers behind
+the provider-neutral `ProjectRepository` port. Production project/API wiring,
+durable approvals, and audit records remain in-progress S07 work. Do not place
+production credentials in committed files.
 
 Submit a job:
 

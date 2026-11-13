@@ -7,7 +7,7 @@ from typing import cast
 
 from agent_music.agent_harness import ToolContext, ToolDefinition, ToolHandler, ToolRegistry
 from agent_music.domain import DocumentType, JsonObject, JsonValue, RevisionId
-from agent_music.project_store import SqliteProjectRepository
+from agent_music.project_store import ProjectRepository
 
 ReadCollection = Callable[[ToolContext], tuple[JsonObject, ...]]
 
@@ -17,7 +17,7 @@ class ProjectToolService:
 
     def __init__(
         self,
-        repository: SqliteProjectRepository,
+        repository: ProjectRepository,
         *,
         read_takes: ReadCollection | None = None,
         read_jobs: ReadCollection | None = None,

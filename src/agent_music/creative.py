@@ -28,7 +28,7 @@ from agent_music.domain import (
     UserId,
     validate_identifier,
 )
-from agent_music.project_store import SqliteProjectRepository, canonical_json
+from agent_music.project_store import ProjectRepository, canonical_json
 
 
 class CreativePlanningError(ValueError):
@@ -651,7 +651,7 @@ def render_approval_view(
 
 
 def pin_accepted_contract(
-    repository: SqliteProjectRepository,
+    repository: ProjectRepository,
     *,
     owner_id: UserId,
     project_id: ProjectId,
