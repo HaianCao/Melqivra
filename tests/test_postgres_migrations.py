@@ -19,13 +19,14 @@ EXPECTED_SHA256 = {
     4: "121232d5ae4a6ae554e8081deefb7cc9649002b194c1dfa6aa5e1e08fa37b59d",
     5: "5ef9b936dd9f91764f60002b3566a24f8f571224e50067df02b9c6d97d2df607",
     6: "1ca8a72c9d1298e9c52b7a26d879a15777174e8d2c67d0fb65e26b57d1112c45",
+    7: "e635a48bd148ebcba533d43a866dffa6b93c5d7ed9d5e51c18c65f3203768bb0",
 }
 
 
 class PostgresMigrationCatalogTests(unittest.TestCase):
     def test_catalog_is_ordered_packaged_and_checksum_stable(self) -> None:
         validate_postgres_migration_catalog()
-        self.assertEqual([1, 2, 3, 4, 5, 6], [item.version for item in POSTGRES_MIGRATIONS])
+        self.assertEqual([1, 2, 3, 4, 5, 6, 7], [item.version for item in POSTGRES_MIGRATIONS])
         for migration in POSTGRES_MIGRATIONS:
             with self.subTest(version=migration.version):
                 resource = resources.files("agent_music").joinpath(migration.resource)

@@ -45,6 +45,8 @@ class PostgresPolicyRepositoryTests(unittest.TestCase):
             connection.execute(
                 """
                 TRUNCATE TABLE
+                    artifacts,
+                    artifact_batches,
                     tool_audit_events,
                     tool_executions,
                     approval_requests,

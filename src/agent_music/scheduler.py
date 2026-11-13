@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from agent_music.artifact_service import ArtifactReader
 from agent_music.config import HarnessSettings
 from agent_music.job_store import JobStore, LostJobLeaseError, build_job_store
 from agent_music.models import GpuJob, JobState, RunnerSnapshot, RunnerState
@@ -88,7 +89,10 @@ class GpuHarness:
                 raise outcome
         if stop_runner:
             await self.runner.stop()
-        self.store.close()
+        try:
+            await asyncio.to_thread(self._result_processor.close)
+        finally:
+            self.store.close()
 
     def enqueue(
         self,
@@ -121,6 +125,12 @@ class GpuHarness:
         """Load one job through the tenant-scoped persistence boundary."""
 
         return self.store.get_for_user(user_id=user_id, job_id=job_id)
+
+    @property
+    def artifact_reader(self) -> ArtifactReader | None:
+        """Expose the configured authorized artifact reader to the API boundary."""
+
+        return self._result_processor.artifact_reader()
 
     async def cancel_for_user(self, *, user_id: str, job_id: str) -> GpuJob:
         """Request cancellation without first loading another tenant's job."""

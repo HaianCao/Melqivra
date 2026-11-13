@@ -137,8 +137,32 @@ immutable checksummed revisions, and optimistic working/accepted pointers behind
 the provider-neutral `ProjectRepository` port. It also includes exact one-way
 approvals plus restart-safe tool-call replay and append-only, content-minimal
 audit records. Durable job events use per-job sequences and can be replayed after
-an API restart. Production object storage and backup/restore remain in-progress
-S07 work. Do not place production credentials in committed files.
+an API restart.
+
+Production artifact publication is available through the optional locked
+object-storage dependency set:
+
+~~~shell
+uv sync --locked --extra postgres --extra object-storage
+~~~
+
+~~~dotenv
+JOB_STORE=postgres
+ARTIFACT_STORAGE=s3
+S3_ENDPOINT_URL=https://s3-compatible.example
+S3_BUCKET=melqivra-artifacts
+S3_REGION=us-east-1
+S3_ADDRESSING_STYLE=auto
+~~~
+
+PostgreSQL reserves tenant/project ownership, lineage, checksum, and publication
+state before any upload. S3/MinIO stores immutable bytes only. A batch remains
+invisible until every object has been downloaded back and checksum-verified;
+exact retries are idempotent and changed retries conflict. `melqivra doctor`
+checks both authorities without printing the DSN, endpoint credentials, or
+object keys. Credentials use the standard AWS provider chain and must not be
+placed in committed files. Backup/restore, retention, and orphan reconciliation
+remain in-progress S07 work.
 
 Submit a job:
 
@@ -246,6 +270,7 @@ The scheduler performs:
 | GET | /v1/gpu/jobs/{id} | Inspect own job |
 | GET | /v1/gpu/jobs/{id}/events | Stream durable progress with SSE replay |
 | DELETE | /v1/gpu/jobs/{id} | Request cancellation |
+| GET | /v1/artifacts/{id} | Download one authorized, checksum-verified artifact |
 | GET | /v1/gpu/runner | Runner/session/idle deadline |
 | GET | /healthz | Process health |
 

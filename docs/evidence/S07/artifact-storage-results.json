@@ -1,0 +1,59 @@
+{
+  "cleanup": {
+    "minio_container_removed": true,
+    "minio_volume_removed": true,
+    "postgres_container_removed": true,
+    "postgres_anonymous_volume_removed": true
+  },
+  "contract": {
+    "authorized_download_rehashes_bytes": true,
+    "changed_batch_retry_rejected": true,
+    "cross_tenant_lookup_matches_missing": true,
+    "exact_batch_retry_idempotent": true,
+    "interrupted_pending_batch_invisible": true,
+    "metadata_length_bounds_remote_downloads": true,
+    "object_key_not_returned_to_client": true,
+    "published_remote_corruption_detected": true,
+    "source_revision_ownership_enforced": true
+  },
+  "migration": {
+    "canonical_sha256": "e635a48bd148ebcba533d43a866dffa6b93c5d7ed9d5e51c18c65f3203768bb0",
+    "resource": "0007_create_artifact_publication_authority.sql",
+    "version": 7
+  },
+  "minio": {
+    "container_user": "uid=100(minio) gid=101(minio)",
+    "image": "alpine/minio:RELEASE.2025-10-15T17-29-55Z",
+    "image_digest": "sha256:cf23643a6cf9ce159c57643ceb88279e431262282428c9e0bf3a7ef1a97e84b4",
+    "minio_source_commit": "9e49d5e7a648",
+    "packaging_revision": "951e1468353ee69da88142c9e082777751820c25",
+    "packaging_source": "https://github.com/alpine-docker/minio",
+    "purpose": "disposable S3-compatible contract test infrastructure only",
+    "redistributed_with_melqivra": false,
+    "server_license": "AGPL-3.0-only",
+    "status": "passed_non_root"
+  },
+  "postgres": {
+    "image": "postgres:17-alpine",
+    "image_digest": "sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065",
+    "version": "17.12"
+  },
+  "real_service_gate": {
+    "combined_postgres_adapter_branch_coverage_percent": 80,
+    "failed": 0,
+    "passed": 28,
+    "postgres_repository_contracts": 27,
+    "s3_postgres_integration_contracts": 1
+  },
+  "recorded_at": "2026-11-14",
+  "schema_version": 1,
+  "standard_gate": {
+    "critical_branch_coverage_percent": 87,
+    "discovered_tests": 276,
+    "failed": 0,
+    "mypy_source_files": 74,
+    "passed": 248,
+    "service_tests_skipped_without_explicit_endpoints": 28
+  },
+  "status": "passed_local_pending_ci"
+}

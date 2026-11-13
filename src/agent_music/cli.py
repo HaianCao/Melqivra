@@ -38,6 +38,7 @@ async def _doctor(settings: HarnessSettings) -> int:
     settings.ensure_directories()
     print(f"runner={settings.runner}")
     print(f"job_store={settings.job_store}")
+    print(f"artifact_storage={settings.artifact_storage}")
     print(f"idle_timeout_seconds={settings.idle_timeout_seconds}")
     print(f"job_lease_seconds={settings.job_lease_seconds}")
     print(f"job_heartbeat_seconds={settings.job_heartbeat_seconds}")
@@ -130,6 +131,16 @@ async def _doctor(settings: HarnessSettings) -> int:
             return 1
         store.close()
         print("postgres_job_store=ok")
+    if settings.artifact_storage == "s3":
+        try:
+            from agent_music.artifact_factory import build_artifact_service
+
+            artifacts = build_artifact_service(settings)
+        except Exception:
+            print("ERROR: PostgreSQL/S3 artifact service is unavailable", file=sys.stderr)
+            return 1
+        artifacts.close()
+        print("s3_artifact_service=ok")
     print("doctor=ok")
     return 0
 

@@ -87,7 +87,7 @@ class ResultProcessingTests(unittest.IsolatedAsyncioTestCase):
             )
             request, descriptor, runner_result = self._fixture(settings.transfer_root)
             processor = GenerationResultProcessor(
-                artifact_store=AtomicArtifactStore(settings.artifact_root),
+                artifact_publisher=AtomicArtifactStore(settings.artifact_root),
                 transfer_root=settings.transfer_root,
                 descriptors=(descriptor,),
             )
@@ -146,7 +146,7 @@ class ResultProcessingTests(unittest.IsolatedAsyncioTestCase):
                 settings,
                 runner=CompletedGenerationRunner(runner_result),
                 result_processor=GenerationResultProcessor(
-                    artifact_store=AtomicArtifactStore(settings.artifact_root),
+                    artifact_publisher=AtomicArtifactStore(settings.artifact_root),
                     transfer_root=settings.transfer_root,
                     descriptors=(descriptor,),
                 ),

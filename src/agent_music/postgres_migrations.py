@@ -75,6 +75,11 @@ POSTGRES_MIGRATIONS = (
         name="job_event_stream",
         resource="migrations/postgresql/0006_create_gpu_job_event_stream.sql",
     ),
+    PostgresMigration(
+        version=7,
+        name="artifact_publication_authority",
+        resource="migrations/postgresql/0007_create_artifact_publication_authority.sql",
+    ),
 )
 
 

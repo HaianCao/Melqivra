@@ -11,10 +11,12 @@ from pathlib import Path
 import httpx
 
 from agent_music.api import create_app
+from agent_music.artifact_service import ArtifactDownload
 from agent_music.authentication import StaticBearerAuthenticator
 from agent_music.config import HarnessSettings
-from agent_music.domain import UserId
+from agent_music.domain import ArtifactId, ProjectId, UserId
 from agent_music.job_store import SqliteJobStore
+from agent_music.object_store import ObjectIntegrityError
 from agent_music.scheduler import GpuHarness
 
 
@@ -274,6 +276,76 @@ class ApiServiceBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual("invalid_event_cursor", invalid.json()["error"]["code"])
         finally:
             await event_harness.close()
+
+    async def test_artifact_download_is_tenant_scoped_and_integrity_safe(self) -> None:
+        class Reader:
+            def read_for_owner(
+                self,
+                *,
+                owner_id: UserId,
+                artifact_id: ArtifactId,
+            ) -> ArtifactDownload:
+                if owner_id != UserId("alice") or artifact_id != ArtifactId("art_audio"):
+                    raise KeyError(str(artifact_id))
+                return ArtifactDownload(
+                    artifact_id=artifact_id,
+                    project_id=ProjectId("prj_song"),
+                    media_type="audio/wav",
+                    size_bytes=5,
+                    sha256="a" * 64,
+                    content=b"audio",
+                )
+
+        app = create_app(self.settings, self.harness, artifact_reader=Reader())
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+        ) as client:
+            owned = await client.get(
+                "/v1/artifacts/art_audio",
+                headers=self._headers("alice"),
+            )
+            self.assertEqual(200, owned.status_code, owned.text)
+            self.assertEqual(b"audio", owned.content)
+            self.assertEqual('"sha256:' + "a" * 64 + '"', owned.headers["etag"])
+            cross_tenant = await client.get(
+                "/v1/artifacts/art_audio",
+                headers=self._headers("bob"),
+            )
+            missing = await client.get(
+                "/v1/artifacts/art_missing",
+                headers=self._headers("alice"),
+            )
+            for response in (cross_tenant, missing):
+                self.assertEqual(404, response.status_code)
+                self.assertEqual("artifact_not_found", response.json()["error"]["code"])
+
+        class CorruptReader(Reader):
+            def read_for_owner(
+                self,
+                *,
+                owner_id: UserId,
+                artifact_id: ArtifactId,
+            ) -> ArtifactDownload:
+                _ = owner_id, artifact_id
+                raise ObjectIntegrityError("private storage detail")
+
+        corrupt_app = create_app(
+            self.settings,
+            self.harness,
+            artifact_reader=CorruptReader(),
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=corrupt_app),
+            base_url="http://testserver",
+        ) as client:
+            unavailable = await client.get(
+                "/v1/artifacts/art_audio",
+                headers=self._headers("alice"),
+            )
+            self.assertEqual(503, unavailable.status_code)
+            self.assertEqual("artifact_unavailable", unavailable.json()["error"]["code"])
+            self.assertNotIn("private storage detail", unavailable.text)
 
     async def test_injected_bearer_authenticator_ignores_development_identity(self) -> None:
         injected_settings = replace(self.settings, api_auth_mode="injected")
