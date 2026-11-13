@@ -62,3 +62,18 @@ explicit stop transitions the runner to reclaimed with no published session ID.
 
 This is a CPU-only contract test. It does not yet prove broker-restart recovery,
 expired-auth handling, remote heartbeat, or a real concurrent T4 allocation.
+
+## Third checkpoint: warm-session heartbeat and loss recovery
+
+Every scheduler reuse now performs one official-CLI status heartbeat through the
+same single-flight readiness task. If the named warm session disappeared outside
+the control plane, its published identity is cleared, the state returns to
+`PROVISIONING`, and exactly one replacement session is created before upload.
+Concurrent callers share the heartbeat and recovery result rather than creating
+multiple sessions.
+
+The deterministic regression starts from a confirmed warm session, makes the
+next heartbeat report it missing, and proves two concurrent readiness callers
+produce one status probe and one replacement allocation. Real broker restart,
+expired authentication, and post-allocation remote health still require later
+failure injection and T4 evidence.

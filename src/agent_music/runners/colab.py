@@ -18,9 +18,10 @@ from agent_music.runners.colab_cli import ColabCliClient, ColabCliError
 class ColabRunner(GpuRunner):
     """On-demand named Colab session with a five-minute external idle policy."""
 
-    _PROVISIONABLE_STATES: ClassVar[frozenset[RunnerState]] = frozenset(
+    _RECONCILABLE_STATES: ClassVar[frozenset[RunnerState]] = frozenset(
         {
             RunnerState.ABSENT,
+            RunnerState.READY,
             RunnerState.RECLAIMED,
             RunnerState.FAILED,
         }
@@ -53,20 +54,18 @@ class ColabRunner(GpuRunner):
         return self._settings.colab_session_name if self._session_present else None
 
     async def ensure_ready(self) -> None:
-        if self._state in {RunnerState.READY, RunnerState.BUSY}:
-            return
-
         async with self._provision_guard:
-            if self._state in {RunnerState.READY, RunnerState.BUSY}:
+            if self._state == RunnerState.BUSY:
                 return
             task = self._provision_task
             if task is None:
-                if self._state not in self._PROVISIONABLE_STATES:
-                    raise RuntimeError(f"Cannot provision Colab runner from {self._state}")
-                self._state = RunnerState.PROVISIONING
+                if self._state not in self._RECONCILABLE_STATES:
+                    raise RuntimeError(f"Cannot reconcile Colab runner from {self._state}")
+                if self._state != RunnerState.READY:
+                    self._state = RunnerState.PROVISIONING
                 task = asyncio.create_task(
                     self._provision(),
-                    name="melqivra-colab-provision",
+                    name="melqivra-colab-readiness",
                 )
                 self._provision_task = task
 
@@ -184,6 +183,8 @@ class ColabRunner(GpuRunner):
             if status.returncode == 0:
                 self._session_present = True
             else:
+                self._session_present = False
+                self._state = RunnerState.PROVISIONING
                 await self._client.run(
                     self._client.new_argv(
                         self._settings.colab_session_name,
