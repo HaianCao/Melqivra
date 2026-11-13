@@ -46,6 +46,9 @@ class HarnessSettings:
     api_max_active_jobs_per_user: int = 10
     api_max_job_payload_bytes: int = 65_536
     api_max_page_size: int = 100
+    api_sse_poll_seconds: float = 0.25
+    api_sse_keepalive_seconds: float = 15.0
+    api_sse_batch_size: int = 100
 
     modal_executable: str = "modal"
     modal_cli_version: str = "1.6.3"
@@ -103,6 +106,9 @@ class HarnessSettings:
             api_max_active_jobs_per_user=int(os.getenv("API_MAX_ACTIVE_JOBS_PER_USER", "10")),
             api_max_job_payload_bytes=int(os.getenv("API_MAX_JOB_PAYLOAD_BYTES", "65536")),
             api_max_page_size=int(os.getenv("API_MAX_PAGE_SIZE", "100")),
+            api_sse_poll_seconds=float(os.getenv("API_SSE_POLL_SECONDS", "0.25")),
+            api_sse_keepalive_seconds=float(os.getenv("API_SSE_KEEPALIVE_SECONDS", "15")),
+            api_sse_batch_size=int(os.getenv("API_SSE_BATCH_SIZE", "100")),
             modal_executable=os.getenv("MODAL_EXECUTABLE", "modal"),
             modal_cli_version=os.getenv("MODAL_CLI_VERSION", "1.6.3").strip(),
             modal_app_name=os.getenv("MODAL_APP_NAME", "melqivra-gpu-runner"),
@@ -188,6 +194,12 @@ class HarnessSettings:
             raise ValueError("API_MAX_JOB_PAYLOAD_BYTES must be at least 2")
         if self.api_max_page_size < 1 or self.api_max_page_size > 100:
             raise ValueError("API_MAX_PAGE_SIZE must be between 1 and 100")
+        if self.api_sse_poll_seconds <= 0:
+            raise ValueError("API_SSE_POLL_SECONDS must be positive")
+        if self.api_sse_keepalive_seconds < self.api_sse_poll_seconds:
+            raise ValueError("API_SSE_KEEPALIVE_SECONDS must be at least the poll interval")
+        if self.api_sse_batch_size < 1 or self.api_sse_batch_size > 100:
+            raise ValueError("API_SSE_BATCH_SIZE must be between 1 and 100")
         if self.modal_command_timeout_seconds <= 0:
             raise ValueError("MODAL_COMMAND_TIMEOUT_SECONDS must be positive")
         if not self.modal_cli_version:

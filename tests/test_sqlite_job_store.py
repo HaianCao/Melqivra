@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from agent_music.job_store import (
     InvalidJobCursorError,
+    InvalidJobEventCursorError,
     LostJobLeaseError,
     SqliteJobStore,
     UserJobQuotaExceededError,
@@ -144,6 +146,113 @@ class SqliteJobStoreTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Lost GPU job lease"):
             self.store.complete(job.id, claimed.lease_token + 1, {"ok": True})
+
+    def test_event_stream_is_ordered_fenced_tenant_scoped_and_restart_safe(self) -> None:
+        job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+        claimed = self.store.claim_next(lease_owner="worker-a", lease_seconds=60.0)
+        assert claimed is not None and claimed.lease_token is not None
+
+        def append(index: int) -> int:
+            event = self.store.append_event(
+                job_id=job.id,
+                lease_token=claimed.lease_token,
+                event_type="provider.stage",
+                payload={"index": index},
+            )
+            return event.sequence
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            sequences = tuple(executor.map(append, range(8)))
+        self.assertEqual(list(range(3, 11)), sorted(sequences))
+        with self.assertRaisesRegex(LostJobLeaseError, "stale event"):
+            self.store.append_event(
+                job_id=job.id,
+                lease_token=claimed.lease_token + 1,
+                event_type="provider.stage",
+                payload={},
+            )
+        with self.assertRaisesRegex(ValueError, "size limit"):
+            self.store.append_event(
+                job_id=job.id,
+                lease_token=claimed.lease_token,
+                event_type="provider.stage",
+                payload={"text": "x" * 16_385},
+            )
+
+        self.store.complete(job.id, claimed.lease_token, {"ok": True})
+        events = self.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual(list(range(1, 12)), [event.sequence for event in events])
+        self.assertEqual("job.queued", events[0].event_type)
+        self.assertEqual("job.running", events[1].event_type)
+        self.assertEqual("job.succeeded", events[-1].event_type)
+        self.assertEqual(JobState.SUCCEEDED, events[-1].job_state)
+        self.assertEqual(1, events[-1].attempt_number)
+        self.assertEqual(set(range(8)), {event.payload["index"] for event in events[2:-1]})
+        with self.assertRaises(KeyError):
+            self.store.list_events_for_user(
+                user_id="bob",
+                job_id=job.id,
+                after_sequence=0,
+                limit=100,
+            )
+        with self.assertRaises(InvalidJobEventCursorError):
+            self.store.list_events_for_user(
+                user_id="alice",
+                job_id=job.id,
+                after_sequence=12,
+                limit=100,
+            )
+
+        database_path = Path(self.temp_dir.name) / "jobs.db"
+        self.store.close()
+        self.store = SqliteJobStore(database_path)
+        restarted = self.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=9,
+            limit=100,
+        )
+        self.assertEqual([10, 11], [event.sequence for event in restarted])
+
+    def test_cancel_and_lease_recovery_events_match_authoritative_state(self) -> None:
+        database_path = Path(self.temp_dir.name) / "jobs.db"
+        self.store.close()
+        now = [1_000.0]
+        self.store = SqliteJobStore(database_path, wall_clock=lambda: now[0])
+        job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+        first = self.store.claim_next(lease_owner="worker-a", lease_seconds=10.0)
+        assert first is not None
+        now[0] = 1_011.0
+        self.assertEqual(1, self.store.recover_expired())
+        second = self.store.claim_next(lease_owner="worker-b", lease_seconds=10.0)
+        assert second is not None and second.lease_token is not None
+        self.store.request_cancel_for_user(user_id="alice", job_id=job.id)
+        self.store.cancel_running(job.id, second.lease_token)
+
+        events = self.store.list_events_for_user(
+            user_id="alice",
+            job_id=job.id,
+            after_sequence=0,
+            limit=100,
+        )
+        self.assertEqual(
+            [
+                "job.queued",
+                "job.running",
+                "job.requeued",
+                "job.running",
+                "job.cancel_requested",
+                "job.cancelled",
+            ],
+            [event.event_type for event in events],
+        )
+        self.assertEqual(JobState.CANCELLED, events[-1].job_state)
+        self.assertEqual(JobState.CANCELLED, self.store.get(job.id).state)
 
     def test_lease_renewal_expiry_and_fresh_attempt_fencing(self) -> None:
         with patch("agent_music.job_store.time.time", return_value=1_000.0):

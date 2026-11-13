@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from dataclasses import replace
@@ -13,7 +14,13 @@ from agent_music.api import create_app
 from agent_music.authentication import StaticBearerAuthenticator
 from agent_music.config import HarnessSettings
 from agent_music.domain import UserId
+from agent_music.job_store import SqliteJobStore
 from agent_music.scheduler import GpuHarness
+
+
+def _sse_values(body: str, field: str) -> list[str]:
+    prefix = f"{field}: "
+    return [line.removeprefix(prefix) for line in body.splitlines() if line.startswith(prefix)]
 
 
 class ApiServiceBoundaryTests(unittest.IsolatedAsyncioTestCase):
@@ -209,6 +216,64 @@ class ApiServiceBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(400, oversized.status_code)
         self.assertEqual("invalid_page_size", oversized.json()["error"]["code"])
+
+    async def test_sse_reconnect_is_durable_and_tenant_scoped(self) -> None:
+        event_settings = replace(
+            self.settings,
+            database_path=Path(self.temporary.name) / "events.db",
+            api_sse_poll_seconds=0.01,
+            api_sse_keepalive_seconds=0.02,
+        )
+        event_store = SqliteJobStore(event_settings.database_path)
+        event_harness = GpuHarness(event_settings, store=event_store)
+        app = create_app(event_settings, event_harness)
+        app.state.harness = event_harness
+        try:
+            job = event_harness.enqueue(
+                user_id="alice",
+                kind="harness.healthcheck",
+                payload={},
+            )
+            await event_harness.cancel_for_user(user_id="alice", job_id=job.id)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url="http://testserver",
+            ) as client:
+                initial = await client.get(
+                    f"/v1/gpu/jobs/{job.id}/events",
+                    headers=self._headers("alice"),
+                )
+                self.assertEqual(200, initial.status_code, initial.text)
+                self.assertTrue(initial.headers["content-type"].startswith("text/event-stream"))
+                self.assertEqual("no", initial.headers["X-Accel-Buffering"])
+                self.assertEqual(["1", "2"], _sse_values(initial.text, "id"))
+                self.assertEqual(
+                    ["job.queued", "job.cancelled"],
+                    _sse_values(initial.text, "event"),
+                )
+                payloads = [json.loads(value) for value in _sse_values(initial.text, "data")]
+                self.assertEqual("cancelled", payloads[-1]["job_state"])
+
+                resumed = await client.get(
+                    f"/v1/gpu/jobs/{job.id}/events",
+                    headers={**self._headers("alice"), "Last-Event-ID": "1"},
+                )
+                self.assertEqual(["2"], _sse_values(resumed.text, "id"))
+
+                cross_tenant = await client.get(
+                    f"/v1/gpu/jobs/{job.id}/events",
+                    headers=self._headers("bob"),
+                )
+                self.assertEqual(404, cross_tenant.status_code)
+                self.assertEqual("job_not_found", cross_tenant.json()["error"]["code"])
+                invalid = await client.get(
+                    f"/v1/gpu/jobs/{job.id}/events",
+                    headers={**self._headers("alice"), "Last-Event-ID": "3"},
+                )
+                self.assertEqual(400, invalid.status_code)
+                self.assertEqual("invalid_event_cursor", invalid.json()["error"]["code"])
+        finally:
+            await event_harness.close()
 
     async def test_injected_bearer_authenticator_ignores_development_identity(self) -> None:
         injected_settings = replace(self.settings, api_auth_mode="injected")

@@ -51,6 +51,9 @@ class HarnessSettingsTests(unittest.TestCase):
             "API_MAX_ACTIVE_JOBS_PER_USER": "7",
             "API_MAX_JOB_PAYLOAD_BYTES": "12345",
             "API_MAX_PAGE_SIZE": "50",
+            "API_SSE_POLL_SECONDS": "0.5",
+            "API_SSE_KEEPALIVE_SECONDS": "12",
+            "API_SSE_BATCH_SIZE": "40",
             "MODAL_CLI_VERSION": "1.6.3",
             "COLAB_CLI_VERSION": "0.8.0",
             "COLAB_REMOTE_CANCEL_ROOT": "/content/agent_music_control",
@@ -75,6 +78,9 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual(7, settings.api_max_active_jobs_per_user)
         self.assertEqual(12_345, settings.api_max_job_payload_bytes)
         self.assertEqual(50, settings.api_max_page_size)
+        self.assertEqual(0.5, settings.api_sse_poll_seconds)
+        self.assertEqual(12.0, settings.api_sse_keepalive_seconds)
+        self.assertEqual(40, settings.api_sse_batch_size)
         self.assertEqual("1.6.3", settings.modal_cli_version)
         self.assertFalse(settings.colab_mount_drive)
         self.assertEqual("0.8.0", settings.colab_cli_version)
@@ -110,6 +116,10 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(api_max_job_payload_bytes=1),
             HarnessSettings(api_max_page_size=0),
             HarnessSettings(api_max_page_size=101),
+            HarnessSettings(api_sse_poll_seconds=0),
+            HarnessSettings(api_sse_poll_seconds=2, api_sse_keepalive_seconds=1),
+            HarnessSettings(api_sse_batch_size=0),
+            HarnessSettings(api_sse_batch_size=101),
             HarnessSettings(modal_command_timeout_seconds=0),
             HarnessSettings(modal_cli_version=""),
             HarnessSettings(modal_app_name="Invalid_Name"),

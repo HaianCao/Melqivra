@@ -91,6 +91,19 @@ class JobAttempt:
 
 
 @dataclass(frozen=True, slots=True)
+class JobEvent:
+    """One durable tenant-visible event in a job's ordered stream."""
+
+    job_id: str
+    sequence: int
+    event_type: str
+    payload: dict[str, Any]
+    job_state: JobState
+    attempt_number: int
+    created_at: float
+
+
+@dataclass(frozen=True, slots=True)
 class RunnerSnapshot:
     """Public runner state shown to API clients."""
 

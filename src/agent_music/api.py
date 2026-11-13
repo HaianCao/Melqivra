@@ -1,5 +1,6 @@
 """Versioned FastAPI service boundary for durable GPU jobs."""
 
+import asyncio
 import json
 import re
 import uuid
@@ -11,7 +12,7 @@ from typing import Annotated, Any, cast
 from fastapi import Depends, FastAPI, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHttpException
@@ -24,11 +25,22 @@ from agent_music.authentication import (
     Principal,
 )
 from agent_music.config import HarnessSettings
-from agent_music.job_store import InvalidJobCursorError, UserJobQuotaExceededError
-from agent_music.models import GpuJob
+from agent_music.job_store import (
+    InvalidJobCursorError,
+    InvalidJobEventCursorError,
+    UserJobQuotaExceededError,
+)
+from agent_music.models import GpuJob, JobEvent, JobState
 from agent_music.scheduler import GpuHarness
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_EVENT_CURSOR = re.compile(r"^(?:0|[1-9][0-9]{0,18})$")
+_TERMINAL_JOB_STATES = {
+    JobState.SUCCEEDED,
+    JobState.FAILED,
+    JobState.CANCELLED,
+    JobState.DEAD_LETTERED,
+}
 
 
 class SubmitJobRequest(BaseModel):
@@ -66,6 +78,18 @@ class JobPageResponse(BaseModel):
 
     items: list[JobResponse]
     next_cursor: str | None
+
+
+class JobEventResponse(BaseModel):
+    """Tenant-visible durable job event."""
+
+    job_id: str
+    sequence: int
+    event_type: str
+    payload: dict[str, Any]
+    job_state: str
+    attempt_number: int
+    created_at: float
 
 
 class ErrorDetail(BaseModel):
@@ -323,6 +347,83 @@ def create_app(
         )
 
     @app.get(
+        "/v1/gpu/jobs/{job_id}/events",
+        responses={
+            400: {"model": ErrorResponse},
+            401: {"model": ErrorResponse},
+            404: {"model": ErrorResponse},
+        },
+    )
+    async def stream_job_events(
+        job_id: str,
+        request: Request,
+        principal: PrincipalDependency,
+    ) -> StreamingResponse:
+        active = get_harness(request)
+        user_id = str(principal.user_id)
+        after_sequence = _parse_event_cursor(request.headers.get("last-event-id"))
+        try:
+            active.get_job_for_user(user_id=user_id, job_id=job_id)
+            initial_events = active.store.list_events_for_user(
+                user_id=user_id,
+                job_id=job_id,
+                after_sequence=after_sequence,
+                limit=resolved_settings.api_sse_batch_size,
+            )
+        except KeyError:
+            raise ApiError(
+                status.HTTP_404_NOT_FOUND,
+                "job_not_found",
+                "Job not found",
+            ) from None
+        except InvalidJobEventCursorError as error:
+            raise ApiError(
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_event_cursor",
+                "Job event cursor is invalid",
+            ) from error
+
+        async def event_stream() -> AsyncIterator[str]:
+            cursor = after_sequence
+            pending = initial_events
+            loop = asyncio.get_running_loop()
+            keepalive_at = loop.time() + resolved_settings.api_sse_keepalive_seconds
+            while True:
+                for event in pending:
+                    cursor = event.sequence
+                    yield _serialize_sse_event(event)
+
+                job = await asyncio.to_thread(
+                    active.get_job_for_user,
+                    user_id=user_id,
+                    job_id=job_id,
+                )
+                pending = await asyncio.to_thread(
+                    active.store.list_events_for_user,
+                    user_id=user_id,
+                    job_id=job_id,
+                    after_sequence=cursor,
+                    limit=resolved_settings.api_sse_batch_size,
+                )
+                if pending:
+                    continue
+                if job.state in _TERMINAL_JOB_STATES:
+                    return
+                if await request.is_disconnected():
+                    return
+
+                await asyncio.sleep(resolved_settings.api_sse_poll_seconds)
+                if loop.time() >= keepalive_at:
+                    yield ": keepalive\n\n"
+                    keepalive_at = loop.time() + resolved_settings.api_sse_keepalive_seconds
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no"},
+        )
+
+    @app.get(
         "/v1/gpu/jobs/{job_id}",
         response_model=JobResponse,
         responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
@@ -412,3 +513,42 @@ def create_app(
 def _error_body(request: Request, code: str, message: str) -> dict[str, dict[str, str]]:
     request_id = getattr(request.state, "request_id", "req_unknown")
     return {"error": {"code": code, "message": message, "request_id": request_id}}
+
+
+def _parse_event_cursor(value: str | None) -> int:
+    if value is None or value == "":
+        return 0
+    if _EVENT_CURSOR.fullmatch(value) is None:
+        raise ApiError(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_event_cursor",
+            "Job event cursor is invalid",
+        )
+    sequence = int(value)
+    if sequence > 9_223_372_036_854_775_807:
+        raise ApiError(
+            status.HTTP_400_BAD_REQUEST,
+            "invalid_event_cursor",
+            "Job event cursor is invalid",
+        )
+    return sequence
+
+
+def _serialize_sse_event(event: JobEvent) -> str:
+    body = JobEventResponse(
+        job_id=event.job_id,
+        sequence=event.sequence,
+        event_type=event.event_type,
+        payload=event.payload,
+        job_state=event.job_state.value,
+        attempt_number=event.attempt_number,
+        created_at=event.created_at,
+    )
+    data = json.dumps(
+        body.model_dump(mode="json"),
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return f"id: {event.sequence}\nevent: {event.event_type}\ndata: {data}\n\n"

@@ -136,7 +136,8 @@ retried forever. The same migration set now includes tenant-owned projects,
 immutable checksummed revisions, and optimistic working/accepted pointers behind
 the provider-neutral `ProjectRepository` port. It also includes exact one-way
 approvals plus restart-safe tool-call replay and append-only, content-minimal
-audit records. Production object storage and backup/restore remain in-progress
+audit records. Durable job events use per-job sequences and can be replayed after
+an API restart. Production object storage and backup/restore remain in-progress
 S07 work. Do not place production credentials in committed files.
 
 Submit a job:
@@ -243,6 +244,7 @@ The scheduler performs:
 | POST | /v1/gpu/jobs | Enqueue one job |
 | GET | /v1/gpu/jobs | List own jobs with cursor pagination |
 | GET | /v1/gpu/jobs/{id} | Inspect own job |
+| GET | /v1/gpu/jobs/{id}/events | Stream durable progress with SSE replay |
 | DELETE | /v1/gpu/jobs/{id} | Request cancellation |
 | GET | /v1/gpu/runner | Runner/session/idle deadline |
 | GET | /healthz | Process health |
@@ -256,6 +258,17 @@ The service returns stable error codes, propagates or creates `X-Request-ID`,
 limits payload size and active jobs per tenant, and never exposes lease owners or
 fencing tokens. Cursor values are tenant-scoped and cannot be reused to enumerate
 another user's jobs.
+
+Job streams use standard server-sent events. Each durable event has a monotonic
+per-job `id`; reconnect with `Last-Event-ID` to receive only later events. A
+missing or cross-tenant job remains indistinguishable, and a cursor beyond the
+authoritative stream is rejected instead of silently skipping data:
+
+~~~shell
+curl -N http://127.0.0.1:8000/v1/gpu/jobs/JOB_ID/events \
+  -H "X-User-Id: demo-user" \
+  -H "Last-Event-ID: 12"
+~~~
 
 ## Docker
 
