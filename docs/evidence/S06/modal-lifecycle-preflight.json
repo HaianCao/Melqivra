@@ -1,0 +1,12 @@
+{
+  "active_apps_before": 0,
+  "authentication_available": true,
+  "cli_version": "1.6.3",
+  "environment": "WSL2 Ubuntu",
+  "gpu_allocated": false,
+  "probe_contract_loaded": true,
+  "provider": "modal",
+  "recorded_at": "2026-11-13",
+  "schema_version": 1,
+  "status": "passed_zero_cost_preflight"
+}
