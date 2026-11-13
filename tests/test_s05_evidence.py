@@ -26,6 +26,10 @@ DURABLE_IMPORT = ROOT / "docs" / "evidence" / "S05" / "heartmula-durable-import.
 POC_CONTRACT = ROOT / "docs" / "evidence" / "S05" / "ace-step-colab-poc-contract.json"
 ACE_PROBE = ROOT / "docs" / "evidence" / "S05" / "ace-step-vietnamese-reference-probe-contract.json"
 ACE_REFERENCE_PREFLIGHT = ROOT / "docs" / "evidence" / "S05" / "ace-step-reference-preflight.json"
+ACE_T4_RUN = ROOT / "docs" / "evidence" / "S05" / "ace-step-vietnamese-reference-t4-run.json"
+ACE_VERIFICATION = (
+    ROOT / "docs" / "evidence" / "S05" / "ace-step-vietnamese-reference-verification.json"
+)
 MODAL_APP = ROOT / "scripts" / "modal" / "s05_heartmula_app.py"
 
 
@@ -119,12 +123,17 @@ class S05EvidenceTests(unittest.TestCase):
             preferred["audio_sha256"],
         )
 
-    def test_old_poc_is_private_and_next_gpu_probe_is_not_authorized(self) -> None:
+    def test_old_poc_stays_private_and_authorized_probe_passes_without_overclaiming(self) -> None:
         poc = cast(dict[str, Any], json.loads(POC_CONTRACT.read_text(encoding="utf-8")))
         probe = cast(dict[str, Any], json.loads(ACE_PROBE.read_text(encoding="utf-8")))
         reference = cast(
             dict[str, Any],
             json.loads(ACE_REFERENCE_PREFLIGHT.read_text(encoding="utf-8")),
+        )
+        run = cast(dict[str, Any], json.loads(ACE_T4_RUN.read_text(encoding="utf-8")))
+        verification = cast(
+            dict[str, Any],
+            json.loads(ACE_VERIFICATION.read_text(encoding="utf-8")),
         )
         self.assertFalse(poc["assessment"]["exact_reproduction_ready"])
         self.assertEqual(140.0, poc["generation"]["duration_seconds"])
@@ -134,24 +143,35 @@ class S05EvidenceTests(unittest.TestCase):
         self.assertFalse(poc["generation"]["lm_used"])
         self.assertTrue(poc["runtime_mutation"]["pre_ampere_float32_source_patch"])
         self.assertNotIn("lyrics", poc["private_inputs"])
-        self.assertEqual("prepared_not_authorized", probe["status"])
-        self.assertFalse(probe["authorization"]["gpu_execution_approved"])
-        self.assertFalse(probe["authorization"]["reference_media_reuse_approved"])
-        self.assertIsNone(probe["cost_control"]["approved_max_metered_usd"])
-        self.assertTrue(probe["cost_control"]["execution_must_remain_blocked_while_null"])
+        self.assertEqual("succeeded", probe["status"])
+        self.assertTrue(probe["authorization"]["gpu_execution_approved"])
+        self.assertTrue(probe["authorization"]["reference_media_reuse_approved"])
+        self.assertEqual(0.2, probe["cost_control"]["approved_max_metered_usd"])
+        self.assertFalse(probe["cost_control"]["execution_must_remain_blocked_while_null"])
         self.assertFalse(probe["probe"]["automatic_retry"])
         self.assertFalse(probe["probe"]["provider_fallback"])
         self.assertFalse(probe["probe"]["initialize_lm_for_probe"])
         self.assertEqual(700, probe["probe"]["hard_job_timeout_seconds"])
         self.assertLess(probe["cost_control"]["estimated_max_metered_usd"], 0.2)
-        self.assertEqual("private_preflight_ready_gpu_blocked", reference["status"])
+        self.assertEqual(
+            "private_preflight_consumed_by_single_authorized_probe", reference["status"]
+        )
         self.assertFalse(reference["gpu_allocated"])
-        self.assertFalse(reference["authorization"]["allowed_for_gpu"])
+        self.assertTrue(reference["authorization"]["allowed_for_gpu"])
         self.assertEqual(
             probe["reference_media"]["prepared_reference_sha256"],
             reference["reference_audio"]["sha256"],
         )
         self.assertLess(reference["reference_audio"]["size_bytes"], 10_000_000)
+        self.assertEqual("succeeded", run["status"])
+        self.assertEqual("Tesla T4", run["execution"]["gpu"])
+        self.assertEqual("float32", run["request"]["observed_precision"])
+        self.assertEqual("narrow", run["memory"]["assessment"])
+        self.assertTrue(run["execution"]["app_stopped"])
+        self.assertEqual(0, run["execution"]["active_tasks_after_run"])
+        self.assertFalse(run["assessment"]["production_backend_accepted"])
+        self.assertTrue(verification["passed"])
+        self.assertEqual(run["artifact"]["sha256"], verification["artifact"]["sha256"])
 
 
 if __name__ == "__main__":

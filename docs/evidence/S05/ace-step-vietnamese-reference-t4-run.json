@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-13",
+  "status": "succeeded",
+  "run_id": "ace-vi-ref-20261113-a",
+  "scope": "one client-authorized 20-second Vietnamese reference-conditioned diagnostic; not a production routing claim",
+  "authorization": {
+    "rights_and_reference_reuse_confirmed": true,
+    "gpu_execution_approved": true,
+    "approved_max_metered_usd": 0.2,
+    "private_authorization_record_committed": false,
+    "reference_audio_sha256": "6a8c6d8dcafea6f74571a4d498f9bcace80b7bc5ee2229d628dd9d1a186997dd",
+    "private_inputs_sha256": "5089d4eeba8097bf0c4b9ef3fab9a49e92a48f6e3b689ef9bfea2b859a65b1d4"
+  },
+  "execution": {
+    "provider": "modal",
+    "app_id": "ap-DTROkfpfihK3IRI5HseGe3",
+    "gpu": "Tesla T4",
+    "max_containers": 1,
+    "automatic_retry": false,
+    "fallback": false,
+    "function_timeout_seconds": 700,
+    "remote_elapsed_seconds": 32.498168885000005,
+    "app_stopped": true,
+    "active_tasks_after_run": 0
+  },
+  "source": {
+    "repository": "https://github.com/peter571/ACE-Step-1.5.git",
+    "revision": "44c15413f6dc9b55acfbd214209dbb6c0aac74b9",
+    "upstream_base_revision": "dce621408bee8c31b4fcf4811682eb9359e1bc94",
+    "runtime_source_patch_allowed": false
+  },
+  "environment": {
+    "python": "3.12.10",
+    "pytorch": "2.10.0+cu128",
+    "cuda": "12.8",
+    "driver": "620.70.06",
+    "provider_cli": "1.6.3",
+    "gpu_memory_bytes": 16106127360
+  },
+  "request": {
+    "operation": "reference_conditioned_text2music",
+    "language": "vi",
+    "duration_seconds": 20.0,
+    "seed": 12345,
+    "diffusion_steps": 8,
+    "shift": 3.0,
+    "requested_precision": "float32",
+    "observed_precision": "float32",
+    "thinking_without_lm": true,
+    "lm_initialized": false,
+    "lm_used": false,
+    "reference_audio_sha256": "6a8c6d8dcafea6f74571a4d498f9bcace80b7bc5ee2229d628dd9d1a186997dd"
+  },
+  "timings_seconds": {
+    "model_load": 9.215392779999995,
+    "inference": 6.405848211000006,
+    "benchmark_total": 28.940342353000005
+  },
+  "memory": {
+    "peak_vram_bytes": 14536154624,
+    "headroom_bytes": 1569972736,
+    "headroom_gib": 1.462,
+    "assessment": "narrow"
+  },
+  "artifact": {
+    "media_type": "audio/wav",
+    "size_bytes": 3840078,
+    "sha256": "f113ef826105108f531a8db7d0fb57f2eaaf8774169b599d0f711cd1562e6da2",
+    "duration_seconds": 20.0,
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "finite_samples": true,
+    "silent": false,
+    "clipped": false,
+    "integrated_lufs": -15.9,
+    "true_peak_dbfs": -1.0,
+    "committed": false
+  },
+  "cost_control": {
+    "provider_price_source": "https://modal.com/pricing",
+    "provider_price_checked_at": "2026-11-13",
+    "approved_max_metered_usd": 0.2,
+    "worst_case_list_price_estimate_usd": 0.189149,
+    "provider_billing_snapshot_observed": false,
+    "assessment": "bounded below the approved ceiling by executable timeout and resource contract"
+  },
+  "assessment": {
+    "exact_probe_contract_passed": true,
+    "private_content_published": false,
+    "production_backend_accepted": false,
+    "automatic_product_route_added": false,
+    "subjective_quality_reviewed": false,
+    "limitations": [
+      "one private reference and one seed do not establish general Vietnamese quality",
+      "T4 VRAM headroom is narrow",
+      "the community fork remains research-only pending a separate backend acceptance decision",
+      "LM behavior was intentionally not exercised"
+    ]
+  }
+}

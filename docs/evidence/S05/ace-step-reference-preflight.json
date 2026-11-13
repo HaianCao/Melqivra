@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recorded_at": "2026-11-13",
-  "status": "private_preflight_ready_gpu_blocked",
+  "status": "private_preflight_consumed_by_single_authorized_probe",
   "gpu_allocated": false,
   "source_media": {
     "kind": "user-provided singing video without accompaniment",
@@ -28,8 +28,10 @@
     "committed": false
   },
   "authorization": {
-    "consent_recorded": false,
-    "allowed_for_gpu": false,
-    "provider_cost_ceiling_approved": false
+    "consent_recorded": true,
+    "allowed_for_gpu": true,
+    "provider_cost_ceiling_approved": true,
+    "approved_max_metered_usd": 0.2,
+    "run_id": "ace-vi-ref-20261113-a"
   }
 }

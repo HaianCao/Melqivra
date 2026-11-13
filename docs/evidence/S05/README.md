@@ -127,39 +127,57 @@ latents after an in-place pre-Ampere patch. Because the clone was unpinned and
 the reference audio is private, this is PoC evidence, not a reproducible backend
 claim.
 
-The smallest next ACE diagnostic is prepared but not authorized in
+The bounded ACE diagnostic contract is recorded in
 [ace-step-vietnamese-reference-probe-contract.json](ace-step-vietnamese-reference-probe-contract.json).
-It permits one 20-second T4 take, no retry or fallback, and a hard bounded
-timeout on the pinned community float32 fork. Execution remains blocked until
-the client records reference-media ownership/consent and approves a concrete
-provider cost ceiling.
+The client confirmed ownership/rights and reference-media consent and approved
+a $0.20 maximum metered cost. Before execution, the function timeout was reduced
+from 900 to 700 seconds so the published Modal T4/CPU/memory/egress list-price
+upper bound was $0.189149. The ignored authorization record binds that ceiling,
+the exact fork revision, and both private hashes.
 
 The requested local video-to-audio preparation is complete without provider or
 GPU use. A 20-second mono 48 kHz PCM16 clip was extracted from the singing-only
 video, is 1,920,078 bytes, and passed finite/non-silent/non-clipped validation.
 Only checksums and technical properties are tracked in
 [ace-step-reference-preflight.json](ace-step-reference-preflight.json); the
-video, WAV, and private caption/lyrics remain ignored. The executable Modal
+video, WAV, and private caption/lyrics remain ignored. A byte-preserving Windows
+newline fix ensures the executable hashes the exact uploaded JSON bytes. The
 entrypoint refuses to call the remote T4 function unless consent, provider-price
-precheck, a positive cost ceiling, the exact source revision, and both private
-file hashes are present in a separate authorization record.
+precheck, a sufficient cost ceiling, the exact source revision, current timeout
+and price contract, and both private file hashes are present.
 
-The current complete local gate passes with 169 tests, strict mypy across 57
+The single authorized call then succeeded on a Tesla T4 with no retry or
+fallback. The exact community fork honored float32, loaded in 9.22 seconds, ran
+inference in 6.41 seconds, and completed the remote function in 32.50 seconds.
+Peak VRAM was 14,536,154,624 bytes, leaving about 1.46 GiB, so the margin remains
+narrow. The 20.0-second 48 kHz stereo WAV is finite, non-silent, non-clipped,
+3,840,078 bytes, and has SHA-256
+`f113ef826105108f531a8db7d0fb57f2eaaf8774169b599d0f711cd1562e6da2`.
+Independent individual-file download and validation matched the remote size and
+checksum. The app stopped with zero active tasks. See
+[ace-step-vietnamese-reference-t4-run.json](ace-step-vietnamese-reference-t4-run.json)
+and
+[ace-step-vietnamese-reference-verification.json](ace-step-vietnamese-reference-verification.json).
+
+This passes only the exact one-reference, one-seed research diagnostic. It does
+not establish general Vietnamese quality, accept the fork as a production
+backend, add an automatic product route, or claim LM success. Private creative
+content and the generated WAV remain ignored.
+
+The current complete local gate passes with 173 tests, strict mypy across 58
 source files, Ruff format/lint, 84% scheduler/store critical-path branch
 coverage, successful wheel/sdist builds, and no known audited vulnerabilities.
-The WSL Modal entrypoint help contract loaded without creating an app or
-container. No GPU was allocated; all Modal apps and active containers are zero,
-and billed cost remains $0.
+The WSL Modal entrypoint help contract loaded before execution. After the single
+authorized GPU call, the experiment app stopped and active tasks returned to
+zero. The exact provider billing snapshot was not exposed by the CLI, so the
+evidence records the executable $0.189149 list-price upper bound rather than an
+unverified billed-cost claim.
 
 ## Remaining before closure
 
 1. Keep the narrow HeartMuLa T4 memory warning visible; do not treat the backend
    as universal or route unsupported languages/instrumental requests to it.
-2. Obtain explicit reference-media consent and an exact cost ceiling before the
-   prepared ACE Vietnamese reference-vocal experiment. Do not allocate a GPU
-   while either field remains unapproved.
-3. Run the complete repository gate and protected CI for the routing/evidence
+2. Run the complete repository gate and protected CI for the final evidence
    checkpoint.
-4. Close S05 only after the bounded experiment is either completed with honest
-   evidence or explicitly deferred without weakening the existing HeartMuLa
-   vertical-slice claim.
+3. Review the S05 exit criteria and close the stage without expanding the exact
+   ACE research result into a production capability claim.
