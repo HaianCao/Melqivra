@@ -15,7 +15,7 @@ from agent_music.result_processing import (
 )
 from agent_music.runners.base import GpuRunner
 from agent_music.runners.strategy import build_runner
-from agent_music.store import SqliteJobStore
+from agent_music.store import JobStore, SqliteJobStore
 
 EventSink = Callable[[str, dict[str, Any]], None]
 
@@ -27,7 +27,7 @@ class GpuHarness:
         self,
         settings: HarnessSettings,
         *,
-        store: SqliteJobStore | None = None,
+        store: JobStore | None = None,
         runner: GpuRunner | None = None,
         event_sink: EventSink | None = None,
         result_processor: JobResultProcessor | None = None,
@@ -37,7 +37,7 @@ class GpuHarness:
         settings.validate()
         settings.ensure_directories()
         self.settings = settings
-        self.store = store or SqliteJobStore(settings.database_path)
+        self.store: JobStore = store or SqliteJobStore(settings.database_path)
         self.runner = runner or build_runner(settings)
         self._event_sink = event_sink or (lambda _job_id, _event: None)
         self._result_processor = result_processor or build_default_result_processor(settings)
@@ -103,10 +103,24 @@ class GpuHarness:
         """Request cancellation."""
 
         job = self.store.request_cancel(job_id)
+        return await self._finish_cancellation_request(job)
+
+    def get_job_for_user(self, *, user_id: str, job_id: str) -> GpuJob:
+        """Load one job through the tenant-scoped persistence boundary."""
+
+        return self.store.get_for_user(user_id=user_id, job_id=job_id)
+
+    async def cancel_for_user(self, *, user_id: str, job_id: str) -> GpuJob:
+        """Request cancellation without first loading another tenant's job."""
+
+        job = self.store.request_cancel_for_user(user_id=user_id, job_id=job_id)
+        return await self._finish_cancellation_request(job)
+
+    async def _finish_cancellation_request(self, job: GpuJob) -> GpuJob:
         if job.state == JobState.RUNNING:
-            await self.runner.cancel(job_id)
+            await self.runner.cancel(job.id)
         self._wake.set()
-        return self.store.get(job_id)
+        return self.store.get(job.id)
 
     def snapshot(self) -> RunnerSnapshot:
         """Return runner and idle-deadline state."""

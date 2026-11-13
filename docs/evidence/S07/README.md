@@ -32,3 +32,23 @@ Redis to recoverable coordination, and places immutable bytes behind an
 authorized S3-compatible object-store port. The first implementation checkpoint
 will introduce the job-store port and tenant-scoped job lookup/cancellation
 without changing the safe SQLite development default.
+
+## First checkpoint: job-store port and tenant-scoped access
+
+Checkpoint `a3d8368` accepts ADR-0007 and records the entry audit. The scheduler
+now depends on the typed `JobStore` port rather than `SqliteJobStore`, preserving
+the current SQLite adapter while making the PostgreSQL job authority an explicit
+replaceable boundary.
+
+The port requires tenant-scoped lookup and cancellation operations. The SQLite
+adapter performs those lookups with both job and user IDs, and the HTTP service
+uses only the scoped harness methods for GET and DELETE. Missing and cross-tenant
+jobs therefore return the same 404 body without loading another user's job into
+the API authorization path. Direct store tests also prove an unauthorized cancel
+does not change state before the owner performs the transition.
+
+The complete checkpoint gate passes with 210 tests, strict mypy on 61 source
+files, Ruff format/lint, 89% critical scheduler/store branch coverage,
+successful wheel and source distribution builds, and no known audited
+vulnerabilities. Development `X-User-Id` remains intentionally explicit; the
+production authentication port and principal binding are subsequent S07 work.

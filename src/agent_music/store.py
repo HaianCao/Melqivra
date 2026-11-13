@@ -8,9 +8,46 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from agent_music.models import GpuJob, JobState
+
+
+class JobStore(Protocol):
+    """Durable job authority required by the concurrency-one scheduler."""
+
+    def close(self) -> None: ...
+
+    def enqueue(
+        self,
+        *,
+        user_id: str,
+        kind: str,
+        payload: dict[str, Any],
+        idempotency_key: str | None = None,
+    ) -> GpuJob: ...
+
+    def get(self, job_id: str) -> GpuJob: ...
+
+    def get_for_user(self, *, user_id: str, job_id: str) -> GpuJob: ...
+
+    def claim_next(self) -> GpuJob | None: ...
+
+    def complete(self, job_id: str, lease_token: int, result: dict[str, Any]) -> None: ...
+
+    def fail(self, job_id: str, lease_token: int, error: str) -> None: ...
+
+    def cancel_running(self, job_id: str, lease_token: int) -> None: ...
+
+    def request_cancel(self, job_id: str) -> GpuJob: ...
+
+    def request_cancel_for_user(self, *, user_id: str, job_id: str) -> GpuJob: ...
+
+    def has_queued(self) -> bool: ...
+
+    def queue_position(self, job_id: str) -> int | None: ...
+
+    def recover_interrupted(self) -> int: ...
 
 
 class SqliteJobStore:
@@ -126,6 +163,18 @@ class SqliteJobStore:
             row = self._connection.execute(
                 "SELECT * FROM gpu_jobs WHERE id = ?",
                 (job_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        return self._row_to_job(row)
+
+    def get_for_user(self, *, user_id: str, job_id: str) -> GpuJob:
+        """Load one tenant-owned job without revealing cross-tenant existence."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM gpu_jobs WHERE id = ? AND user_id = ?",
+                (job_id, user_id),
             ).fetchone()
         if row is None:
             raise KeyError(job_id)
@@ -262,9 +311,23 @@ class SqliteJobStore:
     def request_cancel(self, job_id: str) -> GpuJob:
         """Cancel a queued job or flag a running job for cooperative cancellation."""
 
+        return self._request_cancel(job_id=job_id, user_id=None)
+
+    def request_cancel_for_user(self, *, user_id: str, job_id: str) -> GpuJob:
+        """Request cancellation only when the job belongs to the caller."""
+
+        return self._request_cancel(job_id=job_id, user_id=user_id)
+
+    def _request_cancel(self, *, job_id: str, user_id: str | None) -> GpuJob:
+        """Apply a cancellation transition after an optional tenant-scoped lookup."""
+
         now = time.time()
         with self._lock:
-            job = self.get(job_id)
+            job = (
+                self.get(job_id)
+                if user_id is None
+                else self.get_for_user(user_id=user_id, job_id=job_id)
+            )
             if job.state == JobState.QUEUED:
                 self._connection.execute(
                     """
@@ -284,7 +347,11 @@ class SqliteJobStore:
                     """,
                     (now, job_id),
                 )
-        return self.get(job_id)
+        return (
+            self.get(job_id)
+            if user_id is None
+            else self.get_for_user(user_id=user_id, job_id=job_id)
+        )
 
     def has_queued(self) -> bool:
         """Return whether runnable work is waiting."""
