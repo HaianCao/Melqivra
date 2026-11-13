@@ -51,6 +51,15 @@
     "persistent_scheduler_wake_waiter": true,
     "status": "passed"
   },
+  "scheduler_lease_loss_test_regression": {
+    "ci_pr_run": 43445185089,
+    "ci_push_run": 43445175514,
+    "commit": "680a17923116a6bc4ef1b328774b8c530775a901",
+    "failed_ci_run": 43444235862,
+    "first_injected_lease_expires_atomically": true,
+    "retry_lease_margin_seconds": 10.0,
+    "status": "passed"
+  },
   "postgres_contract": {
     "branch_coverage_percent": 80,
     "command": "coverage run --branch --source=agent_music.postgres_store -m unittest tests.test_postgres_store -v",
