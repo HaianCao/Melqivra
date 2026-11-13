@@ -5,6 +5,13 @@
     "postgres_container_removed": true,
     "postgres_anonymous_volume_removed": true
   },
+  "continuous_integration": {
+    "commit": "0c17a327a848cdd2727a54a44ce44a13a7ed90d2",
+    "jobs_per_run": 5,
+    "pr_run": 43485366292,
+    "push_run": 43485358189,
+    "status": "passed"
+  },
   "contract": {
     "authorized_download_rehashes_bytes": true,
     "changed_batch_retry_rejected": true,
@@ -55,5 +62,5 @@
     "passed": 248,
     "service_tests_skipped_without_explicit_endpoints": 28
   },
-  "status": "passed_local_pending_ci"
+  "status": "passed"
 }
