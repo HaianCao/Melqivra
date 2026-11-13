@@ -49,6 +49,7 @@ class GpuHarness:
         if not self._worker_id.strip():
             raise ValueError("GPU worker ID must not be empty")
         self._wake = asyncio.Event()
+        self._wake_waiter: asyncio.Task[bool] | None = None
         self._stop_requested = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._current_job_id: str | None = None
@@ -142,25 +143,30 @@ class GpuHarness:
         )
 
     async def _run_loop(self) -> None:
-        while not self._stop_requested.is_set():
-            self.store.recover_expired()
-            job = self.store.claim_next(
-                lease_owner=self._worker_id,
-                lease_seconds=self.settings.job_lease_seconds,
-            )
-            if job is not None:
-                await self._execute(job)
-                continue
+        try:
+            while not self._stop_requested.is_set():
+                self.store.recover_expired()
+                job = self.store.claim_next(
+                    lease_owner=self._worker_id,
+                    lease_seconds=self.settings.job_lease_seconds,
+                )
+                if job is not None:
+                    await self._execute(job)
+                    continue
 
-            if await self._stop_if_idle():
-                continue
+                if await self._stop_if_idle():
+                    continue
 
-            self._wake.clear()
-            timeout = self._next_wait_timeout()
-            try:
-                await asyncio.wait_for(self._wake.wait(), timeout=timeout)
-            except TimeoutError:
-                pass
+                self._wake.clear()
+                timeout = self._next_wait_timeout()
+                await self._wait_for_wake(timeout)
+        finally:
+            waiter = self._wake_waiter
+            self._wake_waiter = None
+            if waiter is not None:
+                if not waiter.done():
+                    waiter.cancel()
+                await asyncio.gather(waiter, return_exceptions=True)
 
     async def _execute(self, job: GpuJob) -> None:
         if job.lease_token is None:
@@ -217,10 +223,7 @@ class GpuHarness:
 
         async def run_and_process() -> dict[str, Any]:
             await self.runner.ensure_ready()
-            result = await asyncio.wait_for(
-                self.runner.run(job, on_event),
-                timeout=self.settings.job_timeout_seconds,
-            )
+            result = await self._run_runner_with_timeout(job, on_event)
             lifecycle = result.setdefault("_lifecycle_metrics", {})
             if not isinstance(lifecycle, dict):
                 raise ValueError("Runner lifecycle metrics must be an object")
@@ -276,6 +279,50 @@ class GpuHarness:
             )
             if not renewed:
                 raise LostJobLeaseError("GPU job heartbeat lost its lease")
+
+    async def _run_runner_with_timeout(
+        self,
+        job: GpuJob,
+        on_event: EventCallback,
+    ) -> dict[str, Any]:
+        """Run one provider task without leaving an implicit wait-for task behind."""
+
+        runner_task = asyncio.create_task(
+            self.runner.run(job, on_event),
+            name=f"gpu-provider-{job.id}",
+        )
+        try:
+            try:
+                done, _pending = await asyncio.wait(
+                    {runner_task},
+                    timeout=self.settings.job_timeout_seconds,
+                )
+            except asyncio.CancelledError:
+                runner_task.cancel()
+                await asyncio.gather(runner_task, return_exceptions=True)
+                raise
+            if not done:
+                await self.runner.cancel(job.id)
+                runner_task.cancel()
+                await asyncio.gather(runner_task, return_exceptions=True)
+                raise TimeoutError(f"GPU job exceeded {self.settings.job_timeout_seconds} seconds")
+            return await runner_task
+        finally:
+            if not runner_task.done():
+                runner_task.cancel()
+                await asyncio.gather(runner_task, return_exceptions=True)
+
+    async def _wait_for_wake(self, timeout_seconds: float) -> None:
+        """Observe a scheduler deadline without wait-for cancellation leakage."""
+
+        waiter = self._wake_waiter
+        if waiter is None:
+            waiter = asyncio.create_task(self._wake.wait(), name="gpu-scheduler-wake")
+            self._wake_waiter = waiter
+        completed, _pending = await asyncio.wait({waiter}, timeout=timeout_seconds)
+        if completed:
+            await waiter
+            self._wake_waiter = None
 
     async def _stop_if_idle(self) -> bool:
         if self.runner.state != RunnerState.READY:

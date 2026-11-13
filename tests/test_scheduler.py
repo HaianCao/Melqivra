@@ -295,9 +295,27 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual("crashed-worker", still_owned.lease_owner)
                 self.assertEqual([], runner.completed_job_ids)
 
-                await wait_until(lambda: restarted.store.get(queued.id).state == JobState.SUCCEEDED)
+                try:
+                    await wait_until(
+                        lambda: (
+                            restarted.store.get(queued.id).state
+                            not in {JobState.QUEUED, JobState.RUNNING}
+                        )
+                    )
+                except TimeoutError:
+                    scheduler_task = restarted._task
+                    task_error = (
+                        scheduler_task.exception()
+                        if scheduler_task is not None and scheduler_task.done()
+                        else None
+                    )
+                    self.fail(
+                        f"restart state={restarted.store.get(queued.id)!r}; "
+                        f"scheduler_error={task_error!r}"
+                    )
                 recovered = restarted.store.get(queued.id)
 
+                self.assertEqual(JobState.SUCCEEDED, recovered.state, recovered.error)
                 self.assertNotEqual(original_token, recovered.lease_token)
                 self.assertEqual(2, recovered.attempt_count)
                 self.assertEqual([queued.id], runner.completed_job_ids)
@@ -366,12 +384,58 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                     kind="harness.echo",
                     payload={"retry": True},
                 )
-                await wait_until(lambda: harness.store.get(job.id).state == JobState.SUCCEEDED)
+                try:
+                    await wait_until(
+                        lambda: (
+                            harness.store.get(job.id).state
+                            not in {JobState.QUEUED, JobState.RUNNING}
+                        )
+                    )
+                except TimeoutError:
+                    scheduler_task = harness._task
+                    task_error = (
+                        scheduler_task.exception()
+                        if scheduler_task is not None and scheduler_task.done()
+                        else None
+                    )
+                    self.fail(
+                        f"retry state={harness.store.get(job.id)!r}; scheduler_error={task_error!r}"
+                    )
                 completed = harness.store.get(job.id)
+                self.assertEqual(JobState.SUCCEEDED, completed.state, completed.error)
                 self.assertEqual(2, completed.attempt_count)
                 self.assertEqual(1, runner.cancel_count)
                 self.assertEqual([job.id], runner.completed_job_ids)
                 self.assertEqual(1, runner.max_active_jobs)
+            finally:
+                await harness.close()
+
+    async def test_job_timeout_cancels_owned_runner_task_and_fails_job(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                idle_timeout_seconds=300.0,
+                scheduler_poll_seconds=0.01,
+                job_timeout_seconds=0.05,
+                job_lease_seconds=1.0,
+                job_heartbeat_seconds=0.1,
+            )
+            runner = FakeRunner(job_seconds=0.5)
+            harness = GpuHarness(settings, runner=runner)
+            await harness.start()
+            try:
+                job = harness.enqueue(
+                    user_id="alice",
+                    kind="harness.echo",
+                    payload={"timeout": True},
+                )
+                await wait_until(lambda: harness.store.get(job.id).state == JobState.FAILED)
+                failed = harness.store.get(job.id)
+                self.assertIn("TimeoutError", failed.error or "")
+                self.assertEqual(1, runner.cancel_count)
+                self.assertEqual([], runner.completed_job_ids)
             finally:
                 await harness.close()
 
