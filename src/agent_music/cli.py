@@ -78,6 +78,15 @@ async def _doctor(settings: HarnessSettings) -> int:
                 file=sys.stderr,
             )
             return 1
+        if (
+            settings.colab_cache_manifest_path is not None
+            and not settings.colab_cache_manifest_path.is_file()
+        ):
+            print(
+                f"ERROR: Colab cache manifest not found: {settings.colab_cache_manifest_path}",
+                file=sys.stderr,
+            )
+            return 1
         executable = shutil.which(settings.colab_executable)
         if executable is None:
             print("ERROR: Colab CLI executable not found", file=sys.stderr)

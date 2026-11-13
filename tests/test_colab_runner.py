@@ -160,6 +160,7 @@ class ArtifactColabClient(BlockingColabClient):
         super().__init__()
         self.expected_audio = b"RIFF-colab-private"
         self.tamper_download = tamper_download
+        self.uploaded_requests: list[dict[str, object]] = []
 
     async def run(
         self,
@@ -171,30 +172,36 @@ class ArtifactColabClient(BlockingColabClient):
         del check, on_stdout
         if argv[0] == "version":
             return CommandResult(0, "colab 0.8.0", "")
-        if argv[0] in {"status", "upload", "exec", "stop"}:
+        if argv[0] in {"status", "exec", "stop"}:
+            return CommandResult(0, "", "")
+        if argv[0] == "upload":
+            value = json.loads(await asyncio.to_thread(Path(argv[2]).read_text, encoding="utf-8"))
+            if isinstance(value, dict):
+                self.uploaded_requests.append(value)
             return CommandResult(0, "", "")
         if argv[0] == "download":
             remote_path = argv[2]
             local_path = Path(argv[3])
             await asyncio.to_thread(local_path.parent.mkdir, parents=True, exist_ok=True)
             if remote_path.endswith("agent_music_result.json"):
+                record: dict[str, object] = {
+                    "status": "succeeded",
+                    "job_id": "job-colab-artifact",
+                    "result": {
+                        "artifacts": [
+                            {
+                                "relative_path": "request/take.wav",
+                                "size_bytes": len(self.expected_audio),
+                                "sha256": hashlib.sha256(self.expected_audio).hexdigest(),
+                            }
+                        ]
+                    },
+                }
+                if self.uploaded_requests and "cache_contract" in self.uploaded_requests[-1]:
+                    record["cache"] = {"status": "verified", "cache_key": "cache-key"}
                 await asyncio.to_thread(
                     local_path.write_text,
-                    json.dumps(
-                        {
-                            "status": "succeeded",
-                            "job_id": "job-colab-artifact",
-                            "result": {
-                                "artifacts": [
-                                    {
-                                        "relative_path": "request/take.wav",
-                                        "size_bytes": len(self.expected_audio),
-                                        "sha256": hashlib.sha256(self.expected_audio).hexdigest(),
-                                    }
-                                ]
-                            },
-                        }
-                    ),
+                    json.dumps(record),
                     encoding="utf-8",
                 )
             else:
@@ -504,6 +511,66 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
                 await runner.run(job, self._ignore_event)
 
             self.assertEqual([], list(settings.transfer_root.iterdir()))
+
+    async def test_colab_cache_contract_is_verified_once_per_live_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            worker = root / "worker.py"
+            worker.write_text("# worker\n", encoding="utf-8")
+            manifest = root / "cache-manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "status": "succeeded",
+                        "cache_key": "cache-key",
+                        "source_revision": "source-revision",
+                        "verified_assets": [
+                            {
+                                "id": "weight",
+                                "relative_path": "models/weight.bin",
+                                "size_bytes": len(b"verified-cache"),
+                                "sha256": hashlib.sha256(b"verified-cache").hexdigest(),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_remote_worker_file=worker,
+                colab_mount_drive=False,
+                colab_cache_manifest_path=manifest,
+                colab_remote_cache_root="/content/drive/MyDrive/melqivra/cache-key",
+            )
+            client = ArtifactColabClient()
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+            await runner.ensure_ready()
+            job = GpuJob(
+                id="job-colab-artifact",
+                user_id="user",
+                kind="music.generate",
+                payload={"generation_request": {}},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+
+            await runner.run(job, self._ignore_event)
+            await runner.run(job, self._ignore_event)
+
+            requests = [
+                request
+                for request in client.uploaded_requests
+                if request.get("kind") == "music.generate"
+            ]
+            self.assertIn("cache_contract", requests[0])
+            self.assertNotIn("cache_contract", requests[1])
 
     @staticmethod
     async def _ignore_event(event: dict[str, object]) -> None:

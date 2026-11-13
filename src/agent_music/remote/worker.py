@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import platform
@@ -11,12 +12,14 @@ import sys
 import time
 import traceback
 from collections.abc import Callable, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 REQUEST_PATH = Path("/content/agent_music_job.json")
 DEFAULT_RESULT_PATH = Path("/content/agent_music_result.json")
 ALLOWED_CANCEL_ROOT = Path("/content/agent_music_control")
+ALLOWED_DRIVE_ROOT = Path("/content/drive")
+CACHE_DESCRIPTOR = ".melqivra-cache.json"
 
 
 class RemoteJobCancelled(RuntimeError):
@@ -112,6 +115,119 @@ def raise_if_cancelled(job: dict[str, Any]) -> None:
     raise RemoteJobCancelled("Remote job cancellation requested")
 
 
+def verify_cache(job: dict[str, Any]) -> dict[str, Any] | None:
+    """Verify one pinned Drive cache contract before model work."""
+
+    contract = job.get("cache_contract")
+    if contract is None:
+        return None
+    if not isinstance(contract, dict):
+        raise TypeError("Remote cache contract must be an object")
+    cache_key = contract.get("cache_key")
+    source_revision = contract.get("source_revision")
+    root_text = contract.get("root")
+    assets = contract.get("assets")
+    if (
+        not isinstance(cache_key, str)
+        or not cache_key
+        or not isinstance(source_revision, str)
+        or not source_revision
+        or not isinstance(root_text, str)
+        or not isinstance(assets, list)
+        or not assets
+    ):
+        raise ValueError("Remote cache contract metadata is invalid")
+    root = Path(root_text)
+    try:
+        root.relative_to(ALLOWED_DRIVE_ROOT)
+    except ValueError:
+        raise ValueError("Remote cache root escaped Google Drive") from None
+
+    normalized: list[dict[str, object]] = []
+    expected_descriptor_assets: list[dict[str, object]] = []
+    observed_paths: set[str] = set()
+    total_bytes = 0
+    started = time.monotonic()
+    for raw in assets:
+        if not isinstance(raw, dict):
+            raise ValueError("Remote cache asset is invalid")
+        asset_id = raw.get("id")
+        relative_text = raw.get("relative_path")
+        size_bytes = raw.get("size_bytes")
+        checksum = raw.get("sha256")
+        if (
+            not isinstance(asset_id, str)
+            or not asset_id
+            or not isinstance(relative_text, str)
+            or not isinstance(size_bytes, int)
+            or isinstance(size_bytes, bool)
+            or size_bytes < 0
+            or not isinstance(checksum, str)
+            or len(checksum) != 64
+        ):
+            raise ValueError("Remote cache asset metadata is invalid")
+        try:
+            int(checksum, 16)
+        except ValueError:
+            raise ValueError("Remote cache asset checksum is invalid") from None
+        relative = PurePosixPath(relative_text)
+        if (
+            relative.is_absolute()
+            or "\\" in relative_text
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or relative_text in observed_paths
+        ):
+            raise ValueError("Remote cache asset path is unsafe or duplicated")
+        observed_paths.add(relative_text)
+        path = root.joinpath(*relative.parts)
+        if not path.is_file():
+            raise FileNotFoundError(f"Remote cache asset is missing: {asset_id}")
+        observed_size = path.stat().st_size
+        if observed_size != size_bytes:
+            raise ValueError(
+                f"Remote cache size mismatch for {asset_id}: {observed_size} != {size_bytes}"
+            )
+        hasher = hashlib.sha256()
+        with path.open("rb") as asset_file:
+            while chunk := asset_file.read(1024 * 1024):
+                hasher.update(chunk)
+        if hasher.hexdigest() != checksum.lower():
+            raise ValueError(f"Remote cache checksum mismatch for {asset_id}")
+        normalized.append(
+            {
+                "id": asset_id,
+                "relative_path": relative_text,
+                "size_bytes": size_bytes,
+                "sha256": checksum.lower(),
+            }
+        )
+        expected_descriptor_assets.append(
+            {"id": asset_id, "size_bytes": size_bytes, "sha256": checksum.lower()}
+        )
+        total_bytes += size_bytes
+
+    descriptor_path = root / CACHE_DESCRIPTOR
+    if not descriptor_path.is_file():
+        raise FileNotFoundError("Remote cache descriptor is missing")
+    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+    expected_descriptor = {
+        "schema_version": 1,
+        "cache_key": cache_key,
+        "source_revision": source_revision,
+        "verified_assets": expected_descriptor_assets,
+    }
+    if descriptor != expected_descriptor:
+        raise ValueError("Remote cache descriptor is stale or incomplete")
+    return {
+        "status": "verified",
+        "cache_key": cache_key,
+        "source_revision": source_revision,
+        "asset_count": len(normalized),
+        "verified_bytes": total_bytes,
+        "verification_seconds": time.monotonic() - started,
+    }
+
+
 HANDLERS = {
     "harness.healthcheck": handle_healthcheck,
     "harness.echo": handle_echo,
@@ -145,6 +261,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError(f"Unsupported remote job kind: {kind}")
         emit({"type": "stage", "stage": "remote_started", "progress": 0.1})
         raise_if_cancelled(job)
+        cache_metrics = verify_cache(job)
         payload = handler(job)
         raise_if_cancelled(job)
         result = {
@@ -155,6 +272,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "result": payload,
             "artifacts": [],
         }
+        if cache_metrics is not None:
+            result["cache"] = cache_metrics
         emit({"type": "completed", "progress": 1.0})
         exit_code = 0
     except RemoteJobCancelled as error:

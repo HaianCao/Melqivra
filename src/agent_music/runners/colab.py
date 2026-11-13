@@ -49,6 +49,7 @@ class ColabRunner(GpuRunner):
         )
         self._state = RunnerState.ABSENT
         self._session_present = False
+        self._cache_verified = False
         self._preflight_complete = False
         self._provision_guard = asyncio.Lock()
         self._provision_task: asyncio.Task[None] | None = None
@@ -105,19 +106,19 @@ class ColabRunner(GpuRunner):
                 temp_path = Path(temp_dir)
                 request_path = temp_path / "job.json"
                 result_path = temp_path / "result.json"
+                request: dict[str, Any] = {
+                    "job_id": job.id,
+                    "kind": job.kind,
+                    "payload": job.payload,
+                    "output_root": self._settings.colab_remote_output_root,
+                    "result_path": self._settings.colab_remote_result_path,
+                    "control": {"cancel_path": self._active_cancel_path},
+                }
+                cache_contract = self._cache_contract(job)
+                if cache_contract is not None:
+                    request["cache_contract"] = cache_contract
                 request_path.write_text(
-                    json.dumps(
-                        {
-                            "job_id": job.id,
-                            "kind": job.kind,
-                            "payload": job.payload,
-                            "output_root": self._settings.colab_remote_output_root,
-                            "result_path": self._settings.colab_remote_result_path,
-                            "control": {"cancel_path": self._active_cancel_path},
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
+                    json.dumps(request, ensure_ascii=False, sort_keys=True),
                     encoding="utf-8",
                 )
                 await on_event({"type": "stage", "stage": "uploading", "progress": 0.05})
@@ -168,6 +169,14 @@ class ColabRunner(GpuRunner):
                     raise asyncio.CancelledError
                 if result.get("status") != "succeeded":
                     raise RuntimeError(str(result.get("error", "Remote job failed")))
+                if cache_contract is not None:
+                    cache_result = result.get("cache")
+                    if (
+                        not isinstance(cache_result, dict)
+                        or cache_result.get("status") != "verified"
+                    ):
+                        raise RuntimeError("Remote cache verification result is missing")
+                    self._cache_verified = True
                 if job.kind == "music.generate":
                     result["_transfer_id"] = await self._download_artifacts(job, result)
                     result["_environment"] = {
@@ -237,6 +246,7 @@ class ColabRunner(GpuRunner):
                     )
             finally:
                 self._session_present = False
+                self._cache_verified = False
                 self._state = RunnerState.RECLAIMED
 
     async def _provision(self) -> None:
@@ -259,6 +269,7 @@ class ColabRunner(GpuRunner):
                 if status_error.kind != ColabCliFailureKind.SESSION_MISSING:
                     raise status_error
                 self._session_present = False
+                self._cache_verified = False
                 self._state = RunnerState.PROVISIONING
                 await self._client.run(
                     self._client.new_argv(
@@ -283,6 +294,69 @@ class ColabRunner(GpuRunner):
             async with self._provision_guard:
                 if self._provision_task is current_task:
                     self._provision_task = None
+
+    def _cache_contract(self, job: GpuJob) -> dict[str, Any] | None:
+        manifest_path = self._settings.colab_cache_manifest_path
+        if job.kind != "music.generate" or manifest_path is None or self._cache_verified:
+            return None
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("status") != "succeeded":
+            raise ValueError("Colab cache manifest must be a successful object")
+        cache_key = manifest.get("cache_key")
+        source_revision = manifest.get("source_revision")
+        raw_assets = manifest.get("verified_assets")
+        if (
+            not isinstance(cache_key, str)
+            or not cache_key
+            or not isinstance(source_revision, str)
+            or not source_revision
+            or not isinstance(raw_assets, list)
+            or not raw_assets
+        ):
+            raise ValueError("Colab cache manifest metadata is invalid")
+        assets: list[dict[str, object]] = []
+        for raw in raw_assets:
+            if not isinstance(raw, dict):
+                raise ValueError("Colab cache manifest asset is invalid")
+            asset_id = raw.get("id")
+            relative_path = raw.get("relative_path")
+            size_bytes = raw.get("size_bytes")
+            checksum = raw.get("sha256")
+            if (
+                not isinstance(asset_id, str)
+                or not isinstance(relative_path, str)
+                or not isinstance(size_bytes, int)
+                or isinstance(size_bytes, bool)
+                or size_bytes < 0
+                or not isinstance(checksum, str)
+                or len(checksum) != 64
+            ):
+                raise ValueError("Colab cache manifest asset metadata is invalid")
+            path = PurePosixPath(relative_path)
+            if (
+                path.is_absolute()
+                or "\\" in relative_path
+                or any(part in {"", ".", ".."} for part in path.parts)
+            ):
+                raise ValueError("Colab cache manifest asset path is unsafe")
+            try:
+                int(checksum, 16)
+            except ValueError:
+                raise ValueError("Colab cache manifest checksum is invalid") from None
+            assets.append(
+                {
+                    "id": asset_id,
+                    "relative_path": relative_path,
+                    "size_bytes": size_bytes,
+                    "sha256": checksum.lower(),
+                }
+            )
+        return {
+            "cache_key": cache_key,
+            "source_revision": source_revision,
+            "root": self._settings.colab_remote_cache_root,
+            "assets": assets,
+        }
 
     async def _download_artifacts(self, job: GpuJob, result: dict[str, Any]) -> str:
         payload = result.get("result")

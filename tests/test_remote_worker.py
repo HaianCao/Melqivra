@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -98,6 +99,99 @@ class RemoteWorkerTests(unittest.TestCase):
             with patch.object(remote_worker, "ALLOWED_CANCEL_ROOT", control_root):
                 with self.assertRaisesRegex(ValueError, "escaped"):
                     remote_worker.cancellation_path(job)
+
+    def test_drive_cache_contract_verifies_descriptor_size_and_checksum(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            drive_root = Path(temporary) / "drive"
+            cache_root = drive_root / "cache-key"
+            asset = cache_root / "models" / "weight.bin"
+            asset.parent.mkdir(parents=True)
+            payload = b"verified-cache"
+            asset.write_bytes(payload)
+            checksum = hashlib.sha256(payload).hexdigest()
+            descriptor = {
+                "schema_version": 1,
+                "cache_key": "cache-key",
+                "source_revision": "source-revision",
+                "verified_assets": [
+                    {
+                        "id": "weight",
+                        "size_bytes": len(payload),
+                        "sha256": checksum,
+                    }
+                ],
+            }
+            (cache_root / remote_worker.CACHE_DESCRIPTOR).write_text(
+                json.dumps(descriptor, sort_keys=True),
+                encoding="utf-8",
+            )
+            job = {
+                "cache_contract": {
+                    "cache_key": "cache-key",
+                    "source_revision": "source-revision",
+                    "root": str(cache_root),
+                    "assets": [
+                        {
+                            "id": "weight",
+                            "relative_path": "models/weight.bin",
+                            "size_bytes": len(payload),
+                            "sha256": checksum,
+                        }
+                    ],
+                }
+            }
+
+            with patch.object(remote_worker, "ALLOWED_DRIVE_ROOT", drive_root):
+                metrics = remote_worker.verify_cache(job)
+
+            assert metrics is not None
+            self.assertEqual("verified", metrics["status"])
+            self.assertEqual(len(payload), metrics["verified_bytes"])
+
+            asset.write_bytes(b"corrupt")
+            with patch.object(remote_worker, "ALLOWED_DRIVE_ROOT", drive_root):
+                with self.assertRaisesRegex(ValueError, "size mismatch"):
+                    remote_worker.verify_cache(job)
+
+    def test_drive_cache_rejects_stale_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            drive_root = Path(temporary) / "drive"
+            cache_root = drive_root / "cache-key"
+            asset = cache_root / "weight.bin"
+            cache_root.mkdir(parents=True)
+            payload = b"verified-cache"
+            asset.write_bytes(payload)
+            checksum = hashlib.sha256(payload).hexdigest()
+            (cache_root / remote_worker.CACHE_DESCRIPTOR).write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "cache_key": "stale-key",
+                        "source_revision": "source-revision",
+                        "verified_assets": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            job = {
+                "cache_contract": {
+                    "cache_key": "cache-key",
+                    "source_revision": "source-revision",
+                    "root": str(cache_root),
+                    "assets": [
+                        {
+                            "id": "weight",
+                            "relative_path": "weight.bin",
+                            "size_bytes": len(payload),
+                            "sha256": checksum,
+                        }
+                    ],
+                }
+            }
+
+            with patch.object(remote_worker, "ALLOWED_DRIVE_ROOT", drive_root):
+                with self.assertRaisesRegex(ValueError, "stale or incomplete"):
+                    remote_worker.verify_cache(job)
 
 
 if __name__ == "__main__":
