@@ -54,6 +54,7 @@ class ColabRunner(GpuRunner):
         self._provision_task: asyncio.Task[None] | None = None
         self._stop_guard = asyncio.Lock()
         self._active_job_id: str | None = None
+        self._active_cancel_path: str | None = None
         self._run_finished = asyncio.Event()
         self._run_finished.set()
         self._cancel_requested: set[str] = set()
@@ -93,6 +94,11 @@ class ColabRunner(GpuRunner):
 
         self._state = RunnerState.BUSY
         self._active_job_id = job.id
+        cancel_identity = f"{job.id}:{job.lease_token}"
+        cancel_name = hashlib.sha256(cancel_identity.encode("utf-8")).hexdigest() + ".json"
+        self._active_cancel_path = str(
+            PurePosixPath(self._settings.colab_remote_cancel_root) / cancel_name
+        )
         self._run_finished.clear()
         try:
             with tempfile.TemporaryDirectory(prefix="melqivra-job-") as temp_dir:
@@ -107,6 +113,7 @@ class ColabRunner(GpuRunner):
                             "payload": job.payload,
                             "output_root": self._settings.colab_remote_output_root,
                             "result_path": self._settings.colab_remote_result_path,
+                            "control": {"cancel_path": self._active_cancel_path},
                         },
                         ensure_ascii=False,
                         sort_keys=True,
@@ -157,6 +164,8 @@ class ColabRunner(GpuRunner):
                 result = json.loads(result_path.read_text(encoding="utf-8"))
                 if not isinstance(result, dict):
                     raise ValueError("Remote result must be a JSON object")
+                if result.get("status") == "cancelled":
+                    raise asyncio.CancelledError
                 if result.get("status") != "succeeded":
                     raise RuntimeError(str(result.get("error", "Remote job failed")))
                 if job.kind == "music.generate":
@@ -174,13 +183,29 @@ class ColabRunner(GpuRunner):
         finally:
             self._cancel_requested.discard(job.id)
             self._active_job_id = None
+            self._active_cancel_path = None
             self._run_finished.set()
             if self._state == RunnerState.BUSY:
                 self._state = RunnerState.READY
 
     async def cancel(self, job_id: str) -> None:
         self._cancel_requested.add(job_id)
+        cancel_path = self._active_cancel_path
         await self._client.cancel_current()
+        if cancel_path is not None:
+            with tempfile.TemporaryDirectory(prefix="melqivra-cancel-") as temp_dir:
+                marker_path = Path(temp_dir) / "cancel.json"
+                marker_path.write_text(
+                    json.dumps({"job_id": job_id}, sort_keys=True),
+                    encoding="utf-8",
+                )
+                await self._client.run(
+                    self._client.upload_argv(
+                        self._settings.colab_session_name,
+                        marker_path,
+                        cancel_path,
+                    )
+                )
 
     async def stop(self) -> None:
         async with self._stop_guard:

@@ -55,6 +55,7 @@ class HarnessSettings:
     colab_remote_request_path: str = "/content/agent_music_job.json"
     colab_remote_result_path: str = "/content/agent_music_result.json"
     colab_remote_output_root: str = "/content/agent_music_output"
+    colab_remote_cancel_root: str = "/content/agent_music_control"
     colab_remote_worker_file: Path = DEFAULT_REMOTE_WORKER_FILE
     colab_command_timeout_seconds: float = 900.0
 
@@ -100,6 +101,9 @@ class HarnessSettings:
             colab_remote_output_root=os.getenv(
                 "COLAB_REMOTE_OUTPUT_ROOT", "/content/agent_music_output"
             ),
+            colab_remote_cancel_root=os.getenv(
+                "COLAB_REMOTE_CANCEL_ROOT", "/content/agent_music_control"
+            ),
             colab_remote_worker_file=Path(
                 os.getenv(
                     "COLAB_REMOTE_WORKER_FILE",
@@ -143,6 +147,9 @@ class HarnessSettings:
             raise ValueError("COLAB_COMMAND_TIMEOUT_SECONDS must be positive")
         if not self.colab_cli_version:
             raise ValueError("COLAB_CLI_VERSION must not be empty")
+        cancel_root = self.colab_remote_cancel_root.replace("\\", "/").rstrip("/")
+        if cancel_root != "/content/agent_music_control":
+            raise ValueError("COLAB_REMOTE_CANCEL_ROOT must match the packaged worker control root")
 
     def ensure_directories(self) -> None:
         """Create local state directories."""
