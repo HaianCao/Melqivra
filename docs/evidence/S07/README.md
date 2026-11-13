@@ -150,3 +150,8 @@ coverage remains 84%, distribution builds succeed, and the dependency audit
 reports no known vulnerabilities. A fresh disposable PostgreSQL 17.12 container
 again passed all eight contracts at 81% adapter branch coverage and was removed
 with its anonymous volume.
+
+Checkpoint `d82bf47` contains the compatibility fix and regression coverage.
+Protected push run `43438710384` and pull-request run `43438720682` each passed
+the four Windows/Linux Python 3.11/3.13 quality jobs plus the PostgreSQL service
+contract on that exact commit.
