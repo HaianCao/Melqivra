@@ -91,3 +91,18 @@ The deterministic test pauses both cancellation and session release to observe
 the ordered states and proves the active run ends as cancellation before reclaim.
 This test does not yet provide remote cooperative cancellation markers inside the
 worker or real hung-process cleanup evidence.
+
+## Fifth checkpoint: pinned CLI and classified failures
+
+The runtime and doctor now require the exact official `google-colab-cli` 0.8.0
+contract verified in S01. Unparseable output or another release fails before any
+session lookup or allocation. Nonzero status output is classified as expired
+authentication, incompatible CLI behavior, a missing named session, or an
+unclassified command failure. Only an explicit missing-session result may enter
+`PROVISIONING`; auth, compatibility, and unknown failures remain `FAILED` and do
+not attempt `new`.
+
+CPU-only failure injection covers the accepted version, rejected version,
+unrecognized version output, expired OAuth, missing session, and incompatible
+command cases. Real expired-account behavior still needs a disposable or safely
+revoked credential test; no provider session is created by this checkpoint.

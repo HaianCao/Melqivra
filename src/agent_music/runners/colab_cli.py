@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import signal
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 LineCallback = Callable[[str], Awaitable[None]]
+_VERSION_PATTERN = re.compile(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)")
+
+
+class ColabCliFailureKind(StrEnum):
+    """Actionable failure classes from the official Colab CLI."""
+
+    AUTHENTICATION = "authentication"
+    INCOMPATIBLE = "incompatible"
+    SESSION_MISSING = "session_missing"
+    COMMAND = "command"
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,13 +37,66 @@ class ColabCliError(RuntimeError):
     """A Colab CLI command failed."""
 
     def __init__(self, argv: Sequence[str], result: CommandResult) -> None:
+        self.kind = classify_colab_failure(result)
         safe_command = " ".join(argv[:4])
         super().__init__(
-            f"Colab CLI command failed ({result.returncode}): {safe_command}; "
+            f"Colab CLI {self.kind} failure ({result.returncode}): {safe_command}; "
             f"stderr={result.stderr[-1000:]}"
         )
         self.argv = tuple(argv)
         self.result = result
+
+
+class ColabCliCompatibilityError(RuntimeError):
+    """The installed official CLI does not match the verified contract."""
+
+
+def classify_colab_failure(result: CommandResult) -> ColabCliFailureKind:
+    """Classify known safe-to-act-on CLI failures without guessing fallback."""
+
+    output = f"{result.stdout}\n{result.stderr}".casefold()
+    auth_markers = (
+        "authentication",
+        "credential",
+        "forbidden",
+        "login required",
+        "oauth",
+        "token expired",
+        "unauthorized",
+    )
+    if any(marker in output for marker in auth_markers):
+        return ColabCliFailureKind.AUTHENTICATION
+    incompatible_markers = (
+        "incompatible",
+        "unrecognized argument",
+        "unknown command",
+        "unsupported version",
+    )
+    if any(marker in output for marker in incompatible_markers):
+        return ColabCliFailureKind.INCOMPATIBLE
+    missing_markers = (
+        "does not exist",
+        "no session",
+        "session not found",
+        "unknown session",
+    )
+    if any(marker in output for marker in missing_markers):
+        return ColabCliFailureKind.SESSION_MISSING
+    return ColabCliFailureKind.COMMAND
+
+
+def validate_colab_cli_version(output: str, expected: str) -> str:
+    """Return the observed semantic version or reject an unverified CLI."""
+
+    match = _VERSION_PATTERN.search(output)
+    if match is None:
+        raise ColabCliCompatibilityError("Colab CLI version output is unrecognized")
+    observed = match.group(1)
+    if observed != expected:
+        raise ColabCliCompatibilityError(
+            f"Colab CLI {observed} is incompatible; expected exactly {expected}"
+        )
+    return observed
 
 
 class ColabCliClient:
@@ -64,6 +129,9 @@ class ColabCliClient:
 
     def new_argv(self, session_name: str, gpu: str) -> list[str]:
         return [*self._base(), "new", "-s", session_name, "--gpu", gpu]
+
+    def version_argv(self) -> list[str]:
+        return [self._executable, "version"]
 
     def status_argv(self, session_name: str) -> list[str]:
         return [*self._base(), "status", "-s", session_name]
