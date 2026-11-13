@@ -224,3 +224,9 @@ the adapter and migration are present in the wheel, distribution builds succeed,
 and the dependency audit reports no known vulnerabilities. Durable approvals,
 tool audit records, authentication principals, request IDs, and service wiring
 remain subsequent S07 work.
+
+Checkpoint `050f06d` contains the repository port, PostgreSQL adapter, migration,
+real-container contracts, CI expansion, and evidence. Protected push run
+`43447676604` and pull-request run `43447688283` each passed the four
+Windows/Linux Python 3.11/3.13 quality jobs plus the combined PostgreSQL job and
+project service contract on that exact commit.
