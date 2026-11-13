@@ -26,6 +26,16 @@
       2
     ]
   },
+  "python_311_cancellation_regression": {
+    "failed_ci_runs": [
+      43435110415,
+      43435119999
+    ],
+    "local_coverage_suite_passed": true,
+    "owned_provider_timeout_task": true,
+    "persistent_scheduler_wake_waiter": true,
+    "status": "fixed_ci_pending"
+  },
   "postgres_contract": {
     "branch_coverage_percent": 81,
     "command": "coverage run --branch --source=agent_music.postgres_store -m unittest tests.test_postgres_store -v",
@@ -36,10 +46,10 @@
   "schema_version": 1,
   "standard_gate": {
     "critical_branch_coverage_percent": 84,
-    "discovered_tests": 224,
+    "discovered_tests": 225,
     "failed": 0,
     "mypy_source_files": 62,
-    "passed": 216,
+    "passed": 217,
     "postgres_skipped_without_dsn": 8
   },
   "status": "passed"

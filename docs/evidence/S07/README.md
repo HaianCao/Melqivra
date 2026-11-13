@@ -129,3 +129,24 @@ dependency audit reports no known vulnerabilities. The disposable container and
 its anonymous data volume were removed. Dead-letter policy, durable attempt
 history, approvals/audit, authentication, SSE, quotas, S3/MinIO, and backup/restore
 remain later S07 work.
+
+## Fourth checkpoint: Python 3.11 cancellation ownership
+
+The first hosted lease checkpoint passed PostgreSQL and every Python 3.13 job,
+but Python 3.11 coverage exposed cancellation leakage from
+`asyncio.wait_for(...)` in two scheduler paths. A timed-out wake wait could cancel
+the scheduler's event future, while the provider timeout path did not explicitly
+own the task it timed out. Both cases are now expressed as named tasks observed
+with `asyncio.wait(...)`: the wake waiter persists across poll deadlines and is
+cancelled only during orderly scheduler shutdown, and a provider timeout cancels
+and awaits its owned task after requesting provider cancellation.
+
+A regression test proves a timed-out provider operation is cancelled and stored
+as `FAILED` rather than escaping or completing later. The complete local gate now
+discovers 225 tests: 217 pass and the eight PostgreSQL tests skip without their
+explicit DSN on both Python 3.13 and Python 3.11 coverage runs. Strict mypy passes
+on 62 source files, Ruff format/lint pass, critical scheduler/SQLite-store branch
+coverage remains 84%, distribution builds succeed, and the dependency audit
+reports no known vulnerabilities. A fresh disposable PostgreSQL 17.12 container
+again passed all eight contracts at 81% adapter branch coverage and was removed
+with its anonymous volume.
