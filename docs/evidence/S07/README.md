@@ -433,3 +433,56 @@ polling `StreamingResponse`, keepalive, disconnect, and reconnect behavior. The
 API suite passes on Python 3.11 and 3.13, and the complete 262-test gate passes on
 both runtimes with Ruff, strict mypy, the 87% critical-path coverage gate,
 distribution builds, and the dependency audit.
+
+Checkpoint `2e137cf` contains the terminal-replay compatibility fix. Protected
+push run `43475168987` and pull-request run `43475172586` each pass the four
+Windows/Linux Python 3.11/3.13 jobs plus the real PostgreSQL contract.
+
+## Twelfth checkpoint: PostgreSQL and S3 artifact publication authority
+
+Migration `0007_create_artifact_publication_authority.sql` adds tenant/project
+artifact batches and ordered members with immutable checksums, lengths, media
+types, source revisions, internal object keys, and explicit publication state.
+The database enforces project ownership, append-only contracts, legal state
+transitions, and source-revision membership. A pending batch is not visible to
+authorized reads; PostgreSQL exposes every member together only after the byte
+contract has completed.
+
+The provider-neutral `ObjectStore`, `ArtifactRepository`, `ArtifactPublisher`,
+and `ArtifactReader` ports separate authority from transport. The optional boto3
+adapter uses conditional immutable S3 writes, bounded standard retries and
+timeouts, safe key validation, paginated listing, provider-error sanitization,
+and explicit response-body closure. Every verification and authorized download
+is capped by PostgreSQL's immutable recorded length: both an oversized provider
+header and a body that exceeds a dishonest header fail as integrity errors after
+the response is closed. The publication service reserves metadata, uploads each
+object, downloads it back, independently verifies length and SHA-256, and only
+then commits the batch as published. An interrupted upload leaves a restart-safe
+pending record that remains invisible; an exact retry resumes safely, while
+changed content conflicts.
+
+`ARTIFACT_STORAGE=s3` is explicit and requires the PostgreSQL production job
+authority. Configuration uses the standard AWS credential chain; browser and
+job responses receive neither credentials nor internal object keys. The API
+download route authorizes through PostgreSQL first, returns the same 404 for
+missing and cross-tenant artifacts, rehashes downloaded bytes, and converts
+missing/corrupt provider state to a content-free 503 response. Filesystem
+`AtomicArtifactStore` remains the default development publisher.
+
+A real PostgreSQL 17.12 plus S3-compatible run passed 28 contracts: all 27
+repository/migration/job/project/policy contracts plus one end-to-end object
+publication, restart-safe retry, authorized read, and remote-corruption test.
+The S3 service used digest-pinned Alpine MinIO packaging at source revision
+`951e146`, ran as non-root UID 100, and was used only as disposable AGPL-3.0 test
+infrastructure; it is not bundled or selected as a production image. Both
+containers and all disposable volumes were removed. Exact image, license,
+cleanup, migration, and contract details are in `artifact-storage-results.json`.
+
+The complete local gate discovers 276 tests: 248 pass and twenty-eight explicit
+PostgreSQL/S3 tests skip without configured endpoints. Strict mypy covers 74
+source files, Ruff format/lint pass, critical scheduler/job-store branch coverage
+is 87%, the combined real PostgreSQL adapter gate is 80%, distribution builds
+contain migration 0007 and every artifact module, and the dependency audit
+reports no known vulnerabilities. Retention/deletion recovery, orphan
+reconciliation, backup/restore, broader quotas/observability, and the final
+multi-process restart demo remain later S07 work.

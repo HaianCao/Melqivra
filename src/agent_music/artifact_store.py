@@ -10,7 +10,14 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_music.domain import Artifact, ArtifactId, ProjectId, RevisionId, validate_identifier
+from agent_music.domain import (
+    Artifact,
+    ArtifactId,
+    ProjectId,
+    RevisionId,
+    UserId,
+    validate_identifier,
+)
 
 _MEDIA_TYPE = re.compile(r"^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$")
 
@@ -124,6 +131,19 @@ class AtomicArtifactStore:
             if staging.exists():
                 shutil.rmtree(staging)
         return artifacts
+
+    def publish_batch(
+        self,
+        *,
+        owner_id: UserId,
+        project_id: ProjectId,
+        batch_id: str,
+        writes: tuple[ArtifactWrite, ...],
+    ) -> tuple[Artifact, ...]:
+        """Publish through the shared contract for the filesystem development adapter."""
+
+        _ = owner_id
+        return self.put_batch(project_id=project_id, batch_id=batch_id, writes=writes)
 
     def read(self, *, project_id: ProjectId, artifact: Artifact) -> bytes:
         """Read an authorized artifact and verify its path, length, and checksum."""

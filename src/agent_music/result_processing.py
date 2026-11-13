@@ -6,10 +6,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from agent_music.artifact_service import ArtifactPublisher, ArtifactReader
 from agent_music.artifact_store import AtomicArtifactStore
 from agent_music.backends.heartmula import HEARTMULA_DESCRIPTOR
 from agent_music.config import HarnessSettings
-from agent_music.domain import JsonObject, RevisionId, to_json_object
+from agent_music.domain import JsonObject, RevisionId, UserId, to_json_object
 from agent_music.generation import (
     MusicBackendDescriptor,
     request_from_json,
@@ -24,6 +25,10 @@ class JobResultProcessor(Protocol):
 
     def process(self, job: GpuJob, result: dict[str, Any]) -> dict[str, Any]: ...
 
+    def artifact_reader(self) -> ArtifactReader | None: ...
+
+    def close(self) -> None: ...
+
 
 class PassthroughResultProcessor:
     """Preserve existing behavior for jobs without post-run publication."""
@@ -32,6 +37,12 @@ class PassthroughResultProcessor:
         _ = job
         return result
 
+    def artifact_reader(self) -> ArtifactReader | None:
+        return None
+
+    def close(self) -> None:
+        """Release no resources."""
+
 
 class GenerationResultProcessor:
     """Import successful music output before reporting durable job success."""
@@ -39,11 +50,11 @@ class GenerationResultProcessor:
     def __init__(
         self,
         *,
-        artifact_store: AtomicArtifactStore,
+        artifact_publisher: ArtifactPublisher,
         transfer_root: Path,
         descriptors: tuple[MusicBackendDescriptor, ...],
     ) -> None:
-        self._artifact_store = artifact_store
+        self._artifact_publisher = artifact_publisher
         self._transfer_root = transfer_root.resolve()
         self._descriptors = {descriptor.backend_id: descriptor for descriptor in descriptors}
         if len(self._descriptors) != len(descriptors):
@@ -70,9 +81,10 @@ class GenerationResultProcessor:
             request=request,
             result=batch,
             descriptor=descriptor,
+            owner_id=UserId(job.user_id),
             plan_revision_id=plan_revision_id,
             remote_artifact_root=transfer_root,
-            artifact_store=self._artifact_store,
+            artifact_publisher=self._artifact_publisher,
             environment=environment,
         )
         return {
@@ -87,12 +99,31 @@ class GenerationResultProcessor:
             ),
         }
 
+    def artifact_reader(self) -> ArtifactReader | None:
+        reader = getattr(self._artifact_publisher, "read_for_owner", None)
+        if callable(reader):
+            return cast(ArtifactReader, self._artifact_publisher)
+        return None
+
+    def close(self) -> None:
+        """Release resources owned by a production artifact publisher."""
+
+        close = getattr(self._artifact_publisher, "close", None)
+        if callable(close):
+            close()
+
 
 def build_default_result_processor(settings: HarnessSettings) -> JobResultProcessor:
     """Build the installed generation completion policy without loading model assets."""
 
+    if settings.artifact_storage == "s3":
+        from agent_music.artifact_factory import build_artifact_service
+
+        publisher: ArtifactPublisher = build_artifact_service(settings)
+    else:
+        publisher = AtomicArtifactStore(settings.artifact_root)
     return GenerationResultProcessor(
-        artifact_store=AtomicArtifactStore(settings.artifact_root),
+        artifact_publisher=publisher,
         transfer_root=settings.transfer_root,
         descriptors=(HEARTMULA_DESCRIPTOR,),
     )

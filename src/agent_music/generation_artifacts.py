@@ -7,7 +7,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_music.artifact_store import ArtifactWrite, AtomicArtifactStore
+from agent_music.artifact_service import ArtifactPublisher
+from agent_music.artifact_store import ArtifactWrite
 from agent_music.audio_validation import validate_pcm16_wav
 from agent_music.domain import (
     Artifact,
@@ -17,6 +18,7 @@ from agent_music.domain import (
     RevisionId,
     Take,
     TakeId,
+    UserId,
     to_json_object,
 )
 from agent_music.generation import (
@@ -62,9 +64,10 @@ def import_generation_batch(
     request: MusicGenerationRequest,
     result: GenerationBatchResult,
     descriptor: MusicBackendDescriptor,
+    owner_id: UserId,
     plan_revision_id: RevisionId,
     remote_artifact_root: Path,
-    artifact_store: AtomicArtifactStore,
+    artifact_publisher: ArtifactPublisher,
     environment: JsonObject,
 ) -> ImportedGenerationBatch:
     """Verify and atomically persist every take and manifest in one batch."""
@@ -167,7 +170,8 @@ def import_generation_batch(
             ),
         )
     )
-    artifacts = artifact_store.put_batch(
+    artifacts = artifact_publisher.publish_batch(
+        owner_id=owner_id,
         project_id=request.project_id,
         batch_id=batch_id,
         writes=writes,

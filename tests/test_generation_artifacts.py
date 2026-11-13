@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 from agent_music.artifact_store import AtomicArtifactStore, CorruptArtifactError
-from agent_music.domain import ProjectId, RevisionId
+from agent_music.domain import ProjectId, RevisionId, UserId
 from agent_music.generation import (
     GeneratedTake,
     GenerationBatchResult,
@@ -172,9 +172,10 @@ class GenerationArtifactImportTests(unittest.TestCase):
             request=self.request,
             result=result,
             descriptor=self.descriptor,
+            owner_id=UserId("usr_test"),
             plan_revision_id=RevisionId("rev_plan"),
             remote_artifact_root=remote,
-            artifact_store=store,
+            artifact_publisher=store,
             environment={"provider": "modal", "gpu": "Tesla T4"},
         )
 

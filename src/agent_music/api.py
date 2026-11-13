@@ -18,6 +18,7 @@ from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHttpException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from agent_music.artifact_service import ArtifactReader
 from agent_music.authentication import (
     AuthenticationError,
     Authenticator,
@@ -25,6 +26,7 @@ from agent_music.authentication import (
     Principal,
 )
 from agent_music.config import HarnessSettings
+from agent_music.domain import ArtifactId, UserId
 from agent_music.job_store import (
     InvalidJobCursorError,
     InvalidJobEventCursorError,
@@ -171,6 +173,7 @@ def create_app(
     settings: HarnessSettings | None = None,
     harness: GpuHarness | None = None,
     authenticator: Authenticator | None = None,
+    artifact_reader: ArtifactReader | None = None,
 ) -> FastAPI:
     """Build an application with owned or explicitly injected service adapters."""
 
@@ -181,6 +184,7 @@ def create_app(
         authenticator = DevelopmentHeaderAuthenticator()
     resolved_authenticator = authenticator
     resolved_harness = harness or GpuHarness(resolved_settings)
+    resolved_artifact_reader = artifact_reader or resolved_harness.artifact_reader
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -429,6 +433,53 @@ def create_app(
             event_stream(),
             media_type="text/event-stream",
             headers=response_headers,
+        )
+
+    @app.get(
+        "/v1/artifacts/{artifact_id}",
+        responses={
+            401: {"model": ErrorResponse},
+            404: {"model": ErrorResponse},
+            503: {"model": ErrorResponse},
+        },
+    )
+    async def download_artifact(
+        artifact_id: str,
+        request: Request,
+        principal: PrincipalDependency,
+    ) -> Response:
+        if resolved_artifact_reader is None:
+            raise ApiError(
+                status.HTTP_404_NOT_FOUND,
+                "artifact_not_found",
+                "Artifact not found",
+            )
+        try:
+            download = await asyncio.to_thread(
+                resolved_artifact_reader.read_for_owner,
+                owner_id=UserId(str(principal.user_id)),
+                artifact_id=ArtifactId(artifact_id),
+            )
+        except (KeyError, ValueError):
+            raise ApiError(
+                status.HTTP_404_NOT_FOUND,
+                "artifact_not_found",
+                "Artifact not found",
+            ) from None
+        except Exception as error:
+            raise ApiError(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "artifact_unavailable",
+                "Artifact is temporarily unavailable",
+            ) from error
+        return Response(
+            content=download.content,
+            media_type=download.media_type,
+            headers={
+                "Cache-Control": "private, no-store",
+                "ETag": f'"sha256:{download.sha256}"',
+                "X-Artifact-SHA256": download.sha256,
+            },
         )
 
     @app.get(

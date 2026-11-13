@@ -104,7 +104,7 @@ async def import_real_takes(
         settings,
         runner=ExistingBatchRunner(runner_result),
         result_processor=GenerationResultProcessor(
-            artifact_store=AtomicArtifactStore(settings.artifact_root),
+            artifact_publisher=AtomicArtifactStore(settings.artifact_root),
             transfer_root=settings.transfer_root,
             descriptors=(HEARTMULA_DESCRIPTOR,),
         ),

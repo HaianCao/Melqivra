@@ -33,6 +33,15 @@ class HarnessSettings:
     postgres_pool_max_size: int = 4
     postgres_connect_timeout_seconds: float = 10.0
     artifact_root: Path = Path("data/artifacts")
+    artifact_storage: str = "filesystem"
+    s3_endpoint_url: str = ""
+    s3_bucket: str = ""
+    s3_region: str = "us-east-1"
+    s3_create_bucket: bool = False
+    s3_addressing_style: str = "auto"
+    s3_connect_timeout_seconds: float = 10.0
+    s3_read_timeout_seconds: float = 60.0
+    s3_max_attempts: int = 3
     transfer_root: Path = Path("data/transfers")
     runner: str = "modal"
     gpu_max_concurrency: int = 1
@@ -93,6 +102,15 @@ class HarnessSettings:
                 os.getenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", "10")
             ),
             artifact_root=Path(os.getenv("ARTIFACT_ROOT", "data/artifacts")),
+            artifact_storage=os.getenv("ARTIFACT_STORAGE", "filesystem").strip().lower(),
+            s3_endpoint_url=os.getenv("S3_ENDPOINT_URL", "").strip(),
+            s3_bucket=os.getenv("S3_BUCKET", "").strip(),
+            s3_region=os.getenv("S3_REGION", "us-east-1").strip(),
+            s3_create_bucket=_env_bool("S3_CREATE_BUCKET", False),
+            s3_addressing_style=os.getenv("S3_ADDRESSING_STYLE", "auto").strip().lower(),
+            s3_connect_timeout_seconds=float(os.getenv("S3_CONNECT_TIMEOUT_SECONDS", "10")),
+            s3_read_timeout_seconds=float(os.getenv("S3_READ_TIMEOUT_SECONDS", "60")),
+            s3_max_attempts=int(os.getenv("S3_MAX_ATTEMPTS", "3")),
             transfer_root=Path(os.getenv("TRANSFER_ROOT", "data/transfers")),
             runner=os.getenv("GPU_RUNNER", "modal").strip().lower(),
             gpu_max_concurrency=int(os.getenv("GPU_MAX_CONCURRENCY", "1")),
@@ -170,6 +188,21 @@ class HarnessSettings:
             raise ValueError("POSTGRES_POOL_MAX_SIZE must be at least the minimum")
         if self.postgres_connect_timeout_seconds <= 0:
             raise ValueError("POSTGRES_CONNECT_TIMEOUT_SECONDS must be positive")
+        if self.artifact_storage not in {"filesystem", "s3"}:
+            raise ValueError("ARTIFACT_STORAGE must be filesystem or s3")
+        if self.artifact_storage == "s3":
+            if self.job_store != "postgres" or not self.postgres_dsn:
+                raise ValueError("ARTIFACT_STORAGE=s3 requires JOB_STORE=postgres")
+            if not self.s3_bucket:
+                raise ValueError("S3_BUCKET is required when ARTIFACT_STORAGE=s3")
+        if not self.s3_region:
+            raise ValueError("S3_REGION must not be empty")
+        if self.s3_addressing_style not in {"auto", "path", "virtual"}:
+            raise ValueError("S3_ADDRESSING_STYLE must be auto, path, or virtual")
+        if self.s3_connect_timeout_seconds <= 0 or self.s3_read_timeout_seconds <= 0:
+            raise ValueError("S3 timeouts must be positive")
+        if self.s3_max_attempts < 1 or self.s3_max_attempts > 10:
+            raise ValueError("S3_MAX_ATTEMPTS must be between 1 and 10")
         if self.gpu_max_concurrency != 1:
             raise ValueError("This harness intentionally supports GPU_MAX_CONCURRENCY=1 only")
         if self.idle_timeout_seconds <= 0:
@@ -238,6 +271,7 @@ class HarnessSettings:
 
         if self.job_store == "sqlite":
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self.artifact_root.mkdir(parents=True, exist_ok=True)
+        if self.artifact_storage == "filesystem":
+            self.artifact_root.mkdir(parents=True, exist_ok=True)
         self.transfer_root.mkdir(parents=True, exist_ok=True)
         self.colab_cli_config.parent.mkdir(parents=True, exist_ok=True)

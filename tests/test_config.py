@@ -32,6 +32,7 @@ class HarnessSettingsTests(unittest.TestCase):
 
         self.assertEqual("modal", settings.runner)
         self.assertEqual("sqlite", settings.job_store)
+        self.assertEqual("filesystem", settings.artifact_storage)
         self.assertEqual("melqivra-gpu-runner", settings.modal_app_name)
 
     def test_environment_values_are_parsed_explicitly(self) -> None:
@@ -42,6 +43,15 @@ class HarnessSettingsTests(unittest.TestCase):
             "POSTGRES_POOL_MIN_SIZE": "2",
             "POSTGRES_POOL_MAX_SIZE": "6",
             "POSTGRES_CONNECT_TIMEOUT_SECONDS": "12",
+            "ARTIFACT_STORAGE": "S3",
+            "S3_ENDPOINT_URL": "http://minio:9000",
+            "S3_BUCKET": "melqivra-artifacts",
+            "S3_REGION": "ap-southeast-1",
+            "S3_CREATE_BUCKET": "yes",
+            "S3_ADDRESSING_STYLE": "PATH",
+            "S3_CONNECT_TIMEOUT_SECONDS": "8",
+            "S3_READ_TIMEOUT_SECONDS": "45",
+            "S3_MAX_ATTEMPTS": "4",
             "GPU_MAX_CONCURRENCY": "1",
             "GPU_IDLE_TIMEOUT_SECONDS": "301",
             "GPU_JOB_LEASE_SECONDS": "90",
@@ -70,6 +80,15 @@ class HarnessSettingsTests(unittest.TestCase):
         self.assertEqual(2, settings.postgres_pool_min_size)
         self.assertEqual(6, settings.postgres_pool_max_size)
         self.assertEqual(12.0, settings.postgres_connect_timeout_seconds)
+        self.assertEqual("s3", settings.artifact_storage)
+        self.assertEqual("http://minio:9000", settings.s3_endpoint_url)
+        self.assertEqual("melqivra-artifacts", settings.s3_bucket)
+        self.assertEqual("ap-southeast-1", settings.s3_region)
+        self.assertTrue(settings.s3_create_bucket)
+        self.assertEqual("path", settings.s3_addressing_style)
+        self.assertEqual(8.0, settings.s3_connect_timeout_seconds)
+        self.assertEqual(45.0, settings.s3_read_timeout_seconds)
+        self.assertEqual(4, settings.s3_max_attempts)
         self.assertEqual(301.0, settings.idle_timeout_seconds)
         self.assertEqual(90.0, settings.job_lease_seconds)
         self.assertEqual(20.0, settings.job_heartbeat_seconds)
@@ -104,6 +123,19 @@ class HarnessSettingsTests(unittest.TestCase):
             HarnessSettings(postgres_pool_min_size=0),
             HarnessSettings(postgres_pool_min_size=2, postgres_pool_max_size=1),
             HarnessSettings(postgres_connect_timeout_seconds=0),
+            HarnessSettings(artifact_storage="unknown"),
+            HarnessSettings(artifact_storage="s3"),
+            HarnessSettings(
+                job_store="postgres",
+                postgres_dsn="postgresql://database/melqivra",
+                artifact_storage="s3",
+            ),
+            HarnessSettings(s3_region=""),
+            HarnessSettings(s3_addressing_style="unknown"),
+            HarnessSettings(s3_connect_timeout_seconds=0),
+            HarnessSettings(s3_read_timeout_seconds=0),
+            HarnessSettings(s3_max_attempts=0),
+            HarnessSettings(s3_max_attempts=11),
             HarnessSettings(idle_timeout_seconds=0),
             HarnessSettings(scheduler_poll_seconds=0),
             HarnessSettings(job_timeout_seconds=0),

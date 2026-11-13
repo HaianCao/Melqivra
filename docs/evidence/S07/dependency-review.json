@@ -9,6 +9,11 @@
       "decision": "unavailable",
       "name": "Python standard library",
       "reason": "Python has no standard-library PostgreSQL protocol driver."
+    },
+    {
+      "decision": "rejected_for_this_boundary",
+      "name": "MinIO Python SDK",
+      "reason": "The production port targets the S3 protocol across AWS and MinIO; boto3 is the maintained AWS SDK and avoids coupling the application service to one S3-compatible server implementation."
     }
   ],
   "packages": [
@@ -29,9 +34,45 @@
       "name": "psycopg-pool",
       "purpose": "Bounded reusable PostgreSQL connection pool",
       "version": "3.3.3"
+    },
+    {
+      "license_expression": "Apache-2.0",
+      "name": "boto3",
+      "purpose": "Optional production S3-compatible client composition",
+      "version": "1.44.2"
+    },
+    {
+      "license_expression": "Apache-2.0",
+      "name": "botocore",
+      "purpose": "S3 protocol, signing, retry, timeout, and error contracts",
+      "version": "1.44.2"
+    },
+    {
+      "license_expression": "Apache-2.0",
+      "name": "s3transfer",
+      "purpose": "Locked boto3 S3 transfer dependency",
+      "version": "0.19.3"
+    },
+    {
+      "license_expression": "MIT",
+      "name": "jmespath",
+      "purpose": "Locked botocore response-query dependency",
+      "version": "1.1.0"
+    },
+    {
+      "license_expression": "Apache-2.0 OR BSD-3-Clause",
+      "name": "python-dateutil",
+      "purpose": "Locked botocore date parsing dependency",
+      "version": "2.9.0.post0"
+    },
+    {
+      "license_expression": "MIT",
+      "name": "six",
+      "purpose": "Locked python-dateutil compatibility dependency",
+      "version": "1.17.0"
     }
   ],
   "schema_version": 1,
-  "selection": "psycopg3_official_driver",
-  "status": "accepted_for_optional_postgres_extra"
+  "selection": "psycopg3_and_boto3_official_clients",
+  "status": "accepted_for_optional_postgres_and_object_storage_extras"
 }

@@ -22,7 +22,8 @@
       "3": "ff2a956f2d2b635f9df7854a766a6cc65f3993e77e5961b4a309cc79c22cf70e",
       "4": "121232d5ae4a6ae554e8081deefb7cc9649002b194c1dfa6aa5e1e08fa37b59d",
       "5": "5ef9b936dd9f91764f60002b3566a24f8f571224e50067df02b9c6d97d2df607",
-      "6": "1ca8a72c9d1298e9c52b7a26d879a15777174e8d2c67d0fb65e26b57d1112c45"
+      "6": "1ca8a72c9d1298e9c52b7a26d879a15777174e8d2c67d0fb65e26b57d1112c45",
+      "7": "e635a48bd148ebcba533d43a866dffa6b93c5d7ed9d5e51c18c65f3203768bb0"
     },
     "packaged_in_wheel": true,
     "versions": [
@@ -31,7 +32,8 @@
       3,
       4,
       5,
-      6
+      6,
+      7
     ]
   },
   "migration_catalog_policy": {
@@ -84,10 +86,10 @@
     "status": "passed"
   },
   "postgres_contract": {
-    "branch_coverage_percent": 81,
-    "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories -v",
+    "branch_coverage_percent": 80,
+    "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository,agent_music.postgres_artifact_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories tests.test_postgres_artifact_repository -v",
     "failed": 0,
-    "passed": 24
+    "passed": 27
   },
   "approval_audit_policy": {
     "append_only_audit_trigger": true,
@@ -147,11 +149,11 @@
   "schema_version": 1,
   "standard_gate": {
     "critical_branch_coverage_percent": 87,
-    "discovered_tests": 262,
+    "discovered_tests": 276,
     "failed": 0,
-    "mypy_source_files": 69,
-    "passed": 238,
-    "postgres_skipped_without_dsn": 24
+    "mypy_source_files": 74,
+    "passed": 248,
+    "service_tests_skipped_without_endpoints": 28
   },
   "status": "passed"
 }
