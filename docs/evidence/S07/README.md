@@ -180,3 +180,8 @@ reports no known vulnerabilities. A fresh PostgreSQL 17.12 database passes all
 ten migration, parity, contention, attempt-history, dead-letter, and scheduler
 contracts with 80% adapter branch coverage. The disposable container and its
 anonymous volume were removed.
+
+Checkpoint `79db7ed` contains the durable attempt history and bounded retry
+policy. Protected push run `43443842155` and pull-request run `43443849360`
+each passed the four Windows/Linux Python 3.11/3.13 quality jobs plus the real
+PostgreSQL service contract on that exact commit.
