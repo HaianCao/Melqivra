@@ -293,7 +293,11 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                 job_lease_seconds=0.3,
                 job_heartbeat_seconds=0.05,
             )
-            crashed_store = SqliteJobStore(settings.database_path)
+            lease_clock = FakeClock()
+            crashed_store = SqliteJobStore(
+                settings.database_path,
+                wall_clock=lease_clock.wall,
+            )
             queued = crashed_store.enqueue(
                 user_id="alice",
                 kind="harness.echo",
@@ -308,14 +312,26 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
             crashed_store.close()
 
             runner = FakeRunner(job_seconds=0.001)
-            restarted = GpuHarness(settings, runner=runner)
+            restarted_store = SqliteJobStore(
+                settings.database_path,
+                wall_clock=lease_clock.wall,
+            )
+            restarted = GpuHarness(
+                settings,
+                store=restarted_store,
+                runner=runner,
+                wall_clock=lease_clock.wall,
+            )
             await restarted.start()
             try:
-                await asyncio.sleep(0.03)
+                await asyncio.sleep(0)
                 still_owned = restarted.store.get(queued.id)
                 self.assertEqual(JobState.RUNNING, still_owned.state)
                 self.assertEqual("crashed-worker", still_owned.lease_owner)
                 self.assertEqual([], runner.completed_job_ids)
+
+                lease_clock.advance(settings.job_lease_seconds)
+                restarted._wake.set()
 
                 try:
                     await wait_until(
