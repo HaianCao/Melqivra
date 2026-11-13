@@ -264,3 +264,23 @@ distribution builds contain only the explicit new module/resource names, and the
 dependency audit reports no known vulnerabilities. A fresh PostgreSQL 17.12
 database again passes all fifteen real contracts at 80% combined migration and
 adapter branch coverage; the container and anonymous volume were removed.
+
+## Eighth checkpoint: deterministic restart lease evidence
+
+The professionalization checkpoint passed nine of ten protected jobs, while one
+duplicate Windows/Python 3.13 coverage run exposed a timing assumption in the
+broker-restart test. The test assigned the crashed worker a 300-millisecond lease
+and then assumed a 30-millisecond coroutine delay would observe it before expiry.
+Under a loaded hosted runner the coroutine resumed after roughly one second, so
+the service correctly reclaimed the expired lease and the test incorrectly
+reported a failure.
+
+`SqliteJobStore` now accepts an optional wall-clock dependency while retaining
+the existing dynamic system-clock default. The restart test uses that clock to
+prove the old worker remains authoritative before expiry, advances to the exact
+expiry boundary, and then proves recovery completes with a new fencing token and
+second durable attempt. The regression passed 25 consecutive runs. The complete
+local gate again discovers 236 tests: 221 pass and fifteen PostgreSQL tests skip;
+strict mypy covers 64 source files, Ruff format/lint pass, critical
+scheduler/job-store branch coverage is 84%, distributions build successfully,
+and the dependency audit reports no known vulnerabilities.

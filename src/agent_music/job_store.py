@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -82,11 +83,18 @@ class SqliteJobStore:
     store keeps the concurrency invariant durable across API restarts.
     """
 
-    def __init__(self, database_path: Path, *, max_attempts: int = 3) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        max_attempts: int = 3,
+        wall_clock: Callable[[], float] | None = None,
+    ) -> None:
         if max_attempts < 1:
             raise ValueError("GPU job max attempts must be at least 1")
         self._database_path = database_path
         self._max_attempts = max_attempts
+        self._wall_clock = wall_clock
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(
             database_path,
@@ -195,7 +203,7 @@ class SqliteJobStore:
     ) -> GpuJob:
         """Append a job or return the prior idempotent job."""
 
-        now = time.time()
+        now = self._now()
         job_id = str(uuid.uuid4())
         payload_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         with self._lock:
@@ -273,7 +281,7 @@ class SqliteJobStore:
         with self._lock:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
-                now = time.time()
+                now = self._now()
                 lease_expires_at = now + lease_seconds
                 self._recover_expired_locked(now)
                 active = self._connection.execute(
@@ -375,7 +383,7 @@ class SqliteJobStore:
         with self._lock:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
-                now = time.time()
+                now = self._now()
                 cursor = self._connection.execute(
                     """
                     UPDATE gpu_jobs
@@ -468,7 +476,7 @@ class SqliteJobStore:
         with self._lock:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
-                now = time.time()
+                now = self._now()
                 cursor = self._connection.execute(
                     """
                     UPDATE gpu_jobs
@@ -527,7 +535,7 @@ class SqliteJobStore:
     def _request_cancel(self, *, job_id: str, user_id: str | None) -> GpuJob:
         """Apply a cancellation transition after an optional tenant-scoped lookup."""
 
-        now = time.time()
+        now = self._now()
         with self._lock:
             job = (
                 self.get(job_id)
@@ -623,7 +631,7 @@ class SqliteJobStore:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
                 recovered = self._recover_running_locked(
-                    now=time.time(),
+                    now=self._now(),
                     expired_only=False,
                     attempt_outcome=JobAttemptOutcome.INTERRUPTED,
                     retry_error="Control plane restarted; job safely requeued",
@@ -644,13 +652,16 @@ class SqliteJobStore:
         with self._lock:
             self._connection.execute("BEGIN IMMEDIATE")
             try:
-                now = time.time()
+                now = self._now()
                 recovered = self._recover_expired_locked(now)
                 self._connection.execute("COMMIT")
             except BaseException:
                 self._connection.execute("ROLLBACK")
                 raise
         return recovered
+
+    def _now(self) -> float:
+        return self._wall_clock() if self._wall_clock is not None else time.time()
 
     def _recover_expired_locked(self, now: float) -> int:
         return self._recover_running_locked(
