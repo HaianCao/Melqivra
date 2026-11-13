@@ -1,6 +1,6 @@
 # S06 evidence — Colab lifecycle and cache hardening
 
-Status: `IN_PROGRESS`
+Status: `DONE`
 
 Recorded from: 2026-11-13 (Asia/Saigon)
 
@@ -299,3 +299,36 @@ The complete post-probe gate passes with 208 tests, strict mypy on 61 source
 files, Ruff format/lint, 88% critical scheduler/store branch coverage,
 successful wheel and source distribution builds, and no known audited
 vulnerabilities.
+
+## Closure verdict
+
+S06 meets its roadmap exit criteria:
+
+- Modal and Colab enforce pinned CLI/auth contracts, explicit lifecycle states,
+  single-flight readiness, heartbeat, bounded cancellation, ordered reclaim, and
+  no silent provider fallback;
+- Colab cache descriptors, safe paths, sizes, SHA-256 checksums, once-per-session
+  verification, atomic artifact publication, and corruption rejection are wired
+  into the product runner, building on the real Drive population/restore evidence
+  from S01;
+- exact 0/299/300/301-second arrivals, five-user FIFO serialization, atomic idle
+  recheck, broker restart, fresh fencing, expired auth, incompatible CLI, lost
+  session, corrupt cache, hung process, and reclaim-during-execution/download
+  paths pass deterministic failure injection;
+- the clean CPU demo proves one provision, exact-grace reuse, concurrency one,
+  and one shutdown after the full 300-second idle interval;
+- three authorized durable Modal jobs passed cold, warm, and explicit-recovery
+  Tesla T4 contracts, measured a 0.358582-second warm total gain, and finished
+  with all apps stopped, zero tasks, and zero active containers;
+- the $0.08 approval exceeded the enforced $0.069271 upper bound; the observed
+  provider report remained far below it, and current-cycle billed cost was $0;
+- the complete local gate passed with 208 tests and 88% critical branch coverage,
+  and protected CI runs `43408216616` and `43408222298` passed on Windows/Linux
+  Python 3.11/3.13.
+
+Known limitations remain explicit: Modal warm mode is control-plane/image-cache
+reuse rather than a same-container or resident-model guarantee; the provider
+billing report had one delayed app record at capture time; fresh Colab lifecycle
+behavior is CPU-contract-tested while its real T4/Drive foundation remains the
+S01 evidence; `LocalCudaRunner` is still an S11 placeholder; and this stage makes
+no new music-quality, backend-acceptance, or production-service-topology claim.
