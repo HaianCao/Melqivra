@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 from agent_music.models import GpuJob, JobState
+from agent_music.store import LostJobLeaseError
 
 _MIGRATION_LOCK_ID = 1_296_382_033
 
@@ -45,6 +46,11 @@ POSTGRES_MIGRATIONS = (
         version=1,
         name="job_queue",
         resource="migrations/postgresql/0001_job_queue.sql",
+    ),
+    PostgresMigration(
+        version=2,
+        name="job_leases",
+        resource="migrations/postgresql/0002_job_leases.sql",
     ),
 )
 
@@ -144,6 +150,20 @@ class PostgresJobStore:
 
         self._pool.close()
 
+    @staticmethod
+    def _database_time(connection: PostgresConnection) -> float:
+        """Read the authoritative lease clock after acquiring transaction locks."""
+
+        row = connection.execute(
+            """
+            SELECT EXTRACT(EPOCH FROM clock_timestamp())::double precision
+                AS now_epoch
+            """
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("PostgreSQL clock query returned no value")
+        return float(row["now_epoch"])
+
     def enqueue(
         self,
         *,
@@ -214,16 +234,67 @@ class PostgresJobStore:
             raise KeyError(job_id)
         return self._row_to_job(row)
 
-    def claim_next(self) -> GpuJob | None:
+    def claim_next(
+        self,
+        *,
+        lease_owner: str = "legacy-worker",
+        lease_seconds: float = 60.0,
+    ) -> GpuJob | None:
         """Atomically claim the oldest runnable job across competing workers."""
 
-        now = time.time()
+        if not lease_owner:
+            raise ValueError("Job lease owner must not be empty")
+        if lease_seconds <= 0:
+            raise ValueError("Job lease duration must be positive")
         with self._pool.connection() as connection, connection.transaction():
+            slot = connection.execute(
+                "SELECT * FROM gpu_capacity_slots WHERE slot_id = 1 FOR UPDATE"
+            ).fetchone()
+            if slot is None:
+                raise RuntimeError("PostgreSQL GPU capacity slot is missing")
+            now = self._database_time(connection)
+            lease_expires_at = now + lease_seconds
+            active_job_id = slot["active_job_id"]
+            active_expires_at = slot["lease_expires_at"]
+            if active_job_id is not None:
+                if active_expires_at is not None and float(active_expires_at) > now:
+                    return None
+                connection.execute(
+                    """
+                    UPDATE gpu_jobs
+                    SET state = CASE WHEN cancel_requested THEN %s ELSE %s END,
+                        started_at = NULL, lease_token = NULL,
+                        lease_owner = NULL, lease_expires_at = NULL,
+                        finished_at = CASE WHEN cancel_requested THEN %s ELSE NULL END,
+                        updated_at = %s,
+                        error = CASE WHEN cancel_requested THEN %s ELSE %s END
+                    WHERE id = %s AND state = %s AND lease_token = %s
+                    """,
+                    (
+                        JobState.CANCELLED.value,
+                        JobState.QUEUED.value,
+                        now,
+                        now,
+                        "Job cancelled after worker lease expired",
+                        "Worker lease expired; job safely requeued",
+                        active_job_id,
+                        JobState.RUNNING.value,
+                        slot["lease_token"],
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE gpu_capacity_slots
+                    SET active_job_id = NULL, lease_token = NULL,
+                        lease_owner = NULL, lease_expires_at = NULL
+                    WHERE slot_id = 1
+                    """
+                )
             row = connection.execute(
                 """
                 SELECT id FROM gpu_jobs
                 WHERE state = %s AND cancel_requested = FALSE
-                ORDER BY created_at ASC, enqueue_order ASC
+                ORDER BY enqueue_order ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """,
@@ -239,7 +310,9 @@ class PostgresJobStore:
             claimed = connection.execute(
                 """
                 UPDATE gpu_jobs
-                SET state = %s, started_at = %s, updated_at = %s, lease_token = %s
+                SET state = %s, started_at = %s, updated_at = %s,
+                    lease_token = %s, lease_owner = %s, lease_expires_at = %s,
+                    attempt_count = attempt_count + 1
                 WHERE id = %s AND state = %s
                 RETURNING *
                 """,
@@ -248,13 +321,93 @@ class PostgresJobStore:
                     now,
                     now,
                     int(token_row["token"]),
+                    lease_owner,
+                    lease_expires_at,
                     row["id"],
                     JobState.QUEUED.value,
                 ),
             ).fetchone()
             if claimed is None:
                 raise RuntimeError("PostgreSQL job claim lost its row lock")
+            connection.execute(
+                """
+                UPDATE gpu_capacity_slots
+                SET active_job_id = %s, lease_token = %s,
+                    lease_owner = %s, lease_expires_at = %s
+                WHERE slot_id = 1
+                """,
+                (
+                    claimed["id"],
+                    claimed["lease_token"],
+                    lease_owner,
+                    lease_expires_at,
+                ),
+            )
             return self._row_to_job(claimed)
+
+    def renew_lease(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        lease_owner: str,
+        lease_seconds: float,
+    ) -> bool:
+        """Extend the single live GPU capacity lease."""
+
+        if not lease_owner:
+            raise ValueError("Job lease owner must not be empty")
+        if lease_seconds <= 0:
+            raise ValueError("Job lease duration must be positive")
+        with self._pool.connection() as connection, connection.transaction():
+            slot = connection.execute(
+                """
+                SELECT * FROM gpu_capacity_slots
+                WHERE slot_id = 1
+                FOR UPDATE
+                """
+            ).fetchone()
+            if slot is None:
+                raise RuntimeError("PostgreSQL GPU capacity slot is missing")
+            now = self._database_time(connection)
+            if (
+                slot["active_job_id"] != job_id
+                or slot["lease_token"] != lease_token
+                or slot["lease_owner"] != lease_owner
+                or slot["lease_expires_at"] is None
+                or float(slot["lease_expires_at"]) <= now
+            ):
+                return False
+            expires_at = now + lease_seconds
+            job = connection.execute(
+                """
+                UPDATE gpu_jobs
+                SET lease_expires_at = %s, updated_at = %s
+                WHERE id = %s AND state = %s AND lease_token = %s
+                  AND lease_owner = %s AND lease_expires_at > %s
+                RETURNING id
+                """,
+                (
+                    expires_at,
+                    now,
+                    job_id,
+                    JobState.RUNNING.value,
+                    lease_token,
+                    lease_owner,
+                    now,
+                ),
+            ).fetchone()
+            if job is None:
+                raise LostJobLeaseError("GPU capacity lease and job lease diverged")
+            connection.execute(
+                """
+                UPDATE gpu_capacity_slots
+                SET lease_expires_at = %s
+                WHERE slot_id = 1
+                """,
+                (expires_at,),
+            )
+            return True
 
     def complete(self, job_id: str, lease_token: int, result: dict[str, Any]) -> None:
         """Complete only if the caller still owns the fencing token."""
@@ -298,14 +451,30 @@ class PostgresJobStore:
         result: dict[str, Any] | None,
         error: str | None,
     ) -> None:
-        now = time.time()
         with self._pool.connection() as connection, connection.transaction():
+            slot = connection.execute(
+                "SELECT * FROM gpu_capacity_slots WHERE slot_id = 1 FOR UPDATE"
+            ).fetchone()
+            if slot is None:
+                raise RuntimeError("PostgreSQL GPU capacity slot is missing")
+            now = self._database_time(connection)
+            if (
+                slot["active_job_id"] != job_id
+                or slot["lease_token"] != lease_token
+                or slot["lease_expires_at"] is None
+                or float(slot["lease_expires_at"]) <= now
+            ):
+                raise LostJobLeaseError(
+                    "Lost GPU job lease; capacity slot rejected the finishing worker"
+                )
             row = connection.execute(
                 """
                 UPDATE gpu_jobs
                 SET state = %s, result_json = %s, error = %s,
-                    finished_at = %s, updated_at = %s
+                    finished_at = %s, updated_at = %s,
+                    lease_owner = NULL, lease_expires_at = NULL
                 WHERE id = %s AND state = %s AND lease_token = %s
+                  AND lease_expires_at > %s
                 RETURNING id
                 """,
                 (
@@ -317,10 +486,19 @@ class PostgresJobStore:
                     job_id,
                     JobState.RUNNING.value,
                     lease_token,
+                    now,
                 ),
             ).fetchone()
             if row is None:
-                raise RuntimeError("Lost GPU job lease; refusing stale commit")
+                raise LostJobLeaseError("Lost GPU job lease; refusing stale commit")
+            connection.execute(
+                """
+                UPDATE gpu_capacity_slots
+                SET active_job_id = NULL, lease_token = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL
+                WHERE slot_id = 1
+                """,
+            )
 
     def request_cancel(self, job_id: str) -> GpuJob:
         """Request cancellation through the internal scheduler boundary."""
@@ -397,7 +575,7 @@ class PostgresJobStore:
         with self._pool.connection() as connection:
             target = connection.execute(
                 """
-                SELECT state, created_at, enqueue_order
+                SELECT state, enqueue_order
                 FROM gpu_jobs WHERE id = %s
                 """,
                 (job_id,),
@@ -412,15 +590,10 @@ class PostgresJobStore:
                 FROM gpu_jobs
                 WHERE state = %s
                   AND cancel_requested = FALSE
-                  AND (
-                    created_at < %s
-                    OR (created_at = %s AND enqueue_order <= %s)
-                  )
+                  AND enqueue_order <= %s
                 """,
                 (
                     JobState.QUEUED.value,
-                    target["created_at"],
-                    target["created_at"],
                     target["enqueue_order"],
                 ),
             ).fetchone()
@@ -429,25 +602,89 @@ class PostgresJobStore:
         return int(row["count"])
 
     def recover_interrupted(self) -> int:
-        """Requeue work left running by a crashed control plane."""
+        """Force-requeue running work for explicit recovery tooling."""
 
         now = time.time()
         with self._pool.connection() as connection, connection.transaction():
             rows = connection.execute(
                 """
                 UPDATE gpu_jobs
-                SET state = %s, started_at = NULL, lease_token = NULL,
-                    updated_at = %s, error = %s
+                SET state = CASE WHEN cancel_requested THEN %s ELSE %s END,
+                    started_at = NULL, lease_token = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL,
+                    finished_at = CASE WHEN cancel_requested THEN %s ELSE NULL END,
+                    updated_at = %s,
+                    error = CASE WHEN cancel_requested THEN %s ELSE %s END
                 WHERE state = %s
                 RETURNING id
                 """,
                 (
+                    JobState.CANCELLED.value,
                     JobState.QUEUED.value,
                     now,
+                    now,
+                    "Job cancelled after control-plane interruption",
                     "Control plane restarted; job safely requeued",
                     JobState.RUNNING.value,
                 ),
             ).fetchall()
+            connection.execute(
+                """
+                UPDATE gpu_capacity_slots
+                SET active_job_id = NULL, lease_token = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL
+                WHERE slot_id = 1
+                """
+            )
+        return len(rows)
+
+    def recover_expired(self) -> int:
+        """Requeue only the running job whose global capacity lease expired."""
+
+        with self._pool.connection() as connection, connection.transaction():
+            slot = connection.execute(
+                "SELECT * FROM gpu_capacity_slots WHERE slot_id = 1 FOR UPDATE"
+            ).fetchone()
+            if slot is None:
+                raise RuntimeError("PostgreSQL GPU capacity slot is missing")
+            if slot["active_job_id"] is None:
+                return 0
+            now = self._database_time(connection)
+            expires_at = slot["lease_expires_at"]
+            if expires_at is not None and float(expires_at) > now:
+                return 0
+            rows = connection.execute(
+                """
+                UPDATE gpu_jobs
+                SET state = CASE WHEN cancel_requested THEN %s ELSE %s END,
+                    started_at = NULL, lease_token = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL,
+                    finished_at = CASE WHEN cancel_requested THEN %s ELSE NULL END,
+                    updated_at = %s,
+                    error = CASE WHEN cancel_requested THEN %s ELSE %s END
+                WHERE id = %s AND state = %s AND lease_token = %s
+                RETURNING id
+                """,
+                (
+                    JobState.CANCELLED.value,
+                    JobState.QUEUED.value,
+                    now,
+                    now,
+                    "Job cancelled after worker lease expired",
+                    "Worker lease expired; job safely requeued",
+                    slot["active_job_id"],
+                    JobState.RUNNING.value,
+                    slot["lease_token"],
+                ),
+            ).fetchall()
+            connection.execute(
+                """
+                UPDATE gpu_capacity_slots
+                SET active_job_id = NULL, lease_token = NULL,
+                    lease_owner = NULL, lease_expires_at = NULL
+                WHERE slot_id = 1
+                """
+            )
         return len(rows)
 
     @staticmethod
@@ -472,4 +709,9 @@ class PostgresJobStore:
             error=str(row["error"]) if row["error"] is not None else None,
             cancel_requested=bool(row["cancel_requested"]),
             lease_token=(int(row["lease_token"]) if row["lease_token"] is not None else None),
+            lease_owner=(str(row["lease_owner"]) if row["lease_owner"] is not None else None),
+            lease_expires_at=(
+                float(row["lease_expires_at"]) if row["lease_expires_at"] is not None else None
+            ),
+            attempt_count=int(row["attempt_count"]),
         )

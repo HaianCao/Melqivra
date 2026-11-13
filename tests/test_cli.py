@@ -39,6 +39,8 @@ class DoctorTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             self.assertIn("runner=fake", output.getvalue())
             self.assertIn("job_store=sqlite", output.getvalue())
+            self.assertIn("job_lease_seconds=60.0", output.getvalue())
+            self.assertIn("job_heartbeat_seconds=15.0", output.getvalue())
             self.assertIn("doctor=ok", output.getvalue())
             self.assertTrue((root / "state").is_dir())
             self.assertTrue((root / "artifacts").is_dir())

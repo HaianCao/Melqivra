@@ -42,6 +42,32 @@ class FakeClock:
         self._wall += seconds
 
 
+class LoseFirstRenewalStore(SqliteJobStore):
+    """Inject one authoritative lease loss before allowing later attempts."""
+
+    def __init__(self, database_path: Path) -> None:
+        super().__init__(database_path)
+        self.renewal_attempts = 0
+
+    def renew_lease(
+        self,
+        *,
+        job_id: str,
+        lease_token: int,
+        lease_owner: str,
+        lease_seconds: float,
+    ) -> bool:
+        self.renewal_attempts += 1
+        if self.renewal_attempts == 1:
+            return False
+        return super().renew_lease(
+            job_id=job_id,
+            lease_token=lease_token,
+            lease_owner=lease_owner,
+            lease_seconds=lease_seconds,
+        )
+
+
 class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -242,6 +268,8 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                 idle_timeout_seconds=300.0,
                 scheduler_poll_seconds=0.01,
                 job_timeout_seconds=2.0,
+                job_lease_seconds=0.3,
+                job_heartbeat_seconds=0.05,
             )
             crashed_store = SqliteJobStore(settings.database_path)
             queued = crashed_store.enqueue(
@@ -249,7 +277,10 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
                 kind="harness.echo",
                 payload={"restart": True},
             )
-            interrupted = crashed_store.claim_next()
+            interrupted = crashed_store.claim_next(
+                lease_owner="crashed-worker",
+                lease_seconds=settings.job_lease_seconds,
+            )
             assert interrupted is not None
             original_token = interrupted.lease_token
             crashed_store.close()
@@ -258,13 +289,91 @@ class GpuHarnessTests(unittest.IsolatedAsyncioTestCase):
             restarted = GpuHarness(settings, runner=runner)
             await restarted.start()
             try:
+                await asyncio.sleep(0.03)
+                still_owned = restarted.store.get(queued.id)
+                self.assertEqual(JobState.RUNNING, still_owned.state)
+                self.assertEqual("crashed-worker", still_owned.lease_owner)
+                self.assertEqual([], runner.completed_job_ids)
+
                 await wait_until(lambda: restarted.store.get(queued.id).state == JobState.SUCCEEDED)
                 recovered = restarted.store.get(queued.id)
 
                 self.assertNotEqual(original_token, recovered.lease_token)
+                self.assertEqual(2, recovered.attempt_count)
                 self.assertEqual([queued.id], runner.completed_job_ids)
             finally:
                 await restarted.close()
+
+    async def test_heartbeat_keeps_long_job_on_its_first_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                idle_timeout_seconds=300.0,
+                scheduler_poll_seconds=0.005,
+                job_timeout_seconds=3.0,
+                job_lease_seconds=1.0,
+                job_heartbeat_seconds=0.1,
+            )
+            runner = FakeRunner(job_seconds=1.2)
+            harness = GpuHarness(settings, runner=runner, worker_id="steady-worker")
+            await harness.start()
+            try:
+                job = harness.enqueue(
+                    user_id="alice",
+                    kind="harness.echo",
+                    payload={"long": True},
+                )
+                await wait_until(
+                    lambda: (
+                        harness.store.get(job.id).state not in {JobState.QUEUED, JobState.RUNNING}
+                    )
+                )
+                completed = harness.store.get(job.id)
+                self.assertEqual(JobState.SUCCEEDED, completed.state, completed.error)
+                self.assertEqual(1, completed.attempt_count)
+                self.assertIsNone(completed.lease_owner)
+                self.assertIsNone(completed.lease_expires_at)
+                self.assertEqual([job.id], runner.completed_job_ids)
+            finally:
+                await harness.close()
+
+    async def test_lost_heartbeat_cancels_stale_work_before_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            settings = HarnessSettings(
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                idle_timeout_seconds=300.0,
+                scheduler_poll_seconds=0.01,
+                job_timeout_seconds=3.0,
+                job_lease_seconds=0.5,
+                job_heartbeat_seconds=0.1,
+            )
+            store = LoseFirstRenewalStore(settings.database_path)
+            runner = FakeRunner(job_seconds=0.7)
+            harness = GpuHarness(
+                settings,
+                store=store,
+                runner=runner,
+                worker_id="recovering-worker",
+            )
+            await harness.start()
+            try:
+                job = harness.enqueue(
+                    user_id="alice",
+                    kind="harness.echo",
+                    payload={"retry": True},
+                )
+                await wait_until(lambda: harness.store.get(job.id).state == JobState.SUCCEEDED)
+                completed = harness.store.get(job.id)
+                self.assertEqual(2, completed.attempt_count)
+                self.assertEqual(1, runner.cancel_count)
+                self.assertEqual([job.id], runner.completed_job_ids)
+                self.assertEqual(1, runner.max_active_jobs)
+            finally:
+                await harness.close()
 
 
 if __name__ == "__main__":

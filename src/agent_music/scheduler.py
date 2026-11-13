@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -13,9 +14,9 @@ from agent_music.result_processing import (
     JobResultProcessor,
     build_default_result_processor,
 )
-from agent_music.runners.base import GpuRunner
+from agent_music.runners.base import EventCallback, GpuRunner
 from agent_music.runners.strategy import build_runner
-from agent_music.store import JobStore, build_job_store
+from agent_music.store import JobStore, LostJobLeaseError, build_job_store
 
 EventSink = Callable[[str, dict[str, Any]], None]
 
@@ -33,6 +34,7 @@ class GpuHarness:
         result_processor: JobResultProcessor | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
+        worker_id: str | None = None,
     ) -> None:
         settings.validate()
         settings.ensure_directories()
@@ -43,6 +45,9 @@ class GpuHarness:
         self._result_processor = result_processor or build_default_result_processor(settings)
         self._monotonic_clock = monotonic_clock
         self._wall_clock = wall_clock
+        self._worker_id = worker_id or f"worker-{uuid.uuid4()}"
+        if not self._worker_id.strip():
+            raise ValueError("GPU worker ID must not be empty")
         self._wake = asyncio.Event()
         self._stop_requested = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -51,11 +56,11 @@ class GpuHarness:
         self._last_activity_wall: float | None = None
 
     async def start(self) -> None:
-        """Recover interrupted work and start the scheduling loop."""
+        """Reconcile expired work and start the scheduling loop."""
 
         if self._task is not None:
             return
-        self.store.recover_interrupted()
+        self.store.recover_expired()
         self._stop_requested.clear()
         self._task = asyncio.create_task(
             self._run_loop(),
@@ -138,7 +143,11 @@ class GpuHarness:
 
     async def _run_loop(self) -> None:
         while not self._stop_requested.is_set():
-            job = self.store.claim_next()
+            self.store.recover_expired()
+            job = self.store.claim_next(
+                lease_owner=self._worker_id,
+                lease_seconds=self.settings.job_lease_seconds,
+            )
             if job is not None:
                 await self._execute(job)
                 continue
@@ -169,6 +178,44 @@ class GpuHarness:
             self._event_sink(job.id, event)
 
         try:
+            processed = await self._run_with_heartbeat(
+                job,
+                on_event=on_event,
+                idle_before_job=idle_before_job,
+            )
+            self.store.complete(job.id, job.lease_token, processed)
+        except LostJobLeaseError:
+            # Another worker may already own a fresh fencing token. The stale
+            # worker must not overwrite that attempt with any terminal state.
+            pass
+        except asyncio.CancelledError:
+            latest = self.store.get(job.id)
+            if latest.state == JobState.RUNNING:
+                try:
+                    self.store.cancel_running(job.id, job.lease_token)
+                except LostJobLeaseError:
+                    pass
+            if self._stop_requested.is_set():
+                raise
+        except Exception as error:
+            try:
+                self.store.fail(job.id, job.lease_token, f"{type(error).__name__}: {error}")
+            except LostJobLeaseError:
+                pass
+        finally:
+            self._current_job_id = None
+            self._touch_activity()
+
+    async def _run_with_heartbeat(
+        self,
+        job: GpuJob,
+        *,
+        on_event: EventCallback,
+        idle_before_job: float,
+    ) -> dict[str, Any]:
+        """Run and process one job while continuously preserving its lease."""
+
+        async def run_and_process() -> dict[str, Any]:
             await self.runner.ensure_ready()
             result = await asyncio.wait_for(
                 self.runner.run(job, on_event),
@@ -178,25 +225,57 @@ class GpuHarness:
             if not isinstance(lifecycle, dict):
                 raise ValueError("Runner lifecycle metrics must be an object")
             lifecycle["idle_before_job_seconds"] = idle_before_job
-            latest = self.store.get(job.id)
-            if latest.cancel_requested:
+            if self.store.get(job.id).cancel_requested:
                 raise asyncio.CancelledError
             processed = await asyncio.to_thread(self._result_processor.process, job, result)
-            latest = self.store.get(job.id)
-            if latest.cancel_requested:
+            if self.store.get(job.id).cancel_requested:
                 raise asyncio.CancelledError
-            self.store.complete(job.id, job.lease_token, processed)
-        except asyncio.CancelledError:
-            latest = self.store.get(job.id)
-            if latest.state == JobState.RUNNING:
-                self.store.cancel_running(job.id, job.lease_token)
-            if self._stop_requested.is_set():
-                raise
-        except Exception as error:
-            self.store.fail(job.id, job.lease_token, f"{type(error).__name__}: {error}")
+            return processed
+
+        work = asyncio.create_task(run_and_process(), name=f"gpu-job-{job.id}")
+        heartbeat = asyncio.create_task(
+            self._maintain_lease(job),
+            name=f"gpu-lease-{job.id}",
+        )
+        try:
+            done, _pending = await asyncio.wait(
+                {work, heartbeat},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if heartbeat in done:
+                heartbeat_error = heartbeat.exception()
+                if heartbeat_error is None:
+                    heartbeat_error = LostJobLeaseError(
+                        "GPU job heartbeat stopped before work completed"
+                    )
+                await self.runner.cancel(job.id)
+                work.cancel()
+                await asyncio.gather(work, return_exceptions=True)
+                raise heartbeat_error
+            return await work
         finally:
-            self._current_job_id = None
-            self._touch_activity()
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            if not work.done():
+                await self.runner.cancel(job.id)
+                work.cancel()
+                await asyncio.gather(work, return_exceptions=True)
+
+    async def _maintain_lease(self, job: GpuJob) -> None:
+        """Renew one lease until cancellation or authoritative lease loss."""
+
+        if job.lease_token is None:
+            raise RuntimeError("Claimed job has no fencing token")
+        while True:
+            await asyncio.sleep(self.settings.job_heartbeat_seconds)
+            renewed = self.store.renew_lease(
+                job_id=job.id,
+                lease_token=job.lease_token,
+                lease_owner=self._worker_id,
+                lease_seconds=self.settings.job_lease_seconds,
+            )
+            if not renewed:
+                raise LostJobLeaseError("GPU job heartbeat lost its lease")
 
     async def _stop_if_idle(self) -> bool:
         if self.runner.state != RunnerState.READY:

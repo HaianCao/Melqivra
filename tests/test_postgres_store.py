@@ -21,6 +21,7 @@ from agent_music.postgres_store import (
     PostgresMigrationError,
 )
 from agent_music.scheduler import GpuHarness
+from agent_music.store import LostJobLeaseError
 
 POSTGRES_DSN = os.getenv("MELQIVRA_TEST_POSTGRES_DSN", "")
 
@@ -30,7 +31,8 @@ class PostgresJobStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = PostgresJobStore(POSTGRES_DSN)
         with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
-            connection.execute("TRUNCATE TABLE gpu_jobs RESTART IDENTITY")
+            connection.execute("TRUNCATE TABLE gpu_capacity_slots, gpu_jobs RESTART IDENTITY")
+            connection.execute("INSERT INTO gpu_capacity_slots(slot_id) VALUES (1)")
             connection.execute("ALTER SEQUENCE gpu_fencing_token_seq RESTART WITH 1")
 
     def tearDown(self) -> None:
@@ -39,15 +41,19 @@ class PostgresJobStoreTests(unittest.TestCase):
     def test_migration_is_idempotent_and_checksummed(self) -> None:
         second = PostgresJobStore(POSTGRES_DSN)
         second.close()
-        _sql, expected_checksum = POSTGRES_MIGRATIONS[0].read()
+        expected = {
+            migration.version: (migration.name, migration.read()[1])
+            for migration in POSTGRES_MIGRATIONS
+        }
         with psycopg.connect(POSTGRES_DSN) as connection:
-            row = connection.execute(
-                "SELECT name, checksum FROM schema_migrations WHERE version = 1"
-            ).fetchone()
-        self.assertIsNotNone(row)
-        assert row is not None
-        self.assertEqual("job_queue", row[0])
-        self.assertEqual(expected_checksum, row[1])
+            rows = connection.execute(
+                "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        self.assertEqual([1, 2], [row[0] for row in rows])
+        self.assertEqual(
+            expected,
+            {row[0]: (row[1], row[2]) for row in rows},
+        )
 
     def test_changed_migration_checksum_is_rejected(self) -> None:
         _sql, expected_checksum = POSTGRES_MIGRATIONS[0].read()
@@ -66,6 +72,38 @@ class PostgresJobStoreTests(unittest.TestCase):
                     (expected_checksum,),
                 )
 
+    def test_lease_migration_reconciles_v1_running_jobs(self) -> None:
+        self.store.close()
+        with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
+            connection.execute("DROP TABLE gpu_capacity_slots")
+            connection.execute(
+                """
+                ALTER TABLE gpu_jobs
+                    DROP COLUMN lease_owner,
+                    DROP COLUMN lease_expires_at,
+                    DROP COLUMN attempt_count
+                """
+            )
+            connection.execute("DELETE FROM schema_migrations WHERE version = 2")
+            connection.execute(
+                """
+                INSERT INTO gpu_jobs(
+                    id, user_id, kind, payload_json, state,
+                    created_at, updated_at, started_at, lease_token
+                ) VALUES (
+                    'pre-lease-running', 'alice', 'generate', '{}'::jsonb, 'running',
+                    1000, 1000, 1000, 7
+                )
+                """
+            )
+
+        self.store = PostgresJobStore(POSTGRES_DSN)
+        migrated = self.store.get("pre-lease-running")
+        self.assertEqual(JobState.QUEUED, migrated.state)
+        self.assertIsNone(migrated.lease_token)
+        self.assertEqual(0, migrated.attempt_count)
+        self.assertIn("Lease migration", migrated.error or "")
+
     def test_fifo_idempotency_and_stale_fencing_match_sqlite(self) -> None:
         ids_in_reverse_sort_order = [
             UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
@@ -73,7 +111,10 @@ class PostgresJobStoreTests(unittest.TestCase):
             UUID("00000000-0000-0000-0000-000000000000"),
         ]
         with (
-            patch("agent_music.postgres_store.time.time", return_value=1_000.0),
+            patch(
+                "agent_music.postgres_store.time.time",
+                side_effect=(2_000.0, 1_500.0, 1_000.0),
+            ),
             patch(
                 "agent_music.postgres_store.uuid.uuid4",
                 side_effect=ids_in_reverse_sort_order,
@@ -135,7 +176,7 @@ class PostgresJobStoreTests(unittest.TestCase):
         )
         self.assertEqual(JobState.CANCELLED, cancelled.state)
 
-    def test_competing_workers_claim_distinct_jobs(self) -> None:
+    def test_global_capacity_serializes_competing_workers(self) -> None:
         first = self.store.enqueue(user_id="alice", kind="one", payload={})
         second = self.store.enqueue(user_id="bob", kind="two", payload={})
         peer = PostgresJobStore(POSTGRES_DSN)
@@ -143,16 +184,92 @@ class PostgresJobStoreTests(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=2) as executor:
                 claims = tuple(
                     executor.map(
-                        lambda store: store.claim_next(),
-                        (self.store, peer),
+                        lambda item: item[0].claim_next(
+                            lease_owner=item[1],
+                            lease_seconds=60.0,
+                        ),
+                        ((self.store, "worker-a"), (peer, "worker-b")),
                     )
                 )
+            claimed = [claim for claim in claims if claim is not None]
+            self.assertEqual(1, len(claimed))
+            self.assertEqual(first.id, claimed[0].id)
+            assert claimed[0].lease_token is not None
+            self.store.complete(first.id, claimed[0].lease_token, {"ok": True})
+
+            claimed_second = peer.claim_next(
+                lease_owner="worker-c",
+                lease_seconds=60.0,
+            )
+            assert claimed_second is not None
+            self.assertEqual(second.id, claimed_second.id)
         finally:
             peer.close()
 
-        self.assertEqual({first.id, second.id}, {claim.id for claim in claims if claim})
-        tokens = {claim.lease_token for claim in claims if claim}
-        self.assertEqual(2, len(tokens))
+    def test_lease_renewal_expiry_and_fresh_attempt_fencing(self) -> None:
+        with (
+            patch("agent_music.postgres_store.time.time", return_value=1_000.0),
+            patch.object(self.store, "_database_time", return_value=1_000.0),
+        ):
+            job = self.store.enqueue(user_id="alice", kind="generate", payload={})
+            first = self.store.claim_next(
+                lease_owner="worker-a",
+                lease_seconds=10.0,
+            )
+        assert first is not None and first.lease_token is not None
+        self.assertEqual(1, first.attempt_count)
+
+        with patch.object(self.store, "_database_time", return_value=1_005.0):
+            self.assertTrue(
+                self.store.renew_lease(
+                    job_id=job.id,
+                    lease_token=first.lease_token,
+                    lease_owner="worker-a",
+                    lease_seconds=10.0,
+                )
+            )
+
+        with patch.object(self.store, "_database_time", return_value=1_011.0):
+            self.assertEqual(0, self.store.recover_expired())
+            self.assertIsNone(
+                self.store.claim_next(
+                    lease_owner="worker-b",
+                    lease_seconds=10.0,
+                )
+            )
+
+        with patch.object(self.store, "_database_time", return_value=1_016.0):
+            self.assertEqual(1, self.store.recover_expired())
+            second = self.store.claim_next(
+                lease_owner="worker-b",
+                lease_seconds=10.0,
+            )
+            assert second is not None and second.lease_token is not None
+            self.assertEqual(2, second.attempt_count)
+            with self.assertRaises(LostJobLeaseError):
+                self.store.complete(job.id, first.lease_token, {"stale": True})
+            self.store.complete(job.id, second.lease_token, {"ok": True})
+
+        with (
+            patch("agent_music.postgres_store.time.time", return_value=2_000.0),
+            patch.object(self.store, "_database_time", return_value=2_000.0),
+        ):
+            cancelled_job = self.store.enqueue(
+                user_id="bob",
+                kind="generate",
+                payload={},
+            )
+            cancelled_claim = self.store.claim_next(
+                lease_owner="worker-a",
+                lease_seconds=10.0,
+            )
+            assert cancelled_claim is not None
+            self.store.request_cancel(cancelled_job.id)
+        with patch.object(self.store, "_database_time", return_value=2_011.0):
+            self.assertEqual(1, self.store.recover_expired())
+        cancelled = self.store.get(cancelled_job.id)
+        self.assertEqual(JobState.CANCELLED, cancelled.state)
+        self.assertIsNotNone(cancelled.finished_at)
 
     def test_scheduler_completes_and_reopens_postgres_job(self) -> None:
         async def exercise() -> str:

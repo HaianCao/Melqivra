@@ -49,6 +49,9 @@ class GpuJob:
     error: str | None = None
     cancel_requested: bool = False
     lease_token: int | None = None
+    lease_owner: str | None = None
+    lease_expires_at: float | None = None
+    attempt_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
