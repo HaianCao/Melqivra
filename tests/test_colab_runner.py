@@ -93,6 +93,33 @@ class ProvisioningColabClient(BlockingColabClient):
         return CommandResult(0, "", "")
 
 
+class DrainingColabClient(BlockingColabClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancel_started = asyncio.Event()
+        self.release_cancel = asyncio.Event()
+        self.stop_started = asyncio.Event()
+        self.release_stop = asyncio.Event()
+
+    async def run(
+        self,
+        argv: list[str],
+        *,
+        check: bool = True,
+        on_stdout: object | None = None,
+    ) -> CommandResult:
+        if argv[0] == "stop":
+            self.stop_started.set()
+            await self.release_stop.wait()
+            return CommandResult(0, "", "")
+        return await super().run(argv, check=check, on_stdout=on_stdout)
+
+    async def cancel_current(self) -> None:
+        self.cancel_started.set()
+        await self.release_cancel.wait()
+        self.cancelled.set()
+
+
 class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_provisioning_is_single_flight_for_concurrent_callers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -151,6 +178,51 @@ class ColabRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(["status", "status", "new"], client.commands)
             self.assertEqual(RunnerState.READY, runner.state)
             self.assertEqual(settings.colab_session_name, runner.session_name)
+
+    async def test_stop_drains_active_job_before_reclaiming_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            worker = root / "worker.py"
+            worker.write_text("# worker\n", encoding="utf-8")
+            settings = HarnessSettings(
+                runner="colab",
+                database_path=root / "harness.db",
+                artifact_root=root / "artifacts",
+                transfer_root=root / "transfers",
+                colab_cli_config=root / "sessions.json",
+                colab_remote_worker_file=worker,
+                colab_mount_drive=False,
+            )
+            client = DrainingColabClient()
+            runner = ColabRunner(settings, client=client)  # type: ignore[arg-type]
+            await runner.ensure_ready()
+            job = GpuJob(
+                id="job-drain",
+                user_id="user",
+                kind="harness.healthcheck",
+                payload={},
+                state=JobState.RUNNING,
+                created_at=1.0,
+                updated_at=1.0,
+                lease_token=1,
+            )
+            run_task = asyncio.create_task(runner.run(job, self._ignore_event))
+            await asyncio.wait_for(client.exec_started.wait(), timeout=1.0)
+
+            stop_task = asyncio.create_task(runner.stop())
+            await asyncio.wait_for(client.cancel_started.wait(), timeout=1.0)
+            self.assertEqual(RunnerState.DRAINING, runner.state)
+            client.release_cancel.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await run_task
+
+            await asyncio.wait_for(client.stop_started.wait(), timeout=1.0)
+            self.assertEqual(RunnerState.STOPPING, runner.state)
+            client.release_stop.set()
+            await stop_task
+
+            self.assertEqual(RunnerState.RECLAIMED, runner.state)
+            self.assertIsNone(runner.session_name)
 
     async def test_running_cancel_terminates_cli_and_maps_to_cancelled_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

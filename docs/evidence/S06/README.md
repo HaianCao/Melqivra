@@ -77,3 +77,17 @@ next heartbeat report it missing, and proves two concurrent readiness callers
 produce one status probe and one replacement allocation. Real broker restart,
 expired authentication, and post-allocation remote health still require later
 failure injection and T4 evidence.
+
+## Fourth checkpoint: ordered drain and reclaim
+
+`stop()` is now serialized and cannot start a second official-CLI command beside
+an active execution. A busy runner enters `DRAINING`, marks its active job for
+cancellation, terminates the tracked command, and waits under a bounded timeout
+for the run path to finish. Only then does it enter `STOPPING`, release the named
+session, clear its public identity, and settle in `RECLAIMED`. The run cleanup is
+state-aware and cannot overwrite draining or stopping with a stale `READY`.
+
+The deterministic test pauses both cancellation and session release to observe
+the ordered states and proves the active run ends as cancellation before reclaim.
+This test does not yet provide remote cooperative cancellation markers inside the
+worker or real hung-process cleanup evidence.

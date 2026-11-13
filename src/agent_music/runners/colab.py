@@ -43,6 +43,10 @@ class ColabRunner(GpuRunner):
         self._session_present = False
         self._provision_guard = asyncio.Lock()
         self._provision_task: asyncio.Task[None] | None = None
+        self._stop_guard = asyncio.Lock()
+        self._active_job_id: str | None = None
+        self._run_finished = asyncio.Event()
+        self._run_finished.set()
         self._cancel_requested: set[str] = set()
 
     @property
@@ -79,6 +83,8 @@ class ColabRunner(GpuRunner):
             raise FileNotFoundError(worker_file)
 
         self._state = RunnerState.BUSY
+        self._active_job_id = job.id
+        self._run_finished.clear()
         try:
             with tempfile.TemporaryDirectory(prefix="melqivra-job-") as temp_dir:
                 temp_path = Path(temp_dir)
@@ -147,7 +153,9 @@ class ColabRunner(GpuRunner):
                 return result
         finally:
             self._cancel_requested.discard(job.id)
-            if self._state != RunnerState.FAILED:
+            self._active_job_id = None
+            self._run_finished.set()
+            if self._state == RunnerState.BUSY:
                 self._state = RunnerState.READY
 
     async def cancel(self, job_id: str) -> None:
@@ -155,24 +163,36 @@ class ColabRunner(GpuRunner):
         await self._client.cancel_current()
 
     async def stop(self) -> None:
-        async with self._provision_guard:
-            provision_task = self._provision_task
-        if provision_task is not None:
-            with contextlib.suppress(Exception):
-                await asyncio.shield(provision_task)
+        async with self._stop_guard:
+            async with self._provision_guard:
+                provision_task = self._provision_task
+            if provision_task is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(provision_task)
 
-        if self._state in {RunnerState.ABSENT, RunnerState.RECLAIMED}:
-            return
-        self._state = RunnerState.STOPPING
-        try:
-            if self._session_present:
-                await self._client.run(
-                    self._client.stop_argv(self._settings.colab_session_name),
-                    check=False,
-                )
-        finally:
-            self._session_present = False
-            self._state = RunnerState.RECLAIMED
+            if self._state in {RunnerState.ABSENT, RunnerState.RECLAIMED}:
+                return
+            if self._state == RunnerState.BUSY:
+                self._state = RunnerState.DRAINING
+                if self._active_job_id is not None:
+                    self._cancel_requested.add(self._active_job_id)
+                await self._client.cancel_current()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._run_finished.wait(),
+                        timeout=self._settings.colab_command_timeout_seconds,
+                    )
+
+            self._state = RunnerState.STOPPING
+            try:
+                if self._session_present:
+                    await self._client.run(
+                        self._client.stop_argv(self._settings.colab_session_name),
+                        check=False,
+                    )
+            finally:
+                self._session_present = False
+                self._state = RunnerState.RECLAIMED
 
     async def _provision(self) -> None:
         try:
