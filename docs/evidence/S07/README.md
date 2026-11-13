@@ -284,3 +284,44 @@ local gate again discovers 236 tests: 221 pass and fifteen PostgreSQL tests skip
 strict mypy covers 64 source files, Ruff format/lint pass, critical
 scheduler/job-store branch coverage is 84%, distributions build successfully,
 and the dependency audit reports no known vulnerabilities.
+
+Checkpoint `93ffaa7` contains the deterministic restart-lease regression fix.
+Protected push run `43455902574` and pull-request run `43455911329` each passed
+all five jobs on that exact commit.
+
+## Ninth checkpoint: durable approvals and tool execution audit
+
+The process-local approval ledger is replaced by the typed `ApprovalRepository`
+port and thread-safe `InMemoryApprovalRepository` development adapter.
+`PostgresApprovalRepository` persists the exact user, project, action, and risk
+binding. A decision is one-way: only `pending` may transition, exactly once, to
+`approved` or `rejected`; the database rejects binding mutation and deletion.
+Cross-tenant lookup and decision attempts remain indistinguishable from a
+missing approval.
+
+Tool idempotency and audit now cross the `ToolExecutionRepository` port.
+`PostgresToolExecutionRepository` atomically reserves a tenant/project/tool-call
+ID before handler execution. A completed call stores its canonical result for
+restart-safe replay, changed input produces an explicit idempotency conflict,
+and a concurrent duplicate observes `in_progress` instead of invoking the
+handler. The success result and audit event commit in one PostgreSQL transaction.
+Audit rows are append-only and contain IDs, actor, tool name, outcome, turn, and
+optional result revision only; arguments and result content are absent.
+
+Migration `0005_create_approval_audit_authority.sql` adds the approval,
+tool-execution, and audit authority with tenant/project foreign keys and database
+transition triggers. A fresh PostgreSQL 17.12 database passes twenty job,
+project, approval, replay, audit, and contention contracts at 81% combined
+adapter branch coverage. The policy-specific tests prove approval restart,
+one-way decisions, changed-contract and cross-tenant rejection, audit
+immutability, handler-free replay after repository restart, and exactly one
+winner across competing reservations. The disposable container and anonymous
+volume were removed.
+
+The complete local gate discovers 245 tests: 225 pass and twenty PostgreSQL
+tests skip without an explicit DSN. Strict mypy covers 68 source files, Ruff
+format/lint pass, critical scheduler/job-store branch coverage remains 84%, the
+new migration and adapters are present in the wheel, distribution builds
+succeed, and the dependency audit reports no known vulnerabilities. Production
+principal authentication, request/error contracts, SSE reconnect, quotas,
+S3-compatible artifacts, and backup/restore remain later S07 work.

@@ -12,6 +12,13 @@ from enum import StrEnum
 from typing import Protocol, cast
 
 from agent_music.domain import JsonObject, ProjectId, UserId
+from agent_music.tool_execution_repository import (
+    AuditEvent,
+    InMemoryToolExecutionRepository,
+    ToolExecutionDisposition,
+    ToolExecutionRepository,
+    tool_input_sha256,
+)
 
 
 class PlannerError(RuntimeError):
@@ -68,90 +75,6 @@ class EventKind(StrEnum):
     ERROR = "error"
 
 
-class RiskClass(StrEnum):
-    """Consequential action categories that require explicit consent."""
-
-    GPU = "gpu"
-    EXTERNAL = "external"
-    IDENTITY = "identity"
-    DESTRUCTIVE = "destructive"
-
-
-class ApprovalDecision(StrEnum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
-
-@dataclass(frozen=True, slots=True)
-class ApprovalRequest:
-    approval_id: str
-    action: str
-    risk: RiskClass
-    project_id: ProjectId
-    user_id: UserId
-    decision: ApprovalDecision = ApprovalDecision.PENDING
-
-
-class ApprovalLedger:
-    """In-memory policy object used by service layers before durable S07 storage."""
-
-    def __init__(self) -> None:
-        self._requests: dict[str, ApprovalRequest] = {}
-
-    def propose(self, request: ApprovalRequest) -> ApprovalRequest:
-        if request.approval_id in self._requests:
-            raise ValueError("Duplicate approval ID")
-        self._requests[request.approval_id] = request
-        return request
-
-    def decide(self, *, approval_id: str, user_id: UserId, approved: bool) -> ApprovalRequest:
-        current = self._requests.get(approval_id)
-        if current is None or current.user_id != user_id:
-            raise KeyError(approval_id)
-        if current.decision is not ApprovalDecision.PENDING:
-            raise ValueError("Approval is already decided")
-        decided = ApprovalRequest(
-            current.approval_id,
-            current.action,
-            current.risk,
-            current.project_id,
-            current.user_id,
-            ApprovalDecision.APPROVED if approved else ApprovalDecision.REJECTED,
-        )
-        self._requests[approval_id] = decided
-        return decided
-
-    def approved_actions(self, *, user_id: UserId, project_id: ProjectId) -> frozenset[str]:
-        return frozenset(
-            request.action
-            for request in self._requests.values()
-            if request.user_id == user_id
-            and request.project_id == project_id
-            and request.decision is ApprovalDecision.APPROVED
-        )
-
-    def require_approved(
-        self,
-        *,
-        approval_id: str,
-        user_id: UserId,
-        project_id: ProjectId,
-        action: str,
-        risk: RiskClass,
-    ) -> ApprovalRequest:
-        """Resolve one exact approval without leaking other users' requests."""
-
-        current = self._requests.get(approval_id)
-        if current is None or current.user_id != user_id or current.project_id != project_id:
-            raise ToolPolicyError("Approval is unavailable")
-        if current.action != action or current.risk is not risk:
-            raise ToolPolicyError("Approval does not match the requested action")
-        if current.decision is not ApprovalDecision.APPROVED:
-            raise ToolPolicyError("Approval is not approved")
-        return current
-
-
 @dataclass(frozen=True, slots=True)
 class AgentEvent:
     kind: EventKind
@@ -191,30 +114,16 @@ class ToolDefinition:
     approval_action: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class AuditEvent:
-    user_id: UserId
-    project_id: ProjectId
-    actor: str
-    tool_name: str
-    tool_call_id: str
-    outcome: str
-    result_revision_id: str | None = None
-    turn_id: str = "turn_unknown"
-
-
 class ToolRegistry:
     """Allowlisted domain tools with auth, approval, replay, and minimal audit."""
 
-    def __init__(self) -> None:
+    def __init__(self, executions: ToolExecutionRepository | None = None) -> None:
         self._tools: dict[str, ToolDefinition] = {}
-        self._results: dict[tuple[UserId, ProjectId, str], JsonObject] = {}
-        self._call_fingerprints: dict[tuple[UserId, ProjectId, str], str] = {}
-        self._audit: list[AuditEvent] = []
+        self._executions = executions or InMemoryToolExecutionRepository()
 
     @property
     def audit_events(self) -> tuple[AuditEvent, ...]:
-        return tuple(self._audit)
+        return self._executions.list_audit_events()
 
     def register(self, definition: ToolDefinition) -> None:
         if definition.name in self._tools:
@@ -235,18 +144,6 @@ class ToolRegistry:
         )
 
     def invoke(self, context: ToolContext, call: ToolCall) -> JsonObject:
-        key = (context.user_id, context.project_id, call.id)
-        fingerprint = json.dumps(
-            {"name": call.name, "arguments": call.arguments},
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        if key in self._results:
-            if self._call_fingerprints[key] != fingerprint:
-                self._record(context, call, "idempotency_conflict")
-                raise ToolPolicyError("Tool call ID was reused with different input")
-            return self._results[key]
         definition = self._tools.get(call.name)
         if definition is None:
             self._record(context, call, "not_allowlisted")
@@ -260,19 +157,51 @@ class ToolRegistry:
         ):
             self._record(context, call, "approval_required")
             raise ToolPolicyError("Tool requires approval")
+        fingerprint = tool_input_sha256(call.name, call.arguments)
+        claim = self._executions.begin(
+            user_id=context.user_id,
+            project_id=context.project_id,
+            tool_call_id=call.id,
+            tool_name=call.name,
+            input_sha256=fingerprint,
+            actor=context.actor,
+            turn_id=context.turn_id,
+        )
+        if claim.disposition is ToolExecutionDisposition.REPLAY:
+            assert claim.result is not None
+            return claim.result
+        if claim.disposition is ToolExecutionDisposition.CONFLICT:
+            self._record(context, call, "idempotency_conflict")
+            raise ToolPolicyError("Tool call ID was reused with different input")
+        if claim.disposition is ToolExecutionDisposition.IN_PROGRESS:
+            self._record(context, call, "already_in_progress")
+            raise ToolPolicyError("Tool call is already in progress")
         try:
             result = definition.handler(context, call.arguments)
         except (KeyError, TypeError, ValueError) as error:
+            self._executions.abandon(
+                user_id=context.user_id,
+                project_id=context.project_id,
+                tool_call_id=call.id,
+                input_sha256=fingerprint,
+            )
             self._record(context, call, "invalid")
             raise ToolPolicyError("Tool arguments are invalid") from error
-        self._results[key] = result
-        self._call_fingerprints[key] = fingerprint
         revision_id = result.get("revision_id")
-        self._record(
+        event = self._event(
             context,
             call,
-            "success",
-            str(revision_id) if isinstance(revision_id, str) else None,
+            outcome="success",
+            result_revision_id=(str(revision_id) if isinstance(revision_id, str) else None),
+        )
+        self._executions.complete_success(
+            user_id=context.user_id,
+            project_id=context.project_id,
+            tool_call_id=call.id,
+            tool_name=call.name,
+            input_sha256=fingerprint,
+            result=result,
+            event=event,
         )
         return result
 
@@ -283,17 +212,32 @@ class ToolRegistry:
         outcome: str,
         result_revision_id: str | None = None,
     ) -> None:
-        self._audit.append(
-            AuditEvent(
-                context.user_id,
-                context.project_id,
-                context.actor,
-                call.name,
-                call.id,
-                outcome,
-                result_revision_id,
-                context.turn_id,
+        self._executions.append_audit(
+            self._event(
+                context,
+                call,
+                outcome=outcome,
+                result_revision_id=result_revision_id,
             )
+        )
+
+    @staticmethod
+    def _event(
+        context: ToolContext,
+        call: ToolCall,
+        *,
+        outcome: str,
+        result_revision_id: str | None = None,
+    ) -> AuditEvent:
+        return AuditEvent(
+            context.user_id,
+            context.project_id,
+            context.actor,
+            call.name,
+            call.id,
+            outcome,
+            result_revision_id,
+            context.turn_id,
         )
 
 

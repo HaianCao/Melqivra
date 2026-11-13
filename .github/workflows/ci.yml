@@ -89,8 +89,8 @@ jobs:
       - name: Run PostgreSQL contract suite
         run: >-
           uv run --frozen coverage run --branch
-          --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository
-          -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository -v
+          --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository
+          -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories -v
       - name: Enforce PostgreSQL adapter coverage
         run: uv run --frozen coverage report --fail-under=80
 

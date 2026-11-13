@@ -20,10 +20,17 @@ POSTGRES_DSN = os.getenv("MELQIVRA_TEST_POSTGRES_DSN", "")
 class PostgresProjectRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repository = PostgresProjectRepository(POSTGRES_DSN)
+        self.addCleanup(self.repository.close)
         with psycopg.connect(POSTGRES_DSN, autocommit=True) as connection:
             connection.execute(
                 """
-                TRUNCATE TABLE project_revision_index, project_revisions, projects
+                TRUNCATE TABLE
+                    tool_audit_events,
+                    tool_executions,
+                    approval_requests,
+                    project_revision_index,
+                    project_revisions,
+                    projects
                 RESTART IDENTITY
                 """
             )
@@ -34,9 +41,6 @@ class PostgresProjectRepositoryTests(unittest.TestCase):
             project_id=ProjectId("prj_postgres_song"),
             created_at=1.0,
         )
-
-    def tearDown(self) -> None:
-        self.repository.close()
 
     def test_revision_ancestry_acceptance_and_stable_order_match_sqlite(self) -> None:
         first = self.repository.commit_revision(

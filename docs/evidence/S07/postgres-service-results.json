@@ -20,14 +20,16 @@
       "1": "9ebe14df2d5bad6dff3cc7cff07f3d93299f68019726d631b6d09e61c1158149",
       "2": "f234f2ff8ad1af4881ebf4a937076e61ca969536339cfe6277fd57527cf65876",
       "3": "ff2a956f2d2b635f9df7854a766a6cc65f3993e77e5961b4a309cc79c22cf70e",
-      "4": "121232d5ae4a6ae554e8081deefb7cc9649002b194c1dfa6aa5e1e08fa37b59d"
+      "4": "121232d5ae4a6ae554e8081deefb7cc9649002b194c1dfa6aa5e1e08fa37b59d",
+      "5": "5ef9b936dd9f91764f60002b3566a24f8f571224e50067df02b9c6d97d2df607"
     },
     "packaged_in_wheel": true,
     "versions": [
       1,
       2,
       3,
-      4
+      4,
+      5
     ]
   },
   "migration_catalog_policy": {
@@ -70,11 +72,30 @@
     "retry_lease_margin_seconds": 10.0,
     "status": "passed"
   },
+  "restart_lease_test_regression": {
+    "ci_pr_run": 43455911329,
+    "ci_push_run": 43455902574,
+    "commit": "93ffaa7fdde0ffb3702cbb7acc92b65f1690397f",
+    "failed_ci_run": 43454493803,
+    "injected_wall_clock": true,
+    "repeated_local_runs": 25,
+    "status": "passed"
+  },
   "postgres_contract": {
-    "branch_coverage_percent": 80,
-    "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository -v",
+    "branch_coverage_percent": 81,
+    "command": "coverage run --branch --source=agent_music.postgres_migrations,agent_music.postgres_job_store,agent_music.postgres_project_repository,agent_music.postgres_approval_repository,agent_music.postgres_tool_execution_repository -m unittest tests.test_postgres_job_store tests.test_postgres_project_repository tests.test_postgres_policy_repositories -v",
     "failed": 0,
-    "passed": 15
+    "passed": 20
+  },
+  "approval_audit_policy": {
+    "append_only_audit_trigger": true,
+    "approval_adapter": "PostgresApprovalRepository",
+    "approval_decisions_are_final": true,
+    "arguments_or_result_content_in_audit": false,
+    "competing_tool_execution_winners": 1,
+    "exact_user_project_action_risk_binding": true,
+    "restart_safe_tool_replay": true,
+    "tool_execution_adapter": "PostgresToolExecutionRepository"
   },
   "project_revision_policy": {
     "adapter": "PostgresProjectRepository",
@@ -91,11 +112,11 @@
   "schema_version": 1,
   "standard_gate": {
     "critical_branch_coverage_percent": 84,
-    "discovered_tests": 236,
+    "discovered_tests": 245,
     "failed": 0,
-    "mypy_source_files": 64,
-    "passed": 221,
-    "postgres_skipped_without_dsn": 15
+    "mypy_source_files": 68,
+    "passed": 225,
+    "postgres_skipped_without_dsn": 20
   },
   "status": "passed"
 }
